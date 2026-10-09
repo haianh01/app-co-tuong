@@ -45,3 +45,7 @@ next-env.d.ts
 
 # cài đặt riêng của editor
 /.vscode/
+
+# kết quả Playwright
+/test-results/
+/playwright-report/

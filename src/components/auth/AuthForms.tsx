@@ -106,6 +106,10 @@ export function RegisterForm() {
       <button type="submit" className="btn btn-primary" disabled={pending || !hydrated}>
         {pending ? "Đang tạo tài khoản…" : "Tạo tài khoản"}
       </button>
+      <p className={styles.hint}>
+        Khi tạo tài khoản, bạn đồng ý với <Link href="/dieu-khoan">Điều khoản sử dụng</Link> và{" "}
+        <Link href="/quyen-rieng-tu">Chính sách quyền riêng tư</Link>.
+      </p>
       <p className={styles.switch}>
         Đã có tài khoản? <Link href={`/login?next=${encodeURIComponent(next)}`}>Đăng nhập</Link>
       </p>

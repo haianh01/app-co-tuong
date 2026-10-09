@@ -1,0 +1,31 @@
+# Chạy thử bản production trên máy với PostgreSQL thật:
+#   docker compose up --build    → http://localhost:3000
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: kydai
+      POSTGRES_PASSWORD: kydai
+      POSTGRES_DB: kydai
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kydai"]
+      interval: 5s
+      retries: 10
+
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://kydai:kydai@db:5432/kydai
+      PUBLIC_URL: http://localhost:3000
+      # Chạy qua HTTP trên máy nên tắt cờ Secure của cookie; lên HTTPS thì bỏ dòng này.
+      COOKIE_SECURE: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

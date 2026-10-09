@@ -1,0 +1,11 @@
+node_modules
+.next
+.data
+.git
+.github
+.vscode
+test-results
+playwright-report
+*.tsbuildinfo
+Dockerfile
+docker-compose.yml

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { NavLinks, NavList } from "./NavLinks";
+import { SessionRefresher } from "./session/SessionProvider";
 import { UserMenu } from "./UserMenu";
 import styles from "./SiteHeader.module.css";
 
@@ -18,6 +19,7 @@ export function SiteHeader() {
         </Suspense>
         <div className={styles.account}>
           <Suspense fallback={<span className={styles.placeholder} />}>
+            <SessionRefresher />
             <UserMenu />
           </Suspense>
         </div>

@@ -10,7 +10,8 @@
     "test": "vitest run",
     "typecheck": "next typegen && tsc --noEmit",
     "db:generate": "drizzle-kit generate",
-    "dev:ui": "next dev"
+    "dev:ui": "next dev",
+    "test:e2e": "next build && playwright test"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",
@@ -23,6 +24,10 @@
     "ws": "^8.22.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
     "@types/node": "^24.19.1",
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
@@ -31,6 +36,7 @@
     "drizzle-kit": "^0.31.11",
     "eslint": "^9",
     "eslint-config-next": "16.4.0",
+    "happy-dom": "^20.14.6",
     "typescript": "^5",
     "vitest": "^5.0.3"
   }

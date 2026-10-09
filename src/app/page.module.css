@@ -1,0 +1,173 @@
+.main {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.hero {
+  position: relative;
+  overflow: hidden;
+  padding: 40px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px;
+  align-items: flex-end;
+}
+
+.watermark {
+  position: absolute;
+  right: -10px;
+  top: -40px;
+  font-family: var(--font-han);
+  font-weight: 900;
+  font-size: 260px;
+  line-height: 1;
+  color: rgba(233, 200, 142, 0.05);
+  pointer-events: none;
+}
+
+.heroText {
+  position: relative;
+  flex: 1 1 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 560px;
+}
+
+.kicker {
+  color: var(--gold-text);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 2px;
+}
+
+.title {
+  font-size: clamp(32px, 5vw, 48px);
+}
+
+.quick {
+  position: relative;
+  flex: 1 1 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.quickGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quickLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line);
+  background: var(--surface-2);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.chip[aria-pressed="true"] {
+  background: rgba(200, 49, 42, 0.16);
+  border-color: var(--red);
+}
+
+.cta {
+  align-self: flex-start;
+  min-height: 52px;
+  padding: 0 28px;
+  font-size: 17px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.h2 {
+  font-size: 26px;
+}
+
+.modes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.mode {
+  padding: 22px;
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  transition: border-color 120ms ease;
+}
+
+a.mode:hover {
+  border-color: var(--line-strong);
+}
+
+.disabled {
+  opacity: 0.6;
+}
+
+.modeSeal {
+  width: 64px;
+  height: 64px;
+  font-size: 22px;
+  line-height: 1.05;
+  writing-mode: vertical-rl;
+  letter-spacing: 2px;
+}
+
+.modeText {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.modeTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 17px;
+}
+
+.soon {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(217, 164, 65, 0.18);
+  color: var(--gold-text);
+}
+
+@media (max-width: 520px) {
+  .main {
+    padding: 16px 16px 48px;
+  }
+  .hero {
+    padding: 24px;
+  }
+}

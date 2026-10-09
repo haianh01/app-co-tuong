@@ -1,0 +1,182 @@
+.main {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.header {
+  padding: 28px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 24px;
+}
+
+.avatar {
+  width: 88px;
+  height: 88px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--surface-3);
+  border: 3px solid var(--gold);
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 34px;
+}
+
+.who {
+  flex: 1 1 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.name {
+  font-size: 30px;
+  overflow-wrap: anywhere;
+}
+
+.rank {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.rank > span:last-child {
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+}
+
+.rank strong {
+  color: var(--gold-text);
+  font-size: 18px;
+}
+
+.seal {
+  width: 56px;
+  height: 56px;
+  font-size: 18px;
+  writing-mode: vertical-rl;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.stat {
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.stat strong {
+  font-size: 26px;
+  font-variant-numeric: tabular-nums;
+}
+
+.games {
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.h2 {
+  font-size: 22px;
+}
+
+.list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--surface-2);
+}
+
+.result {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-han);
+  font-weight: 900;
+  font-size: 22px;
+  background: var(--surface-3);
+  color: var(--muted);
+}
+
+.result[data-outcome="win"] {
+  background: var(--seal);
+  color: #fff4e0;
+}
+
+.result[data-outcome="draw"] {
+  background: #2f5d50;
+  color: #fff4e0;
+}
+
+.rowMain {
+  flex: 1 1 260px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.rowMain > span:first-child {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.opp {
+  color: var(--gold-text);
+}
+
+.opp:hover {
+  text-decoration: underline;
+}
+
+.delta {
+  min-width: 48px;
+  text-align: right;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.delta[data-sign="up"] {
+  color: var(--red-text);
+}
+
+.delta[data-sign="down"] {
+  color: var(--muted);
+}
+
+@media (max-width: 520px) {
+  .main {
+    padding: 16px 12px 48px;
+  }
+  .header {
+    padding: 20px;
+  }
+}

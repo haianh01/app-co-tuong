@@ -1,0 +1,261 @@
+.player {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.avatar {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--piece-black);
+  border: 2px solid #8c7a62;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+}
+
+.avatarMe {
+  background: var(--surface-3);
+  border-color: var(--gold);
+}
+
+.han {
+  font-family: var(--font-han);
+  font-weight: 900;
+  font-size: 22px;
+}
+
+.names {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.names strong {
+  font-size: 15px;
+}
+
+.goldText {
+  color: var(--gold-text);
+}
+
+.clock {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.clock strong {
+  font-size: 26px;
+  font-variant-numeric: tabular-nums;
+}
+
+.clock[data-active] {
+  background: var(--red);
+  color: #fff4e0;
+}
+
+.clock[data-active][data-low] {
+  background: #e5483e;
+}
+
+.captured {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.capturedRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 26px;
+}
+
+.mini {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--piece-face);
+  border: 1.5px solid var(--piece-black);
+  color: var(--piece-black);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-han);
+  font-weight: 900;
+  font-size: 14px;
+}
+
+.mini[data-red] {
+  border-color: var(--piece-red);
+  color: var(--piece-red);
+}
+
+.moves {
+  position: relative;
+  height: 240px;
+  overflow-y: auto;
+  border-radius: 10px;
+  background: var(--surface-sunken);
+}
+
+.moveButton {
+  justify-self: start;
+  padding: 2px 8px;
+  margin: -2px -8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  text-align: left;
+}
+
+.moveButton:hover {
+  background: var(--surface-2);
+}
+
+.moveButton[aria-current="step"] {
+  background: rgba(217, 164, 65, 0.25);
+  color: var(--text);
+}
+
+.empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.moveRow {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) minmax(0, 1fr);
+  padding: 6px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  border-bottom: 1px solid rgba(233, 200, 142, 0.06);
+}
+
+.redMove {
+  color: var(--red-text);
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  background: rgba(22, 17, 14, 0.45);
+  border-radius: 6px;
+  padding: 16px;
+}
+
+.result {
+  background: var(--surface);
+  border: 1px solid var(--gold);
+  border-radius: 18px;
+  padding: 24px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.resultSeal {
+  font-family: var(--font-han);
+  font-weight: 900;
+  font-size: 44px;
+  line-height: 1;
+  color: var(--gold-text);
+}
+
+.resultTitle {
+  font-size: 19px;
+}
+
+.resultActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+/* Màn hình hẹp: thẻ người chơi thu thành một thanh ngang ngay trên/dưới bàn cờ. */
+@media (max-width: 1100px) {
+  .player {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    padding: 10px 12px;
+    gap: 6px 12px;
+  }
+
+  .who {
+    flex: 1 1 160px;
+    min-width: 0;
+  }
+
+  .avatar {
+    width: 40px;
+    height: 40px;
+  }
+
+  .clock {
+    padding: 6px 12px;
+  }
+
+  .clock strong {
+    font-size: 22px;
+  }
+
+  /* Ẩn nhãn bằng mắt nhưng vẫn để trình đọc màn hình đọc được. */
+  .clock > span,
+  .captured > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .captured {
+    flex-basis: 100%;
+  }
+
+  .capturedRow {
+    min-height: 0;
+  }
+
+  .mini {
+    width: 22px;
+    height: 22px;
+    font-size: 12px;
+  }
+
+  .moves {
+    height: 132px;
+  }
+}

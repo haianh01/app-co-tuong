@@ -1,0 +1,156 @@
+:root {
+  color-scheme: dark;
+
+  --bg: #16110e;
+  --surface: #221a15;
+  --surface-2: #2a211b;
+  --surface-3: #3b2c22;
+  --surface-sunken: #1a1410;
+  --header: #1c1612;
+  --line: rgba(233, 200, 142, 0.14);
+  --line-strong: rgba(233, 200, 142, 0.3);
+
+  --text: #f4e9d8;
+  --muted: #c9b79e;
+  --gold: #d9a441;
+  --gold-text: #e6b65a;
+  --red: #c8312a;
+  --red-shadow: #7d1712;
+  --red-text: #f08a80;
+  --seal: #a3221b;
+  --green: #2e7d5a;
+
+  --board: #e9c88e;
+  --board-line: #5a3418;
+  --board-rim: #6e3f1c;
+  --piece-face: #f3dfb6;
+  --piece-edge: #9c7a4a;
+  --piece-red: #b3261e;
+  --piece-black: #1e1915;
+
+  --radius: 16px;
+  --font-body: var(--font-be-vietnam), system-ui, sans-serif;
+  --font-display: var(--font-noto-serif), Georgia, serif;
+  --font-han: var(--font-noto-serif-sc), "Noto Serif SC", "Songti SC", "SimSun", serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+/* ---- Thành phần dùng chung ---- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-2);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, transform 80ms ease;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--surface-3);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--red);
+  border-color: var(--red);
+  color: #fff4e0;
+  font-weight: 700;
+  box-shadow: 0 4px 0 var(--red-shadow);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #d63a32;
+}
+
+.btn-danger {
+  color: var(--red-text);
+  border-color: rgba(240, 138, 128, 0.4);
+}
+
+.seal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 12px;
+  background: var(--seal);
+  color: #fff4e0;
+  font-family: var(--font-han);
+  font-weight: 900;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

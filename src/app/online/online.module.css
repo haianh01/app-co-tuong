@@ -1,0 +1,267 @@
+.main {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+}
+
+.lobby {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.hero {
+  position: relative;
+  overflow: hidden;
+  padding: 36px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 32px;
+  align-items: flex-start;
+}
+
+.watermark {
+  position: absolute;
+  right: -10px;
+  top: -40px;
+  font-family: var(--font-han);
+  font-weight: 900;
+  font-size: 240px;
+  line-height: 1;
+  color: rgba(233, 200, 142, 0.05);
+  pointer-events: none;
+}
+
+.heroText {
+  position: relative;
+  flex: 1 1 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 560px;
+}
+
+.kicker {
+  color: var(--gold-text);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 2px;
+}
+
+.title {
+  font-size: clamp(28px, 4vw, 40px);
+}
+
+.stats {
+  color: var(--gold-text);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.panel {
+  position: relative;
+  flex: 1 1 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.groupLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.chips {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.chip {
+  min-height: 64px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line);
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  cursor: pointer;
+}
+
+.chip strong {
+  font-size: 17px;
+}
+
+.chip span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.chip[aria-pressed="true"] {
+  background: rgba(200, 49, 42, 0.16);
+  border-color: var(--red);
+}
+
+.chip:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.cta {
+  min-height: 56px;
+  font-size: 18px;
+}
+
+.searching {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(200, 49, 42, 0.12);
+  border: 1.5px solid var(--red);
+}
+
+.spinner {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--piece-face);
+  border: 2px solid var(--piece-red);
+  color: var(--piece-red);
+  display: grid;
+  place-items: center;
+  font-family: var(--font-han);
+  font-weight: 900;
+  font-size: 24px;
+  animation: spin 1.6s ease-in-out infinite;
+}
+
+.searchText {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+}
+
+.resume {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(217, 164, 65, 0.14);
+  border: 1px solid rgba(217, 164, 65, 0.4);
+  font-weight: 600;
+}
+
+.warn {
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(229, 72, 62, 0.14);
+  color: var(--red-text);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.warn a {
+  text-decoration: underline;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.cardLink {
+  padding: 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 14px;
+}
+
+.cardLink > span:last-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cardLink strong {
+  font-size: 16px;
+}
+
+.cardLink:hover {
+  border-color: var(--line-strong);
+}
+
+.cardSeal {
+  width: 48px;
+  height: 48px;
+  font-size: 22px;
+}
+
+.prompt {
+  max-width: 560px;
+  margin: 40px auto;
+  padding: 40px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.promptSeal {
+  width: 64px;
+  height: 64px;
+  font-size: 22px;
+  writing-mode: vertical-rl;
+  letter-spacing: 2px;
+}
+
+.promptActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+@keyframes spin {
+  50% {
+    transform: rotate(180deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .main {
+    padding: 16px 12px 48px;
+  }
+  .hero {
+    padding: 22px 18px;
+  }
+}

@@ -1,0 +1,153 @@
+.layout {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.list {
+  flex: 1 1 240px;
+  max-width: 300px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.listTitle {
+  font-size: 18px;
+  margin-bottom: 6px;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.item:hover {
+  background: var(--surface-2);
+}
+
+.item[aria-current] {
+  background: rgba(217, 164, 65, 0.12);
+}
+
+.itemSeal {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--surface-3);
+  font-family: var(--font-body);
+  font-size: 16px;
+}
+
+.itemSeal[data-done] {
+  background: var(--seal);
+}
+
+.itemText {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+}
+
+.itemText strong {
+  font-size: 15px;
+}
+
+.center {
+  flex: 0 1 572px;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.info {
+  flex: 1 1 280px;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kicker {
+  color: var(--gold-text);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+.title {
+  font-size: 26px;
+}
+
+.message {
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+.message[data-status="wrong"] {
+  background: rgba(229, 72, 62, 0.16);
+  color: var(--red-text);
+}
+
+.message[data-status="solved"] {
+  background: rgba(46, 125, 90, 0.2);
+  color: #8fd1b0;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+/* Màn hình hẹp: một cột — bàn cờ, đề bài và nút, rồi danh sách thế cờ. */
+@media (max-width: 1100px) {
+  .layout {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    max-width: 620px;
+    gap: 12px;
+  }
+  .center {
+    flex: none;
+    order: 1;
+  }
+  .info {
+    order: 2;
+    max-width: none;
+  }
+  .list {
+    order: 3;
+    max-width: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .layout {
+    padding: 8px 8px 24px;
+    gap: 8px;
+  }
+}

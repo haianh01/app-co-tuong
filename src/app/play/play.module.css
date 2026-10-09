@@ -1,0 +1,157 @@
+.layout {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.side {
+  flex: 1 1 260px;
+  max-width: 340px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.center {
+  flex: 0 1 572px;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.status {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  font-size: 13px;
+}
+
+.status strong {
+  font-size: 17px;
+}
+
+.checkSeal {
+  font-family: var(--font-han);
+  font-weight: 900;
+  font-size: 28px;
+  letter-spacing: 6px;
+  color: var(--red-text);
+}
+
+.panel {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.panelHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+}
+
+.panelTitle {
+  font-size: 18px;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.field {
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field legend {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.segments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.segment {
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.segment[aria-pressed="true"] {
+  background: rgba(200, 49, 42, 0.16);
+  border-color: var(--red);
+  color: var(--text);
+}
+
+/* Màn hình hẹp: một cột như app điện thoại — đối thủ, bàn cờ, bạn, rồi các nút điều khiển. */
+@media (max-width: 1100px) {
+  .layout {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    max-width: 620px;
+    gap: 12px;
+  }
+  .side {
+    display: contents;
+  }
+  .center {
+    flex: none;
+    order: 2;
+  }
+  .opp {
+    order: 1;
+  }
+  .me {
+    order: 3;
+  }
+  .status {
+    order: 4;
+    padding: 10px 12px;
+  }
+  .status :global(.muted) {
+    display: none;
+  }
+  .controls {
+    order: 5;
+  }
+  .controls .actions {
+    order: -1;
+  }
+  .setup {
+    order: 6;
+  }
+}
+
+@media (max-width: 520px) {
+  .layout {
+    padding: 8px 8px 24px;
+    gap: 8px;
+  }
+}

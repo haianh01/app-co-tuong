@@ -494,3 +494,55 @@ describe("giải Arena", () => {
     g.close();
   });
 });
+
+describe("cờ úp online", () => {
+  it("máy chủ giữ bố cục bí mật: người chơi chỉ thấy quân úp, quân được lật khi đi; lưu bố cục khi ván xong", async () => {
+    for (const n of ["tam", "uyen"]) {
+      const res = await registerUser(db, { username: n, displayName: n.toUpperCase(), password: "matkhau123" });
+      if (!res.ok) throw new Error(JSON.stringify(res.errors));
+      ids[n] = res.user.id;
+      tokens[n] = (await createSession(db, res.user.id)).token;
+    }
+    const a = await connect("tam");
+    const b = await connect("uyen");
+    const raw: string[] = [];
+    a.ws.on("message", (d) => raw.push(d.toString()));
+    a.send({ t: "queue", tc: "10+0", rated: false, variant: "jieqi" });
+    await a.waitFor("queue", (m) => m.key?.variant === "jieqi");
+    b.send({ t: "queue", tc: "10+0", rated: false, variant: "jieqi" });
+    const { gameId } = await a.waitFor("matched");
+    await b.waitFor("matched");
+    a.send({ t: "watch", gameId });
+    b.send({ t: "watch", gameId });
+    const g = await a.game();
+    await b.game();
+    expect(g.variant).toBe("jieqi");
+    expect(g.hidden).toHaveLength(30);
+    const [red, black] = g.players.r.id === ids.tam ? [a, b] : [b, a];
+
+    // Đỏ đi quân úp ở ô Pháo phải sang giữa: nước đi được lật quân (đúng phe Đỏ).
+    red.send({ t: "move", gameId, from: sq(7, 7), to: sq(7, 4), ply: 0 });
+    const g1 = await black.game((x) => x.moves.length === 1);
+    expect(g1.moves[0].reveal).toMatch(/^[RNBACP]$/);
+    expect(g1.hidden).toHaveLength(29);
+    black.send({ t: "move", gameId, from: sq(0, 1), to: sq(2, 2), ply: 1 }); // quân úp ô Mã đen
+    const g2 = await red.game((x) => x.moves.length === 2);
+    expect(g2.moves[1].reveal).toMatch(/^[rnbacp]$/);
+
+    // Không tin nhắn nào gửi cho người chơi chứa bố cục bí mật.
+    expect(raw.some((s) => s.includes("setup"))).toBe(false);
+
+    black.send({ t: "resign", gameId });
+    await red.game((x) => x.status === "ended");
+    await waitUntil(async () => (await db.select().from(games).where(eq(games.id, gameId))).length === 1);
+    const [row] = await db.select().from(games).where(eq(games.id, gameId));
+    expect(row.variant).toBe("jieqi");
+    const layout = new Map((row.setup as [number, string][]).map(([s, p]) => [s, p]));
+    expect(layout.size).toBe(30);
+    // Quân đã lật trong ván khớp đúng bố cục đã lưu.
+    expect(layout.get(sq(7, 7))).toBe(g1.moves[0].reveal);
+    expect(layout.get(sq(0, 1))).toBe(g2.moves[1].reveal);
+    a.close();
+    b.close();
+  });
+});

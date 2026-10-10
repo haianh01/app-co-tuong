@@ -8,6 +8,7 @@ import { useMoveSounds } from "@/hooks/useGameSounds";
 import { tcLabel, type Variant } from "@/lib/online/protocol";
 import { Side, findKing, inCheck, opponent } from "@/lib/xiangqi/engine";
 import { describeResult, pieceIds, replayMoves, type EndReason } from "@/lib/xiangqi/game";
+import { isHidden, jieqiGameState, jieqiInCheck, layoutFrom } from "@/lib/xiangqi/jieqi";
 import play from "@/app/play/play.module.css";
 import { AnalysisPanel } from "./AnalysisPanel";
 import { ReportButton } from "./ReportButton";
@@ -40,7 +41,11 @@ export interface ReplayData {
 }
 
 export function GameReplay({ data, viewerId }: { data: ReplayData; viewerId: string | null }) {
-  const full = useMemo(() => replayMoves(data.moves), [data.moves]);
+  const jieqi = data.variant === "jieqi";
+  const full = useMemo(() => (jieqi ? jieqiGameState(data.moves) : replayMoves(data.moves)), [data.moves, jieqi]);
+  // Cờ úp: ván đã xong nên được xem bố cục thật của các quân còn úp.
+  const layout = useMemo(() => (jieqi ? layoutFrom(data.setup) : null), [jieqi, data.setup]);
+  const [revealAll, setRevealAll] = useState(false);
   const total = full.moves.length;
   const [ply, setPly] = useState(total);
   const go = (p: number) => setPly(Math.max(0, Math.min(total, p)));
@@ -51,7 +56,8 @@ export function GameReplay({ data, viewerId }: { data: ReplayData; viewerId: str
   const bottom: Side = mySide ?? "r";
   const pos = full.history[ply];
   const lastMove = ply > 0 ? full.moves[ply - 1].move : null;
-  const checkSquare = inCheck(pos.board, pos.turn) ? findKing(pos.board, pos.turn) : null;
+  const checkSquare = (jieqi ? jieqiInCheck(pos.board, pos.turn) : inCheck(pos.board, pos.turn)) ? findKing(pos.board, pos.turn) : null;
+  const board = revealAll && layout ? pos.board.map((p, i) => (isHidden(p) ? (layout[i] ?? p) : p)) : pos.board;
   const result = describeResult({ winner: data.winner, reason: data.reason }, mySide);
 
   const card = (s: Side) => {
@@ -93,7 +99,7 @@ export function GameReplay({ data, viewerId }: { data: ReplayData; viewerId: str
           <strong>{result.title}</strong>
           <span className="muted">{result.detail}</span>
           <span className="muted">
-            {tcLabel(data.minutes, data.increment)} · {data.rated ? "Tính điểm" : "Giao hữu"} ·{" "}
+            {jieqi ? "Cờ úp · " : ""}{tcLabel(data.minutes, data.increment)} · {data.rated ? "Tính điểm" : "Giao hữu"} ·{" "}
             {new Date(data.endedAt).toLocaleString("vi-VN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Ho_Chi_Minh" })}
           </span>
         </div>
@@ -102,7 +108,7 @@ export function GameReplay({ data, viewerId }: { data: ReplayData; viewerId: str
 
       <section className={play.center} aria-label="Bàn cờ">
         <XiangqiBoard
-          board={pos.board}
+          board={board}
           ids={pieceIds(full, ply)}
           orientation={bottom}
           lastMove={lastMove}
@@ -124,6 +130,11 @@ export function GameReplay({ data, viewerId }: { data: ReplayData; viewerId: str
             <button type="button" className="btn" onClick={() => go(total)} disabled={ply === total} aria-label="Tới cuối ván">⏭</button>
           </div>
           <MoveList moves={full.moves} current={ply} onSelect={go} />
+          {layout && (
+            <button type="button" className="btn" aria-pressed={revealAll} onClick={() => setRevealAll((v) => !v)}>
+              {revealAll ? "Úp lại các quân chưa lật" : "Lật hết quân úp (xem thế bày thật)"}
+            </button>
+          )}
           <div className={styles.players}>
             <span>
               Hồ sơ: <Link href={`/u/${data.red.username}`}>{data.red.displayName}</Link> ·{" "}
@@ -135,7 +146,7 @@ export function GameReplay({ data, viewerId }: { data: ReplayData; viewerId: str
             {opponentOfViewer && <ReportButton targetId={opponentOfViewer.id} targetName={opponentOfViewer.displayName} gameId={data.id} />}
           </div>
         </div>
-        <AnalysisPanel state={full} ply={ply} onSelect={go} viewer={mySide} />
+        {!jieqi && <AnalysisPanel state={full} ply={ply} onSelect={go} viewer={mySide} />}
       </div>
     </main>
   );

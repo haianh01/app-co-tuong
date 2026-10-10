@@ -125,10 +125,6 @@ a.mode:hover {
   border-color: var(--line-strong);
 }
 
-.disabled {
-  opacity: 0.6;
-}
-
 .modeSeal {
   width: 64px;
   height: 64px;
@@ -152,15 +148,6 @@ a.mode:hover {
   gap: 8px;
   font-weight: 700;
   font-size: 17px;
-}
-
-.soon {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(217, 164, 65, 0.18);
-  color: var(--gold-text);
 }
 
 @media (max-width: 520px) {

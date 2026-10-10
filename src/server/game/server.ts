@@ -16,6 +16,7 @@ import { tournamentPlayers } from "../db/schema";
 import { advanceTournaments, ensureSchedule, joinTournament, runningTournaments } from "../tournaments";
 import { ArenaPool } from "./arena";
 import { ChallengeBook } from "./challenges";
+import "./jieqi-room";
 import { Matchmaker } from "./matchmaker";
 import { saveFinishedGame } from "./persist";
 import { registerGameServer, type GameServerHandle } from "./registry";
@@ -360,8 +361,8 @@ export class GameServer implements GameServerHandle {
     this.pairQueue();
   }
 
-  /** Cho phép mở thêm biến thể (cờ úp đăng ký khi được nạp). */
-  variantEnabled = (variant: Variant) => variant === "xiangqi";
+  /** Các biến thể đang mở (cờ úp đăng ký trong jieqi-room.ts). */
+  variantEnabled = (variant: Variant) => variant === "xiangqi" || variant === "jieqi";
 
   private pairQueue() {
     for (const [a, b] of this.matchmaker.takePairs(this.now())) {

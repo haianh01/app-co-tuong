@@ -12,6 +12,7 @@ import { USER_REFRESH_EVENT } from "@/lib/events";
 import { QUICK_CHAT, tcLabel, type GameSnapshot, type PlayerInfo } from "@/lib/online/protocol";
 import { Move, Side, findKing, inCheck, legalMovesFrom, opponent, sideOf } from "@/lib/xiangqi/engine";
 import { currentPosition, describeResult, pieceIds, replayMoves } from "@/lib/xiangqi/game";
+import { jieqiGameState, jieqiInCheck, jieqiLegalMoves } from "@/lib/xiangqi/jieqi";
 import play from "@/app/play/play.module.css";
 import styles from "./game.module.css";
 
@@ -81,10 +82,11 @@ export function OnlineGame({ gameId, me }: { gameId: string; me: PlayerInfo | nu
   }, [chatCooldown]);
 
   // Nước vừa đi được hiện ngay (chờ server xác nhận); server gửi trạng thái mới thì thay thế.
-  const state = useMemo(
-    () => replayMoves(game ? [...game.moves, ...(pending ? [pending] : [])] : []),
-    [game, pending],
-  );
+  const state = useMemo(() => {
+    const moves = game ? [...game.moves, ...(pending ? [pending] : [])] : [];
+    // Cờ úp: quân vừa đi chưa có thông tin lật thì tạm hiện là quân úp cho tới khi máy chủ gửi về.
+    return game?.variant === "jieqi" ? jieqiGameState(moves) : replayMoves(moves);
+  }, [game, pending]);
 
   const mySide: Side | null = me && game ? (game.players.r.id === me.id ? "r" : game.players.b.id === me.id ? "b" : null) : null;
   useMoveSounds(state.moves);
@@ -119,8 +121,11 @@ export function OnlineGame({ gameId, me }: { gameId: string; me: PlayerInfo | nu
   const connected = status === "open";
   const canMove = connected && playing && mySide === pos.turn && !pending;
   const selected = selection?.ply === ply ? selection.square : null;
-  const targets = canMove && selected !== null ? legalMovesFrom(pos, selected).map((m) => m.to) : [];
-  const checkSquare = inCheck(pos.board, pos.turn) ? findKing(pos.board, pos.turn) : null;
+  const jieqi = game.variant === "jieqi";
+  const targets = canMove && selected !== null
+    ? (jieqi ? jieqiLegalMoves(pos).filter((m) => m.from === selected) : legalMovesFrom(pos, selected)).map((m) => m.to)
+    : [];
+  const checkSquare = (jieqi ? jieqiInCheck(pos.board, pos.turn) : inCheck(pos.board, pos.turn)) ? findKing(pos.board, pos.turn) : null;
   const lastMove = state.moves[ply - 1]?.move ?? null;
   const opp = mySide ? opponent(mySide) : null;
   const tc = tcLabel(game.minutes, game.increment);
@@ -204,7 +209,7 @@ export function OnlineGame({ gameId, me }: { gameId: string; me: PlayerInfo | nu
       <>
         {rematchButtons}
         {mySide && !game.tournamentId && (
-          <Link href={`/online?tc=${encodeURIComponent(tc)}&rated=${game.rated ? 1 : 0}`} className="btn">Ván mới · {tc}</Link>
+          <Link href={`/online?tc=${encodeURIComponent(tc)}&rated=${game.rated ? 1 : 0}${game.variant === "jieqi" ? "&variant=jieqi" : ""}`} className="btn">Ván mới · {tc}</Link>
         )}
         {game.tournamentId && <Link href={`/tournaments/${game.tournamentId}`} className="btn btn-primary">Về giải đấu</Link>}
         {game.tournamentId && mySide && (
@@ -271,7 +276,7 @@ export function OnlineGame({ gameId, me }: { gameId: string; me: PlayerInfo | nu
           <div className={play.panelHead}>
             <h2 className={play.panelTitle}>Biên bản</h2>
             <span className="muted">
-              {tc} · {game.rated ? "Tính điểm" : "Giao hữu"} · {ply} nửa nước
+              {game.variant === "jieqi" ? "Cờ úp · " : ""}{tc} · {game.rated ? "Tính điểm" : "Giao hữu"} · {ply} nửa nước
             </span>
           </div>
           <MoveList moves={state.moves} />

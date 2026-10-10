@@ -269,7 +269,8 @@ export function insufficientMaterial(board: Board): boolean {
 
 /** Phe `side` còn quân có thể chiếu bí (xe, mã, pháo, tốt) không. */
 export function hasMatingMaterial(board: Board, side: Side): boolean {
-  return board.some((p) => !!p && sideOf(p) === side && "rncp".includes(typeOf(p)));
+  // "h" = quân úp (cờ úp): chưa biết là quân gì nên coi như còn khả năng chiếu bí.
+  return board.some((p) => !!p && sideOf(p) === side && "rncph".includes(typeOf(p)));
 }
 
 /** Các ô có quân phe `by` ăn được quân đang đứng ở ô `target` (theo cách đi, không xét tự lộ tướng). */

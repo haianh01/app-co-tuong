@@ -77,6 +77,7 @@ export function ChallengeClient({ code, user }: { code: string; user: SessionUse
         </span>
       </div>
       <dl className={styles.terms}>
+        <div><dt>Chế độ</dt><dd>{c.variant === "jieqi" ? "Cờ úp" : "Cờ tướng"}</dd></div>
         <div><dt>Thời gian</dt><dd>{tc ? `${tcLabel(tc.minutes, tc.increment)} (${tc.name})` : c.tc}</dd></div>
         <div><dt>Loại ván</dt><dd>{c.rated ? "Tính điểm Elo" : "Giao hữu"}</dd></div>
         <div><dt>Bạn cầm</dt><dd>{COLOR_NAME[yourColor]}</dd></div>

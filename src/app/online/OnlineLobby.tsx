@@ -7,7 +7,8 @@ import { InviteLink } from "@/components/online/InviteLink";
 import { useSocket } from "@/hooks/useSocket";
 import { playSound } from "@/lib/sound";
 import {
-  TIME_CONTROLS, findTimeControl, tcLabel, type ChallengeColor, type ChallengeInfo, type LobbyStats, type QueueKey,
+  TIME_CONTROLS, VARIANTS, findTimeControl, tcLabel, type ChallengeColor, type ChallengeInfo, type LobbyStats, type QueueKey,
+  type Variant,
 } from "@/lib/online/protocol";
 import type { SessionUser } from "@/lib/session-types";
 import styles from "./online.module.css";
@@ -21,6 +22,8 @@ export function OnlineLobby({ user }: { user: SessionUser }) {
   const params = useSearchParams();
   const requestedTc = findTimeControl(params.get("tc") ?? "")?.id;
   const requestedRated = params.get("rated") !== "0";
+  const requestedVariant: Variant = params.get("variant") === "jieqi" ? "jieqi" : "xiangqi";
+  const [variant, setVariant] = useState<Variant>(requestedVariant);
   const [tc, setTc] = useState(requestedTc ?? "10+0");
   const [rated, setRated] = useState(!user.isGuest && requestedRated);
   const [queue, setQueue] = useState<{ key: QueueKey; since: number } | null>(null);
@@ -43,7 +46,7 @@ export function OnlineLobby({ user }: { user: SessionUser }) {
           // "Ván mới" từ trang kết quả: tự vào hàng đợi với thể thức cũ.
           if (msg.user && !msg.activeGameId && requestedTc && !autoQueued.current && !user.ban) {
             autoQueued.current = true;
-            send({ t: "queue", tc: requestedTc, rated: !user.isGuest && requestedRated, variant: "xiangqi" });
+            send({ t: "queue", tc: requestedTc, rated: !user.isGuest && requestedRated, variant: requestedVariant });
           }
           break;
         case "queue":
@@ -121,6 +124,20 @@ export function OnlineLobby({ user }: { user: SessionUser }) {
             </div>
           )}
 
+          <div className={styles.group} role="group" aria-label="Chế độ chơi">
+            <span className={styles.groupLabel}>Chế độ</span>
+            <div className={styles.segments}>
+              {VARIANTS.map((v) => (
+                <button key={v.id} type="button" className={styles.segment} aria-pressed={variant === v.id} disabled={!!queue} onClick={() => setVariant(v.id)}>
+                  {v.name}
+                </button>
+              ))}
+            </div>
+            {variant === "jieqi" && (
+              <span className="muted">Quân úp đi theo quân của ô xuất phát, đi rồi mới lật. Sĩ, tượng đã lật đi khắp bàn.</span>
+            )}
+          </div>
+
           <div className={styles.group} role="group" aria-label="Loại ván">
             <span className={styles.groupLabel}>Loại ván</span>
             <div className={styles.segments}>
@@ -157,7 +174,7 @@ export function OnlineLobby({ user }: { user: SessionUser }) {
               <span className={styles.spinner} aria-hidden="true">帥</span>
               <span className={styles.searchText}>
                 <strong>
-                  Đang tìm đối thủ · {queuedTc ? tcLabel(queuedTc.minutes, queuedTc.increment) : queue.key.tc} ·{" "}
+                  Đang tìm đối thủ · {queue.key.variant === "jieqi" ? "Cờ úp · " : ""}{queuedTc ? tcLabel(queuedTc.minutes, queuedTc.increment) : queue.key.tc} ·{" "}
                   {queue.key.rated ? "tính điểm" : "không tính điểm"}
                 </strong>
                 <span className="muted">Đã chờ {formatWait(waited)}</span>
@@ -169,9 +186,9 @@ export function OnlineLobby({ user }: { user: SessionUser }) {
               type="button"
               className={`btn btn-primary ${styles.cta}`}
               disabled={!connected || !!activeGameId || sessionLost || !!banned}
-              onClick={() => send({ t: "queue", tc, rated: rated && !user.isGuest, variant: "xiangqi" })}
+              onClick={() => send({ t: "queue", tc, rated: rated && !user.isGuest, variant })}
             >
-              Tìm đối thủ · {tc}
+              Tìm đối thủ · {variant === "jieqi" ? "Cờ úp · " : ""}{tc}
             </button>
           )}
 
@@ -213,9 +230,9 @@ export function OnlineLobby({ user }: { user: SessionUser }) {
               type="button"
               className="btn"
               disabled={!connected || !!activeGameId || sessionLost || !!banned}
-              onClick={() => send({ t: "challengeCreate", tc, rated: rated && !user.isGuest, variant: "xiangqi", color })}
+              onClick={() => send({ t: "challengeCreate", tc, rated: rated && !user.isGuest, variant, color })}
             >
-              Tạo link mời · {tc} · {rated && !user.isGuest ? "tính điểm" : "giao hữu"}
+              Tạo link mời · {variant === "jieqi" ? "Cờ úp · " : ""}{tc} · {rated && !user.isGuest ? "tính điểm" : "giao hữu"}
             </button>
           </>
         )}
@@ -236,7 +253,7 @@ export function OnlineLobby({ user }: { user: SessionUser }) {
                   <span><span className={styles.dotRed} aria-hidden="true" />{g.red.displayName} <span className="muted">({g.red.rating})</span></span>
                   <span><span className={styles.dotBlack} aria-hidden="true" />{g.black.displayName} <span className="muted">({g.black.rating})</span></span>
                 </span>
-                <span className="muted">{tcLabel(g.minutes, g.increment)} · {g.rated ? "tính điểm" : "giao hữu"} · nước {g.plies}</span>
+                <span className="muted">{g.variant === "jieqi" ? "Cờ úp · " : ""}{tcLabel(g.minutes, g.increment)} · {g.rated ? "tính điểm" : "giao hữu"} · nước {g.plies}</span>
                 <Link href={`/game/${g.id}`} className="btn">Xem</Link>
               </li>
             ))}

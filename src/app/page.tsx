@@ -10,7 +10,7 @@ const MODES = [
   { seal: "人機", bg: "#6b4a2b", title: "Chơi với máy", desc: "5 cấp độ AI từ Tân thủ đến Đại sư, có gợi ý nước đi.", href: "/play" },
   { seal: "殘局", bg: "#5a3e6e", title: "Cờ thế · Tàn cuộc", desc: `${PUZZLES.length} thế sát cục kinh điển, hệ thống tự chấm đúng sai.`, href: "/puzzle" },
   { seal: "榜", bg: "#8a5a12", title: "Bảng xếp hạng", desc: "Những kỳ thủ có Elo cao nhất, xem hồ sơ và ván đấu của họ.", href: "/leaderboard" },
-  { seal: "揭棋", bg: "#2f5d50", title: "Cờ úp", desc: "Quân úp ngẫu nhiên, lật mới biết. Mỗi ván một thế trận.", soon: true },
+  { seal: "揭棋", bg: "#2f5d50", title: "Cờ úp", desc: "Quân úp ngẫu nhiên, đi rồi mới lật. Chơi với máy hoặc đấu online.", href: "/play/jieqi" },
   { seal: "好友", bg: "#3d4f7a", title: "Phòng bạn bè", desc: "Tạo link mời, gửi qua Zalo hay Messenger, bạn bấm là vào ván.", href: "/online#friends-title" },
   { seal: "比賽", bg: "#7a3b5c", title: "Giải đấu", desc: "Arena trưa và tối mỗi ngày, đấu liên tục, thưởng xu và khung Quán quân.", href: "/tournaments" },
 ];
@@ -37,25 +37,15 @@ export default function Home() {
       <section aria-labelledby="modes" className={styles.section}>
         <h2 id="modes" className={styles.h2}>Chế độ chơi</h2>
         <div className={styles.modes}>
-          {MODES.map((m) => {
-            const body = (
-              <>
-                <span className={`seal ${styles.modeSeal}`} style={{ background: m.bg }}>{m.seal}</span>
-                <span className={styles.modeText}>
-                  <span className={styles.modeTitle}>
-                    {m.title}
-                    {m.soon && <span className={styles.soon}>Sắp ra mắt</span>}
-                  </span>
-                  <span className="muted">{m.desc}</span>
-                </span>
-              </>
-            );
-            return m.href ? (
-              <Link key={m.title} href={m.href} className={`card ${styles.mode}`}>{body}</Link>
-            ) : (
-              <div key={m.title} className={`card ${styles.mode} ${styles.disabled}`} aria-disabled="true">{body}</div>
-            );
-          })}
+          {MODES.map((m) => (
+            <Link key={m.title} href={m.href} className={`card ${styles.mode}`}>
+              <span className={`seal ${styles.modeSeal}`} style={{ background: m.bg }}>{m.seal}</span>
+              <span className={styles.modeText}>
+                <span className={styles.modeTitle}>{m.title}</span>
+                <span className="muted">{m.desc}</span>
+              </span>
+            </Link>
+          ))}
         </div>
       </section>
     </main>

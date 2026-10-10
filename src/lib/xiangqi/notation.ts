@@ -17,6 +17,8 @@ export const PIECE_NAME: Record<PieceType, string> = {
 export const PIECE_CHAR: Record<string, string> = {
   K: "帥", A: "仕", B: "相", N: "傌", R: "俥", C: "炮", P: "兵",
   k: "將", a: "士", b: "象", n: "馬", r: "車", c: "砲", p: "卒",
+  // Quân úp (cờ úp) bị ăn khi chưa lật.
+  H: "暗", h: "暗",
 };
 
 const fileNumber = (col: number, s: Side) => (s === "r" ? 9 - col : col + 1);

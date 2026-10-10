@@ -3,9 +3,12 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { InviteLink } from "@/components/online/InviteLink";
 import { useSocket } from "@/hooks/useSocket";
 import { playSound } from "@/lib/sound";
-import { TIME_CONTROLS, findTimeControl, tcLabel, type LobbyStats, type QueueKey } from "@/lib/online/protocol";
+import {
+  TIME_CONTROLS, findTimeControl, tcLabel, type ChallengeColor, type ChallengeInfo, type LobbyStats, type QueueKey,
+} from "@/lib/online/protocol";
 import type { SessionUser } from "@/lib/session-types";
 import styles from "./online.module.css";
 
@@ -26,6 +29,8 @@ export function OnlineLobby({ user }: { user: SessionUser }) {
   const [error, setError] = useState<string | null>(null);
   const [sessionLost, setSessionLost] = useState(false);
   const [now, setNow] = useState(0);
+  const [challenge, setChallenge] = useState<ChallengeInfo | null>(null);
+  const [color, setColor] = useState<ChallengeColor>("random");
   const autoQueued = useRef(false);
 
   const { send, status } = useSocket({
@@ -51,6 +56,10 @@ export function OnlineLobby({ user }: { user: SessionUser }) {
           break;
         case "stats":
           setStats(msg.stats);
+          break;
+        case "challenge":
+          setChallenge(msg.challenge);
+          if (msg.challenge) setError(null);
           break;
         case "error":
           setError(msg.message);
@@ -169,6 +178,47 @@ export function OnlineLobby({ user }: { user: SessionUser }) {
           {!connected && <p className="muted">Đang kết nối tới máy chủ…</p>}
           {error && <p className={styles.warn} role="alert">{error}</p>}
         </div>
+      </section>
+
+      <section className={`card ${styles.friends}`} aria-labelledby="friends-title">
+        <h2 id="friends-title" className={styles.h2}>Mời bạn bè</h2>
+        {challenge ? (
+          <>
+            <p className="muted">
+              Gửi link này cho bạn bè. Khi bạn ấy mở link và nhận lời, ván cờ bắt đầu ngay (giữ trang này mở). Lời mời hết hạn sau 30 phút.
+            </p>
+            <InviteLink code={challenge.code} />
+            <div className={styles.friendFoot}>
+              <span className="muted">
+                {tcLabel(findTimeControl(challenge.tc)?.minutes ?? 0, findTimeControl(challenge.tc)?.increment ?? 0)} ·{" "}
+                {challenge.rated ? "tính điểm" : "giao hữu"} · bạn cầm {challenge.color === "r" ? "Đỏ" : challenge.color === "b" ? "Đen" : "màu ngẫu nhiên"}
+              </span>
+              <button type="button" className="btn" onClick={() => send({ t: "challengeCancel" })}>Hủy lời mời</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="muted">Tạo phòng riêng với thể thức đang chọn ở trên, rồi gửi link cho bạn bè qua Zalo, Messenger…</p>
+            <div className={styles.group} role="group" aria-label="Màu quân của bạn">
+              <span className={styles.groupLabel}>Bạn cầm quân</span>
+              <div className={styles.segments}>
+                {([["random", "Ngẫu nhiên"], ["r", "Đỏ (đi trước)"], ["b", "Đen"]] as const).map(([id, label]) => (
+                  <button key={id} type="button" className={styles.segment} aria-pressed={color === id} onClick={() => setColor(id)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button
+              type="button"
+              className="btn"
+              disabled={!connected || !!activeGameId || sessionLost || !!banned}
+              onClick={() => send({ t: "challengeCreate", tc, rated: rated && !user.isGuest, variant: "xiangqi", color })}
+            >
+              Tạo link mời · {tc} · {rated && !user.isGuest ? "tính điểm" : "giao hữu"}
+            </button>
+          </>
+        )}
       </section>
 
       <section className={`card ${styles.live}`} aria-labelledby="live-title">

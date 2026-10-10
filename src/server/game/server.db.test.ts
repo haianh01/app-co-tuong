@@ -314,3 +314,115 @@ describe("GameServer", () => {
     back.close();
   });
 });
+
+describe("phòng bạn bè", () => {
+  async function user(name: string) {
+    const res = await registerUser(db, { username: name, displayName: name.toUpperCase(), password: "matkhau123" });
+    if (!res.ok) throw new Error(JSON.stringify(res.errors));
+    ids[name] = res.user.id;
+    tokens[name] = (await createSession(db, res.user.id)).token;
+  }
+
+  beforeAll(async () => {
+    for (const n of ["minh", "nam", "oanh", "phuc"]) await user(n);
+  });
+
+  it("tạo lời mời, người lạ xem được ai mời, bạn nhận lời là vào ván với đúng màu quân đã chọn", async () => {
+    const host = await connect("minh");
+    host.send({ t: "challengeCreate", tc: "5+3", rated: false, variant: "xiangqi", color: "b" });
+    const { challenge } = await host.waitFor("challenge", (m) => m.challenge !== null);
+    expect(challenge).toMatchObject({ tc: "5+3", rated: false, color: "b", by: { username: "minh" } });
+    expect(challenge!.code).toMatch(/^[a-z2-9]{6}$/);
+
+    // Mở link khi chưa đăng nhập: thấy lời mời, biết người mời đang trực tuyến.
+    const stranger = await connect();
+    stranger.send({ t: "challengeInfo", code: challenge!.code });
+    const info = await stranger.waitFor("challengeInfo");
+    expect(info).toMatchObject({ online: true, challenge: { by: { displayName: "MINH" } } });
+    stranger.send({ t: "challengeAccept", code: challenge!.code });
+    await stranger.waitFor("error", (m) => /đăng nhập/.test(m.message));
+
+    // Tự nhận lời mời của mình: bị từ chối.
+    host.send({ t: "challengeAccept", code: challenge!.code });
+    await host.waitFor("error", (m) => /chính bạn/.test(m.message));
+
+    const friend = await connect("nam");
+    friend.send({ t: "challengeAccept", code: challenge!.code });
+    const { gameId } = await friend.waitFor("matched");
+    // Người mời được báo lời mời đã đóng, rồi được đưa vào ván.
+    await host.waitFor("challenge", (m) => m.challenge === null);
+    expect((await host.waitFor("matched")).gameId).toBe(gameId);
+    friend.send({ t: "watch", gameId });
+    const g = await friend.game();
+    expect(g.players.b.id).toBe(ids.minh);
+    expect(g.players.r.id).toBe(ids.nam);
+    expect(g).toMatchObject({ minutes: 5, increment: 3, rated: false });
+
+    // Lời mời đã dùng thì không dùng lại được.
+    const late = await connect("oanh");
+    late.send({ t: "challengeAccept", code: challenge!.code });
+    await late.waitFor("error", (m) => /không tồn tại|hết hạn/.test(m.message));
+
+    friend.send({ t: "abort", gameId });
+    await friend.game((x) => x.status !== "playing");
+    for (const c of [host, stranger, friend, late]) c.close();
+  });
+
+  it("người mời tắt trang: lời mời vẫn còn nhưng chưa nhận được; mở lại trang thì thấy lời mời cũ", async () => {
+    let host = await connect("oanh");
+    host.send({ t: "challengeCreate", tc: "10+0", rated: true, variant: "xiangqi", color: "random" });
+    const { challenge } = await host.waitFor("challenge", (m) => m.challenge !== null);
+    host.close();
+    await new Promise((r) => setTimeout(r, 50));
+
+    const friend = await connect("phuc");
+    friend.send({ t: "challengeInfo", code: challenge!.code });
+    expect(await friend.waitFor("challengeInfo")).toMatchObject({ online: false });
+    friend.send({ t: "challengeAccept", code: challenge!.code });
+    await friend.waitFor("error", (m) => /không trực tuyến/.test(m.message));
+
+    host = await connect("oanh");
+    expect((await host.waitFor("challenge")).challenge?.code).toBe(challenge!.code);
+
+    // Hủy lời mời: link không còn dùng được.
+    host.send({ t: "challengeCancel" });
+    await host.waitFor("challenge", (m) => m.challenge === null);
+    friend.send({ t: "challengeInfo", code: challenge!.code });
+    expect(await friend.waitFor("challengeInfo")).toMatchObject({ challenge: null });
+    host.close();
+    friend.close();
+  });
+
+  it("lời mời hết hạn sau 30 phút; khách không nhận được lời mời tính điểm", async () => {
+    const host = await connect("phuc");
+    host.send({ t: "challengeCreate", tc: "3+2", rated: true, variant: "xiangqi", color: "r" });
+    const { challenge } = await host.waitFor("challenge", (m) => m.challenge !== null);
+
+    const guest = await createGuest(db);
+    const g = await connect(undefined, (await createSession(db, guest.id)).token);
+    g.send({ t: "challengeAccept", code: challenge!.code });
+    await g.waitFor("error", (m) => /Khách/.test(m.message));
+
+    await advance(30 * 60_000 + 1);
+    await host.waitFor("challenge", (m) => m.challenge === null);
+    g.send({ t: "challengeInfo", code: challenge!.code });
+    expect(await g.waitFor("challengeInfo")).toMatchObject({ challenge: null });
+
+    // Khách vẫn tạo được lời mời không tính điểm, nhưng không tạo được lời mời tính điểm.
+    g.send({ t: "challengeCreate", tc: "3+2", rated: true, variant: "xiangqi", color: "r" });
+    await g.waitFor("error", (m) => /Khách/.test(m.message));
+    g.send({ t: "challengeCreate", tc: "3+2", rated: false, variant: "xiangqi", color: "r" });
+    expect((await g.waitFor("challenge")).challenge).toMatchObject({ rated: false });
+    host.close();
+    g.close();
+  });
+
+  it("tin nhắn lời mời sai định dạng bị từ chối", async () => {
+    const c = await connect("minh");
+    c.send({ t: "challengeAccept", code: "../../x" });
+    await c.waitFor("error", (m) => /không hợp lệ/.test(m.message));
+    c.send({ t: "challengeCreate", tc: "99+0", rated: false, variant: "xiangqi", color: "r" });
+    await c.waitFor("error", (m) => /không hợp lệ/.test(m.message));
+    c.close();
+  });
+});

@@ -1,0 +1,18 @@
+.link {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.link input {
+  flex: 1 1 220px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-sunken);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}

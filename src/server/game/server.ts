@@ -7,10 +7,11 @@ import { WebSocket, WebSocketServer } from "ws";
 import type { Side } from "@/lib/xiangqi/engine";
 import {
   WS_PATH, findTimeControl, parseClientMessage,
-  type ClientMessage, type LiveGameSummary, type LobbyStats, type PlayerInfo, type QueueKey, type ServerMessage, type Variant,
+  type ChallengeColor, type ClientMessage, type LiveGameSummary, type LobbyStats, type PlayerInfo, type QueueKey, type ServerMessage, type Variant,
 } from "@/lib/online/protocol";
 import { SESSION_COOKIE, getUserById, getUserBySession, isBanned, parseCookies, toPlayerInfo, type AuthUser } from "../auth";
 import type { Database } from "../db";
+import { ChallengeBook } from "./challenges";
 import { Matchmaker } from "./matchmaker";
 import { saveFinishedGame } from "./persist";
 import { registerGameServer, type GameServerHandle } from "./registry";
@@ -59,6 +60,7 @@ export class GameServer implements GameServerHandle {
   private readonly finalized = new Set<string>();
   private readonly activeGame = new Map<string, string>();
   private readonly matchmaker = new Matchmaker();
+  private readonly challenges = new ChallengeBook();
   private readonly watchers = new Map<string, Set<WebSocket>>();
   private readonly lastChat = new Map<string, number>();
   private readonly timers = new Set<NodeJS.Timeout>();
@@ -171,6 +173,8 @@ export class GameServer implements GameServerHandle {
     });
     const queued = user ? this.matchmaker.find(user.id) : null;
     if (queued) this.send(ws, { t: "queue", key: queued.key, since: queued.since });
+    const challenge = user ? this.challenges.ofUser(user.id, this.now()) : null;
+    if (challenge) this.send(ws, { t: "challenge", challenge });
   }
 
   private onClose(ws: WebSocket, conn: Conn) {
@@ -210,11 +214,16 @@ export class GameServer implements GameServerHandle {
         conn.banned = banned;
       }
     }
-    if (banned) this.matchmaker.remove(userId);
+    this.challenges.updateUser(info);
+    if (banned) {
+      this.matchmaker.remove(userId);
+      if (this.challenges.cancel(userId)) this.sendUser(userId, { t: "challenge", challenge: null });
+    }
   }
 
   disconnectUser(userId: string) {
     this.matchmaker.remove(userId);
+    this.challenges.cancel(userId);
     for (const ws of this.userSockets.get(userId) ?? []) ws.close(4001, "kicked");
   }
 
@@ -242,6 +251,7 @@ export class GameServer implements GameServerHandle {
     }
     if (msg.t === "watch") return this.watch(ws, conn, msg.gameId);
     if (msg.t === "unwatch") return this.unwatch(ws, conn, msg.gameId);
+    if (msg.t === "challengeInfo") return this.challengeInfo(ws, msg.code);
 
     const user = conn.user;
     if (!user) {
@@ -257,6 +267,14 @@ export class GameServer implements GameServerHandle {
         return;
       case "rematch":
         return this.rematch(ws, conn, user, msg.gameId, msg.action);
+      case "challengeCreate":
+        return this.createChallenge(ws, conn, user, msg, msg.color);
+      case "challengeCancel":
+        this.challenges.cancel(user.id);
+        this.sendUser(user.id, { t: "challenge", challenge: null });
+        return;
+      case "challengeAccept":
+        return this.acceptChallenge(ws, conn, user, msg.code);
       default:
         return this.act(ws, user, msg);
     }
@@ -310,16 +328,9 @@ export class GameServer implements GameServerHandle {
   // ---- Ghép cặp ----
 
   private enqueue(ws: WebSocket, conn: Conn, user: PlayerInfo, key: QueueKey) {
-    if (conn.banned) {
-      this.send(ws, { t: "error", message: "Tài khoản của bạn đang bị khóa chơi online." });
-      return;
-    }
-    if (key.rated && user.isGuest) {
-      this.send(ws, { t: "error", message: "Khách chỉ chơi được ván không tính điểm. Hãy tạo tài khoản để đấu xếp hạng." });
-      return;
-    }
-    if (key.variant !== "xiangqi" && !this.variantEnabled(key.variant)) {
-      this.send(ws, { t: "error", message: "Chế độ chơi này chưa mở." });
+    const blocked = this.playBlock(conn, user, key);
+    if (blocked) {
+      this.send(ws, { t: "error", message: blocked });
       return;
     }
     const active = this.activeGame.get(user.id);
@@ -370,6 +381,66 @@ export class GameServer implements GameServerHandle {
 
   private newId(): string {
     return Array.from(randomBytes(8), (b) => ID_ALPHABET[b % ID_ALPHABET.length]).join("");
+  }
+
+  // ---- Phòng bạn bè ----
+
+  /** Lý do không được chơi (bị khóa, khách đòi ván tính điểm, chế độ chưa mở); null nếu được. */
+  private playBlock(conn: Conn, user: PlayerInfo, key: QueueKey): string | null {
+    if (conn.banned) return "Tài khoản của bạn đang bị khóa chơi online.";
+    if (key.rated && user.isGuest) return "Khách chỉ chơi được ván không tính điểm. Hãy tạo tài khoản để đấu xếp hạng.";
+    if (key.variant !== "xiangqi" && !this.variantEnabled(key.variant)) return "Chế độ chơi này chưa mở.";
+    return null;
+  }
+
+  private createChallenge(ws: WebSocket, conn: Conn, user: PlayerInfo, key: QueueKey, color: ChallengeColor) {
+    const blocked = this.playBlock(conn, user, key);
+    if (blocked) {
+      this.send(ws, { t: "error", message: blocked });
+      return;
+    }
+    const active = this.activeGame.get(user.id);
+    if (active) {
+      this.sendUser(user.id, { t: "matched", gameId: active });
+      return;
+    }
+    const challenge = this.challenges.create(user, { variant: key.variant, tc: key.tc, rated: key.rated }, color, this.now());
+    this.sendUser(user.id, { t: "challenge", challenge });
+  }
+
+  private challengeInfo(ws: WebSocket, code: string) {
+    const challenge = this.challenges.get(code, this.now());
+    this.send(ws, { t: "challengeInfo", code, challenge, online: !!challenge && this.userSockets.has(challenge.by.id) });
+  }
+
+  private acceptChallenge(ws: WebSocket, conn: Conn, user: PlayerInfo, code: string) {
+    const c = this.challenges.get(code, this.now());
+    const fail = (message: string) => this.send(ws, { t: "error", message });
+    if (!c) return fail("Lời mời không tồn tại hoặc đã hết hạn.");
+    if (c.by.id === user.id) return fail("Đây là lời mời của chính bạn. Hãy gửi link cho bạn bè.");
+    const blocked = this.playBlock(conn, user, c);
+    if (blocked) return fail(blocked);
+    const active = this.activeGame.get(user.id);
+    if (active) {
+      this.sendUser(user.id, { t: "matched", gameId: active });
+      return;
+    }
+    // Người mời phải đang mở trang: nếu không, ván sẽ bị hủy vì không ai đi nước đầu.
+    if (!this.userSockets.has(c.by.id)) return fail("Người mời hiện không trực tuyến. Hãy nhắn họ mở lại trang Kỳ Đài.");
+    if (this.activeGame.has(c.by.id)) return fail("Người mời đang chơi một ván khác, hãy thử lại sau.");
+
+    this.challenges.cancel(c.by.id);
+    for (const id of [c.by.id, user.id]) {
+      if (this.matchmaker.remove(id)) this.sendUser(id, { t: "queue", key: null, since: null });
+    }
+    this.sendUser(c.by.id, { t: "challenge", challenge: null });
+    const tc = findTimeControl(c.tc)!;
+    this.createRoom({
+      players: [c.by, user],
+      firstSide: c.color === "random" ? undefined : c.color,
+      minutes: tc.minutes,
+      options: { increment: tc.increment, rated: c.rated, variant: c.variant },
+    });
   }
 
   // ---- Đấu lại ----
@@ -449,6 +520,7 @@ export class GameServer implements GameServerHandle {
       if (room.update(now)) this.changed(room);
     }
     if (this.matchmaker.size > 1) this.pairQueue();
+    for (const c of this.challenges.sweep(now)) this.sendUser(c.by.id, { t: "challenge", challenge: null });
   }
 
   private changed(room: GameRoom) {

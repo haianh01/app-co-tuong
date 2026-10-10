@@ -117,6 +117,19 @@ export interface QueueKey {
   rated: boolean;
 }
 
+/** Màu quân người mời muốn cầm. */
+export type ChallengeColor = "r" | "b" | "random";
+
+export interface ChallengeInfo extends QueueKey {
+  code: string;
+  by: PlayerInfo;
+  color: ChallengeColor;
+  createdAt: number;
+  expiresAt: number;
+}
+
+export const CHALLENGE_CODE = /^[a-z2-9]{6}$/;
+
 export type ClientMessage =
   | ({ t: "queue" } & QueueKey)
   | { t: "cancelQueue" }
@@ -127,7 +140,11 @@ export type ClientMessage =
   | { t: "abort"; gameId: string }
   | { t: "draw"; gameId: string; action: "offer" | "accept" | "decline" }
   | { t: "chat"; gameId: string; phrase: number }
-  | { t: "rematch"; gameId: string; action: "offer" | "accept" | "decline" };
+  | { t: "rematch"; gameId: string; action: "offer" | "accept" | "decline" }
+  | ({ t: "challengeCreate"; color: ChallengeColor } & QueueKey)
+  | { t: "challengeCancel" }
+  | { t: "challengeInfo"; code: string }
+  | { t: "challengeAccept"; code: string };
 
 export type ServerMessage =
   | { t: "hello"; user: PlayerInfo | null; activeGameId: string | null; stats: LobbyStats }
@@ -136,7 +153,11 @@ export type ServerMessage =
   | { t: "game"; game: GameSnapshot }
   | { t: "notFound"; gameId: string }
   | { t: "stats"; stats: LobbyStats }
-  | { t: "error"; message: string };
+  | { t: "error"; message: string }
+  /** Lời mời đang mở của chính người dùng (null = không có). */
+  | { t: "challenge"; challenge: ChallengeInfo | null }
+  /** Thông tin một lời mời theo mã (null = không tồn tại / hết hạn); `online` = người mời đang trực tuyến. */
+  | { t: "challengeInfo"; code: string; challenge: ChallengeInfo | null; online: boolean };
 
 const isId = (v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-9]{6,12}$/.test(v);
 const isSquare = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0 && (v as number) < 90;
@@ -154,6 +175,16 @@ export function parseClientMessage(raw: string): ClientMessage | null {
     return null;
   }
   switch (m.t) {
+    case "challengeCreate":
+      return typeof m.tc === "string" && findTimeControl(m.tc) && typeof m.rated === "boolean" && isVariant(m.variant)
+        && (m.color === "r" || m.color === "b" || m.color === "random")
+        ? { t: "challengeCreate", tc: m.tc, rated: m.rated, variant: m.variant, color: m.color }
+        : null;
+    case "challengeCancel":
+      return { t: "challengeCancel" };
+    case "challengeInfo":
+    case "challengeAccept":
+      return typeof m.code === "string" && CHALLENGE_CODE.test(m.code) ? { t: m.t, code: m.code } : null;
     case "queue":
       return typeof m.tc === "string" && findTimeControl(m.tc) && typeof m.rated === "boolean" && isVariant(m.variant)
         ? { t: "queue", tc: m.tc, rated: m.rated, variant: m.variant }

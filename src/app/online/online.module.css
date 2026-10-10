@@ -411,3 +411,27 @@
   opacity: 0.6;
   cursor: default;
 }
+
+.friends {
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.friends > * {
+  max-width: 100%;
+}
+
+.friends > div {
+  width: 100%;
+}
+
+.friendFoot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}

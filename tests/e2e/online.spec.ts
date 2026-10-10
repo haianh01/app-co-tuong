@@ -128,3 +128,31 @@ test("khách chơi thử ván giao hữu, chat nhanh, đấu lại, AI phân tí
   await expect(host.getByText(/Độ chính xác Đỏ/)).toBeVisible({ timeout: 30_000 });
   await guestCtx.close();
 });
+
+test("phòng bạn bè: gửi link, người chưa có tài khoản vào bằng tư cách khách và nhận lời", async ({ browser }) => {
+  const host = await newPlayer(browser, `moi_${uniq()}`, "Chủ Phòng");
+  await host.getByRole("button", { name: "Không tính điểm" }).click();
+  await host.getByRole("button", { name: "Đen", exact: true }).click();
+  await host.getByRole("button", { name: /Tạo link mời/ }).click();
+  const link = await host.getByLabel("Link mời").inputValue();
+  expect(link).toMatch(/\/challenge\/[a-z2-9]{6}$/);
+
+  const friendCtx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const friend = await friendCtx.newPage();
+  await friend.goto(link);
+  await expect(friend.getByRole("heading", { name: "Bạn được mời chơi cờ tướng" })).toBeVisible();
+  await friend.getByRole("button", { name: "Chơi ngay với tư cách khách" }).click();
+  await expect(friend.getByText("Chủ Phòng")).toBeVisible();
+  await expect(friend.getByText("Đỏ (đi trước)")).toBeVisible();
+  await friend.getByRole("button", { name: "Nhận lời và vào ván" }).click();
+
+  await Promise.all([host.waitForURL("**/game/**"), friend.waitForURL("**/game/**")]);
+  expect(host.url()).toBe(friend.url());
+  await expect(friend.getByText(/Hãy đi nước đầu/)).toBeVisible();
+  await move(friend, sq(7, 7), sq(7, 4));
+  await expect(host.getByText(/Hãy đi nước đầu|Đến lượt bạn/)).toBeVisible();
+
+  // Link đã dùng thì không còn hiệu lực.
+  await friend.goto(link);
+  await expect(friend.getByRole("heading", { name: "Lời mời không còn hiệu lực" })).toBeVisible();
+});

@@ -5,7 +5,7 @@ import { playAsGuest } from "@/app/actions/auth";
 import { useHydrated } from "@/hooks/useHydrated";
 import styles from "./online.module.css";
 
-export function GuestButton() {
+export function GuestButton({ next, label = "Chơi thử không cần tài khoản" }: { next?: string; label?: string }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const hydrated = useHydrated();
@@ -17,12 +17,12 @@ export function GuestButton() {
         disabled={pending || !hydrated}
         onClick={() =>
           start(async () => {
-            const res = await playAsGuest();
+            const res = await playAsGuest(next);
             if (res?.error) setError(res.error);
           })
         }
       >
-        {pending ? "Đang vào…" : "Chơi thử không cần tài khoản"}
+        {pending ? "Đang vào…" : label}
       </button>
       {error && <p className={styles.warn} role="alert">{error}</p>}
     </div>

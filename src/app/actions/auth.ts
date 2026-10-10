@@ -68,11 +68,11 @@ export async function login(_prev: AuthFormState | undefined, formData: FormData
 }
 
 /** Chơi thử không cần đăng ký: tạo tài khoản khách (chỉ chơi ván không tính điểm). */
-export async function playAsGuest(): Promise<{ error?: string }> {
+export async function playAsGuest(next?: string): Promise<{ error?: string }> {
   if (!(await currentUser())) {
     if (!guestCreations.hit("all")) return { error: "Hệ thống đang bận, vui lòng thử lại sau ít phút." };
     const guest = await createGuest(await getDb());
     await startSession(guest.id);
   }
-  redirect("/online");
+  redirect(safeNext(next, "/online"));
 }

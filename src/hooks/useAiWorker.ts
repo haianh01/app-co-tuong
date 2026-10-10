@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
-import type { AiLevel, AiResult } from "@/lib/xiangqi/ai";
+import type { AiLevel, AiResult, SearchOverrides } from "@/lib/xiangqi/ai";
 
-/** Trả về hàm `think(fen, level)` chạy AI trong worker; mỗi component giữ một worker riêng. */
+/** Trả về hàm `think(fen, level, overrides?)` chạy AI trong worker; mỗi component giữ một worker riêng. */
 export function useAiWorker() {
   const workerRef = useRef<Worker | null>(null);
   const seq = useRef(0);
@@ -17,7 +17,7 @@ export function useAiWorker() {
     };
   }, []);
 
-  return useCallback((fen: string, level: AiLevel) => {
+  return useCallback((fen: string, level: AiLevel, overrides?: SearchOverrides) => {
     return new Promise<AiResult>((resolve, reject) => {
       const worker = workerRef.current;
       if (!worker) {
@@ -31,7 +31,7 @@ export function useAiWorker() {
         resolve(e.data);
       };
       worker.addEventListener("message", onMessage);
-      worker.postMessage({ id, fen, level });
+      worker.postMessage(overrides ? { id, fen, level, overrides } : { id, fen, level });
     });
   }, []);
 }

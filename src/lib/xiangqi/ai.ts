@@ -146,8 +146,20 @@ export interface AiResult {
   nodes: number;
 }
 
-export function findBestMove(pos: Position, level: AiLevel, random: () => number = Math.random): AiResult {
-  const cfg = AI_LEVELS[level];
+/** Ghi đè cấu hình của cấp độ (vd. phân tích ván: độ sâu cố định, không nhiễu). */
+export interface SearchOverrides {
+  depth?: number;
+  timeMs?: number;
+  noise?: number;
+}
+
+export function findBestMove(
+  pos: Position,
+  level: AiLevel,
+  random: () => number = Math.random,
+  overrides: SearchOverrides = {},
+): AiResult {
+  const cfg = { ...AI_LEVELS[level], ...overrides };
   const board = pos.board.slice();
   const s = pos.turn;
   const ctx: SearchCtx = { deadline: Date.now() + cfg.timeMs, nodes: 0, stopped: false };

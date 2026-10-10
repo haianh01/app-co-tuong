@@ -9,6 +9,9 @@ const publicColumns = {
   id: users.id,
   username: users.username,
   displayName: users.displayName,
+  avatar: users.avatar,
+  frame: users.frame,
+  isGuest: users.isGuest,
   rating: users.rating,
   peakRating: users.peakRating,
   gamesPlayed: users.gamesPlayed,
@@ -40,6 +43,11 @@ const black = alias(users, "black");
 const gameColumns = {
   id: games.id,
   minutes: games.minutes,
+  increment: games.increment,
+  variant: games.variant,
+  rated: games.rated,
+  tournamentId: games.tournamentId,
+  setup: games.setup,
   winner: games.winner,
   reason: games.reason,
   plies: games.plies,
@@ -50,8 +58,8 @@ const gameColumns = {
   blackRatingAfter: games.blackRatingAfter,
   startedAt: games.startedAt,
   endedAt: games.endedAt,
-  red: { id: red.id, username: red.username, displayName: red.displayName },
-  black: { id: black.id, username: black.username, displayName: black.displayName },
+  red: { id: red.id, username: red.username, displayName: red.displayName, avatar: red.avatar, frame: red.frame },
+  black: { id: black.id, username: black.username, displayName: black.displayName, avatar: black.avatar, frame: black.frame },
 };
 
 export type GameRecord = NonNullable<Awaited<ReturnType<typeof getGameRecord>>>;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { sq } from "./engine";
-import { currentPosition, gameReducer, newGame, replayMoves } from "./game";
+import { currentPosition, gameReducer, newGame, pieceIds, replayMoves, timeoutResult } from "./game";
 
 describe("gameReducer", () => {
   it("ghi biên bản và đổi lượt", () => {
@@ -55,6 +55,48 @@ describe("gameReducer", () => {
     }
     expect(s.moves.filter((m) => m.side === "r").every((m) => m.check)).toBe(true);
     expect(s.result).toEqual({ winner: "b", reason: "perpetualCheck" });
+  });
+
+  it("bên đuổi bắt mãi một quân không được bảo vệ bị xử thua", () => {
+    // Xe đỏ đuổi Mã đen qua lại giữa hai ô; Mã đen không được quân nào bảo vệ.
+    let s = newGame("4k4/9/5R3/9/n8/9/9/9/9/3K5 w");
+    const cycle = [
+      { from: sq(2, 5), to: sq(4, 5) }, { from: sq(4, 0), to: sq(2, 1) },
+      { from: sq(4, 5), to: sq(2, 5) }, { from: sq(2, 1), to: sq(4, 0) },
+    ];
+    for (let i = 0; i < 2; i++) {
+      for (const move of cycle) {
+        expect(s.result).toBeNull();
+        s = gameReducer(s, { type: "move", move });
+      }
+    }
+    expect(s.moves.filter((m) => m.side === "r").every((m) => m.chase && !m.check)).toBe(true);
+    expect(s.moves.filter((m) => m.side === "b").some((m) => m.chase)).toBe(false);
+    expect(s.result).toEqual({ winner: "b", reason: "perpetualChase" });
+  });
+
+  it("quân được bảo vệ thì không tính là bị đuổi bắt", () => {
+    // Như trên nhưng có Xe đen ở (8,0) bảo vệ Mã ở (4,0) theo cột.
+    const s = gameReducer(newGame("4k4/9/5R3/9/n8/9/9/9/r8/3K5 w"), {
+      type: "move", move: { from: sq(2, 5), to: sq(4, 5) },
+    });
+    expect(s.moves).toHaveLength(1);
+    expect(s.moves[0].chase).toBe(false);
+  });
+
+  it("hết giờ khi đối phương không còn quân chiếu bí được thì hòa", () => {
+    const pos = newGame("4k4/4a4/9/9/9/9/9/9/9/3K1R3 w");
+    expect(timeoutResult(currentPosition(pos).board, "r")).toEqual({ winner: null, reason: "timeoutDraw" });
+    expect(timeoutResult(currentPosition(pos).board, "b")).toEqual({ winner: "r", reason: "timeout" });
+  });
+
+  it("pieceIds: quân giữ nguyên mã khi di chuyển, quân bị ăn biến mất", () => {
+    const s = replayMoves([{ from: sq(7, 7), to: sq(7, 4) }, { from: sq(0, 7), to: sq(2, 6) }]);
+    const ids = pieceIds(s);
+    expect(ids[sq(7, 4)]).toBe(sq(7, 7));
+    expect(ids[sq(7, 7)]).toBeNull();
+    expect(ids[sq(2, 6)]).toBe(sq(0, 7));
+    expect(pieceIds(s, 0)[sq(7, 7)]).toBe(sq(7, 7));
   });
 
   it("replayMoves dựng lại đúng ván từ danh sách nước", () => {

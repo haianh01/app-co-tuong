@@ -154,3 +154,10 @@ h3 {
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
+
+/* Chừa chỗ cho thanh tab dưới đáy trên điện thoại. */
+@media (max-width: 760px) {
+  body {
+    padding-bottom: calc(64px + env(safe-area-inset-bottom));
+  }
+}

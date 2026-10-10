@@ -1,18 +1,23 @@
 "use client";
 
 import { ReactNode, useEffect, useRef } from "react";
+import { Avatar } from "@/components/Avatar";
 import type { Piece } from "@/lib/xiangqi/engine";
 import type { PlayedMove } from "@/lib/xiangqi/game";
 import { PIECE_CHAR } from "@/lib/xiangqi/notation";
 import styles from "./GamePanels.module.css";
 
 export function PlayerCard({
-  name, subtitle, avatar, avatarHan = false, clock, clockActive, clockLow, captured, highlight = false, className = "",
+  name, subtitle, avatar, avatarHan = false, avatarId, frameId, clock, clockActive, clockLow, captured, highlight = false, className = "",
 }: {
   name: string;
   subtitle: string;
+  /** Chữ hiển thị khi không có avatar thật (vd. "機" cho máy). */
   avatar: string;
   avatarHan?: boolean;
+  /** Avatar và khung của người chơi thật (xem lib/skins). */
+  avatarId?: string;
+  frameId?: string;
   clock: string | null;
   clockActive: boolean;
   clockLow: boolean;
@@ -23,7 +28,11 @@ export function PlayerCard({
   return (
     <div className={`card ${styles.player} ${className}`}>
       <div className={styles.who}>
-        <span className={`${styles.avatar} ${highlight ? styles.avatarMe : ""} ${avatarHan ? styles.han : ""}`}>{avatar}</span>
+        {avatarId ? (
+          <Avatar avatar={avatarId} frame={frameId} size={48} />
+        ) : (
+          <span className={`${styles.avatar} ${highlight ? styles.avatarMe : ""} ${avatarHan ? styles.han : ""}`}>{avatar}</span>
+        )}
         <span className={styles.names}>
           <strong>{name}</strong>
           <span className={highlight ? styles.goldText : "muted"}>{subtitle}</span>

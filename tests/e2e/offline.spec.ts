@@ -48,3 +48,20 @@ test.describe("điện thoại", () => {
     }
   });
 });
+
+test("kéo thả quân bằng chuột", async ({ page }) => {
+  await page.goto("/play?level=1&side=r&time=0");
+  // Chờ trang stream xong (lúc đầu có thể còn khung tạm chứa bàn cờ thứ hai bị ẩn).
+  await expect(page.locator(`[data-square="${sq(7, 7)}"]`)).toHaveCount(1);
+  const from = page.locator(`[data-square="${sq(7, 7)}"]`);
+  const fromBox = (await from.boundingBox())!;
+  // Ô đích (cột 4) đang trống: tính tọa độ từ hai quân Pháo ở cột 1 và cột 7 cùng hàng.
+  const cannon = (await page.locator(`[data-square="${sq(7, 1)}"]`).boundingBox())!;
+  const targetX = cannon.x + ((fromBox.x - cannon.x) * 3) / 6 + fromBox.width / 2;
+  const y = fromBox.y + fromBox.height / 2;
+  await page.mouse.move(fromBox.x + fromBox.width / 2, y);
+  await page.mouse.down();
+  await page.mouse.move(targetX, y, { steps: 8 });
+  await page.mouse.up();
+  await expect(page.getByLabel("Biên bản ván đấu")).toContainText("P2-5");
+});

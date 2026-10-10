@@ -28,6 +28,8 @@ async function main() {
     db: dbHandle.db,
     allowedOrigins: process.env.ALLOWED_ORIGINS?.split(",").map((s) => s.trim()).filter(Boolean),
   });
+  const restored = await games.restore();
+  if (restored) console.log(`> Khôi phục ${restored} ván đang chơi dở`);
   games.attach(server);
 
   // Dọn phiên đăng nhập hết hạn: lúc khởi động và mỗi 6 giờ.

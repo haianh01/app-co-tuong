@@ -3,11 +3,13 @@
 import { ReactNode, useEffect, useReducer, useState } from "react";
 import { XiangqiBoard } from "@/components/board/XiangqiBoard";
 import { MoveList, PlayerCard, ResultOverlay } from "@/components/game/GamePanels";
+import { useSession } from "@/components/session/SessionProvider";
 import { useAiWorker } from "@/hooks/useAiWorker";
+import { useMoveSounds, useResultSound } from "@/hooks/useGameSounds";
 import { formatClock, useClock } from "@/hooks/useClock";
 import { AI_LEVELS, AiLevel } from "@/lib/xiangqi/ai";
 import { Move, findKing, inCheck, legalMovesFrom, opponent, sideOf, toFen } from "@/lib/xiangqi/engine";
-import { GameResult, currentPosition, describeResult, gameReducer, newGame } from "@/lib/xiangqi/game";
+import { GameResult, currentPosition, describeResult, gameReducer, newGame, pieceIds, timeoutResult } from "@/lib/xiangqi/game";
 import { PlaySettings, TIME_OPTIONS, settingsHref } from "./settings";
 import styles from "./play.module.css";
 
@@ -84,7 +86,10 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
   const ply = state.moves.length;
   const clock = useClock(minutes * 60_000, pos.turn, !!state.result);
   const result: GameResult | null =
-    state.result ?? (clock.flagged ? { winner: opponent(clock.flagged), reason: "timeout" } : null);
+    state.result ?? (clock.flagged ? timeoutResult(pos.board, clock.flagged) : null);
+  const { user } = useSession();
+  useMoveSounds(state.moves);
+  useResultSound(result, player);
 
   const aiToMove = !result && pos.turn === ai;
   const fen = toFen(pos);
@@ -178,6 +183,8 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
           name="Bạn"
           subtitle={`Cầm quân ${player === "r" ? "Đỏ" : "Đen"}`}
           avatar="我"
+          avatarId={user ? user.avatar : undefined}
+          frameId={user ? user.frame : undefined}
           avatarHan
           highlight
           clock={timeOf(player)}
@@ -190,6 +197,7 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
       <section className={styles.center} aria-label="Bàn cờ">
         <XiangqiBoard
           board={pos.board}
+          ids={pieceIds(state)}
           orientation={player}
           selected={selected}
           targets={targets}

@@ -6,28 +6,28 @@ import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 import type { Side } from "@/lib/xiangqi/engine";
 import {
-  WS_PATH, parseClientMessage,
-  type ClientMessage, type LobbyStats, type PlayerInfo, type ServerMessage, type TimeControl,
+  WS_PATH, findTimeControl, parseClientMessage,
+  type ClientMessage, type LiveGameSummary, type LobbyStats, type PlayerInfo, type QueueKey, type ServerMessage, type Variant,
 } from "@/lib/online/protocol";
-import { SESSION_COOKIE, getUserBySession, parseCookies } from "../auth";
+import { SESSION_COOKIE, getUserById, getUserBySession, isBanned, parseCookies, toPlayerInfo, type AuthUser } from "../auth";
 import type { Database } from "../db";
+import { Matchmaker } from "./matchmaker";
 import { saveFinishedGame } from "./persist";
-import { GameRoom, type RoomTimings } from "./room";
+import { registerGameServer, type GameServerHandle } from "./registry";
+import { GameRoom, type RoomOptions, type RoomTimings } from "./room";
+import { LiveStore } from "./store";
 
 const SIDES: Side[] = ["r", "b"];
 const ID_ALPHABET = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const CHAT_INTERVAL_MS = 1500;
 
 interface Conn {
   user: PlayerInfo | null;
+  banned: boolean;
   watching: Set<string>;
   alive: boolean;
   tokens: number;
   refilledAt: number;
-}
-
-interface QueueEntry {
-  user: PlayerInfo;
-  since: number;
 }
 
 export interface GameServerOptions {
@@ -35,29 +35,43 @@ export interface GameServerOptions {
   now?: () => number;
   tickMs?: number;
   timings?: Partial<RoomTimings>;
-  /** Giữ ván đã xong trong RAM bao lâu để người chơi còn xem được kết quả (sau đó đọc từ DB). */
+  /** Giữ ván đã xong trong RAM bao lâu để người chơi còn xem kết quả / mời đấu lại (sau đó đọc từ DB). */
   endedRoomTtlMs?: number;
   /** Origin khác host được phép mở WebSocket (mặc định chỉ cho phép cùng host). */
   allowedOrigins?: string[];
   log?: (message: string, err?: unknown) => void;
 }
 
-export class GameServer {
+/** Ván mới do các tính năng khác tạo (đấu lại, phòng bạn bè, giải đấu). */
+export interface NewRoom {
+  players: [PlayerInfo, PlayerInfo];
+  /** Phe của người thứ nhất; không truyền thì chia ngẫu nhiên. */
+  firstSide?: Side;
+  minutes: number;
+  options: Omit<RoomOptions, "timings">;
+}
+
+export class GameServer implements GameServerHandle {
   private readonly wss = new WebSocketServer({ noServer: true, maxPayload: 4 * 1024 });
   private readonly conns = new Map<WebSocket, Conn>();
   private readonly userSockets = new Map<string, Set<WebSocket>>();
-  private readonly rooms = new Map<string, GameRoom>();
+  readonly rooms = new Map<string, GameRoom>();
   private readonly finalized = new Set<string>();
   private readonly activeGame = new Map<string, string>();
-  private readonly queues = new Map<TimeControl, QueueEntry[]>();
+  private readonly matchmaker = new Matchmaker();
   private readonly watchers = new Map<string, Set<WebSocket>>();
+  private readonly lastChat = new Map<string, number>();
   private readonly timers = new Set<NodeJS.Timeout>();
+  private readonly store: LiveStore;
   private readonly now: () => number;
   private readonly log: (message: string, err?: unknown) => void;
+  /** Gọi khi một ván kết thúc và đã lưu (giải đấu dùng để ghép ván tiếp). */
+  onRoomFinished?: (room: GameRoom) => void;
 
   constructor(private readonly opts: GameServerOptions) {
     this.now = opts.now ?? Date.now;
     this.log = opts.log ?? ((message, err) => console.error(`[game] ${message}`, err ?? ""));
+    this.store = new LiveStore(opts.db, this.log);
   }
 
   /** Gắn vào HTTP server; chỉ nhận upgrade ở WS_PATH, các đường dẫn khác (vd. HMR của Next) để nguyên. */
@@ -69,13 +83,36 @@ export class GameServer {
     this.every(this.opts.tickMs ?? 250, () => this.tick());
     this.every(30_000, () => this.heartbeat());
     this.every(10_000, () => this.broadcastAll({ t: "stats", stats: this.stats() }));
+    registerGameServer(this);
+  }
+
+  /** Khôi phục các ván đang chơi dở từ DB (gọi trước khi nhận kết nối). */
+  async restore(): Promise<number> {
+    const now = this.now();
+    let count = 0;
+    for (const data of await this.store.loadAll()) {
+      try {
+        const room = GameRoom.fromJSON(data, now, this.opts.timings);
+        this.rooms.set(room.id, room);
+        for (const side of SIDES) this.activeGame.set(room.players[side].id, room.id);
+        count++;
+      } catch (err) {
+        this.log(`Không khôi phục được ván ${data.id}`, err);
+        this.store.remove(data.id);
+      }
+    }
+    return count;
   }
 
   async close() {
     for (const t of this.timers) clearTimeout(t);
     this.timers.clear();
+    const now = this.now();
+    for (const room of this.rooms.values()) if (room.status === "playing") this.store.save(room.toJSON(now));
+    await this.store.flush();
     for (const ws of this.conns.keys()) ws.terminate();
     await new Promise<void>((resolve) => this.wss.close(() => resolve()));
+    registerGameServer(undefined);
   }
 
   // ---- Kết nối ----
@@ -108,8 +145,9 @@ export class GameServer {
     }
   }
 
-  private onConnection(ws: WebSocket, user: PlayerInfo | null) {
-    const conn: Conn = { user, watching: new Set(), alive: true, tokens: 20, refilledAt: this.now() };
+  private onConnection(ws: WebSocket, auth: AuthUser | null) {
+    const user = auth ? toPlayerInfo(auth) : null;
+    const conn: Conn = { user, banned: !!auth && isBanned(auth, this.now()), watching: new Set(), alive: true, tokens: 20, refilledAt: this.now() };
     this.conns.set(ws, conn);
     if (user) {
       const set = this.userSockets.get(user.id) ?? new Set();
@@ -131,21 +169,19 @@ export class GameServer {
       activeGameId: user ? (this.activeGame.get(user.id) ?? null) : null,
       stats: this.stats(),
     });
-    const queued = user ? this.findQueued(user.id) : null;
-    if (queued) this.send(ws, { t: "queue", minutes: queued.minutes, since: queued.entry.since });
+    const queued = user ? this.matchmaker.find(user.id) : null;
+    if (queued) this.send(ws, { t: "queue", key: queued.key, since: queued.since });
   }
 
   private onClose(ws: WebSocket, conn: Conn) {
     this.conns.delete(ws);
-    for (const gameId of conn.watching) {
-      this.watchers.get(gameId)?.delete(ws);
-    }
+    for (const gameId of conn.watching) this.watchers.get(gameId)?.delete(ws);
     if (conn.user) {
       const set = this.userSockets.get(conn.user.id);
       set?.delete(ws);
       if (!set?.size) {
         this.userSockets.delete(conn.user.id);
-        this.dequeue(conn.user.id, false);
+        this.matchmaker.remove(conn.user.id);
       }
       for (const gameId of conn.watching) this.refreshPresence(gameId, conn.user.id);
     }
@@ -160,6 +196,26 @@ export class GameServer {
       conn.alive = false;
       ws.ping();
     }
+  }
+
+  async refreshUser(userId: string) {
+    const auth = await getUserById(this.opts.db, userId);
+    if (!auth) return this.disconnectUser(userId);
+    const info = toPlayerInfo(auth);
+    const banned = isBanned(auth, this.now());
+    for (const ws of this.userSockets.get(userId) ?? []) {
+      const conn = this.conns.get(ws);
+      if (conn) {
+        conn.user = info;
+        conn.banned = banned;
+      }
+    }
+    if (banned) this.matchmaker.remove(userId);
+  }
+
+  disconnectUser(userId: string) {
+    this.matchmaker.remove(userId);
+    for (const ws of this.userSockets.get(userId) ?? []) ws.close(4001, "kicked");
   }
 
   // ---- Tin nhắn ----
@@ -194,21 +250,26 @@ export class GameServer {
     }
     switch (msg.t) {
       case "queue":
-        return this.enqueue(user, msg.minutes);
+        return this.enqueue(ws, conn, user, msg);
       case "cancelQueue":
-        return this.dequeue(user.id, true);
+        this.matchmaker.remove(user.id);
+        this.sendUser(user.id, { t: "queue", key: null, since: null });
+        return;
+      case "rematch":
+        return this.rematch(ws, conn, user, msg.gameId, msg.action);
       default:
         return this.act(ws, user, msg);
     }
   }
 
-  private act(ws: WebSocket, user: PlayerInfo, msg: Extract<ClientMessage, { t: "move" | "resign" | "abort" | "draw" }>) {
+  private act(ws: WebSocket, user: PlayerInfo, msg: Extract<ClientMessage, { t: "move" | "resign" | "abort" | "draw" | "chat" }>) {
     const room = this.rooms.get(msg.gameId);
     if (!room) {
       this.send(ws, { t: "notFound", gameId: msg.gameId });
       return;
     }
     const now = this.now();
+    const statusBefore = room.status;
     let error: string | null;
     switch (msg.t) {
       case "move":
@@ -228,66 +289,123 @@ export class GameServer {
       case "draw":
         error = room.draw(user.id, msg.action, now);
         break;
+      case "chat": {
+        const last = this.lastChat.get(user.id) ?? 0;
+        if (now - last < CHAT_INTERVAL_MS) return;
+        this.lastChat.set(user.id, now);
+        error = room.say(user.id, msg.phrase, now);
+        break;
+      }
     }
     if (error) {
       this.send(ws, { t: "error", message: error });
       this.send(ws, { t: "game", game: room.snapshot(now) });
+      // Lỗi nhưng ván vẫn có thể vừa kết thúc (vd. hết giờ đúng lúc đi).
+      if (room.status !== statusBefore) this.changed(room);
+      return;
     }
     this.changed(room);
   }
 
   // ---- Ghép cặp ----
 
-  private findQueued(userId: string): { minutes: TimeControl; entry: QueueEntry } | null {
-    for (const [minutes, queue] of this.queues) {
-      const entry = queue.find((e) => e.user.id === userId);
-      if (entry) return { minutes, entry };
+  private enqueue(ws: WebSocket, conn: Conn, user: PlayerInfo, key: QueueKey) {
+    if (conn.banned) {
+      this.send(ws, { t: "error", message: "Tài khoản của bạn đang bị khóa chơi online." });
+      return;
     }
-    return null;
-  }
-
-  private enqueue(user: PlayerInfo, minutes: TimeControl) {
+    if (key.rated && user.isGuest) {
+      this.send(ws, { t: "error", message: "Khách chỉ chơi được ván không tính điểm. Hãy tạo tài khoản để đấu xếp hạng." });
+      return;
+    }
+    if (key.variant !== "xiangqi" && !this.variantEnabled(key.variant)) {
+      this.send(ws, { t: "error", message: "Chế độ chơi này chưa mở." });
+      return;
+    }
     const active = this.activeGame.get(user.id);
     if (active) {
       this.sendUser(user.id, { t: "matched", gameId: active });
       return;
     }
-    this.dequeue(user.id, false);
-    const queue = this.queues.get(minutes) ?? [];
-    this.queues.set(minutes, queue);
-    // Hàng đợi theo thứ tự đến trước; khi đông người có thể ưu tiên Elo gần nhau.
-    const opponent = queue.shift();
-    if (opponent) {
-      this.sendUser(opponent.user.id, { t: "queue", minutes: null, since: null });
-      this.createRoom(opponent.user, user, minutes);
-      return;
-    }
-    const since = this.now();
-    queue.push({ user, since });
-    this.sendUser(user.id, { t: "queue", minutes, since });
+    const entry = this.matchmaker.add(user, { variant: key.variant, tc: key.tc, rated: key.rated }, this.now());
+    this.sendUser(user.id, { t: "queue", key: entry.key, since: entry.since });
+    this.pairQueue();
   }
 
-  private dequeue(userId: string, notify: boolean) {
-    for (const [minutes, queue] of this.queues) {
-      this.queues.set(minutes, queue.filter((e) => e.user.id !== userId));
+  /** Cho phép mở thêm biến thể (cờ úp đăng ký khi được nạp). */
+  variantEnabled = (variant: Variant) => variant === "xiangqi";
+
+  private pairQueue() {
+    for (const [a, b] of this.matchmaker.takePairs(this.now())) {
+      const tc = findTimeControl(a.key.tc)!;
+      for (const e of [a, b]) this.sendUser(e.user.id, { t: "queue", key: null, since: null });
+      this.createRoom({
+        players: [a.user, b.user],
+        minutes: tc.minutes,
+        options: { increment: tc.increment, rated: a.key.rated, variant: a.key.variant },
+      });
     }
-    if (notify) this.sendUser(userId, { t: "queue", minutes: null, since: null });
   }
 
-  private createRoom(a: PlayerInfo, b: PlayerInfo, minutes: TimeControl) {
-    const [red, black] = Math.random() < 0.5 ? [a, b] : [b, a];
+  /** Tạo ván mới và báo cho hai người chơi. Trả về null nếu một người đang có ván khác. */
+  createRoom({ players: [a, b], firstSide, minutes, options }: NewRoom): GameRoom | null {
+    if (this.activeGame.has(a.id) || this.activeGame.has(b.id)) return null;
+    const aSide: Side = firstSide ?? (Math.random() < 0.5 ? "r" : "b");
+    const players = aSide === "r" ? { r: a, b } : { r: b, b: a };
     let id = this.newId();
     while (this.rooms.has(id)) id = this.newId();
-    const room = new GameRoom(id, { r: red, b: black }, minutes, this.now(), { timings: this.opts.timings });
+    const room = new GameRoom(id, players, minutes, this.now(), { ...options, timings: this.opts.timings });
     this.rooms.set(id, room);
-    this.activeGame.set(red.id, id);
-    this.activeGame.set(black.id, id);
-    this.sendUser(red.id, { t: "matched", gameId: id });
-    this.sendUser(black.id, { t: "matched", gameId: id });
+    this.activeGame.set(a.id, id);
+    this.activeGame.set(b.id, id);
+    this.store.save(room.toJSON(this.now()));
+    this.sendUser(a.id, { t: "matched", gameId: id });
+    this.sendUser(b.id, { t: "matched", gameId: id });
+    return room;
+  }
+
+  isBusy(userId: string): boolean {
+    return this.activeGame.has(userId);
   }
 
   private newId(): string {
     return Array.from(randomBytes(8), (b) => ID_ALPHABET[b % ID_ALPHABET.length]).join("");
+  }
+
+  // ---- Đấu lại ----
+
+  private rematch(ws: WebSocket, conn: Conn, user: PlayerInfo, gameId: string, action: "offer" | "accept" | "decline") {
+    const room = this.rooms.get(gameId);
+    if (!room) {
+      this.send(ws, { t: "notFound", gameId });
+      return;
+    }
+    if (conn.banned) {
+      this.send(ws, { t: "error", message: "Tài khoản của bạn đang bị khóa chơi online." });
+      return;
+    }
+    const outcome = room.rematchAction(user.id, action);
+    if (outcome === "start") {
+      const side = room.sideOf(user.id)!;
+      const me = room.players[side];
+      const them = room.players[side === "r" ? "b" : "r"];
+      // Đổi màu quân so với ván trước.
+      const next = this.createRoom({
+        players: [me, them],
+        firstSide: side === "r" ? "b" : "r",
+        minutes: room.minutes,
+        options: { increment: room.increment, rated: room.rated, variant: room.variant },
+      });
+      if (!next) {
+        this.send(ws, { t: "error", message: "Một trong hai người đang ở ván khác." });
+        return;
+      }
+      room.rematch = { offeredBy: null, gameId: next.id };
+    } else if (outcome) {
+      this.send(ws, { t: "error", message: outcome });
+      return;
+    }
+    this.broadcast(room);
   }
 
   // ---- Theo dõi ván ----
@@ -330,12 +448,18 @@ export class GameServer {
     for (const room of this.rooms.values()) {
       if (room.update(now)) this.changed(room);
     }
+    if (this.matchmaker.size > 1) this.pairQueue();
   }
 
   private changed(room: GameRoom) {
     this.broadcast(room);
-    if (room.status === "playing" || this.finalized.has(room.id)) return;
+    if (room.status === "playing") {
+      this.store.save(room.toJSON(this.now()));
+      return;
+    }
+    if (this.finalized.has(room.id)) return;
     this.finalized.add(room.id);
+    this.store.remove(room.id);
     for (const side of SIDES) {
       const userId = room.players[side].id;
       if (this.activeGame.get(userId) === room.id) this.activeGame.delete(userId);
@@ -346,8 +470,11 @@ export class GameServer {
           room.ratingChange = delta;
           for (const side of SIDES) this.updateRating(room.players[side].id, after[side]);
           this.broadcast(room);
+          this.onRoomFinished?.(room);
         })
         .catch((err) => this.log(`Không lưu được ván ${room.id}`, err));
+    } else {
+      this.onRoomFinished?.(room);
     }
     this.after(this.opts.endedRoomTtlMs ?? 10 * 60_000, () => this.removeRoom(room.id));
   }
@@ -368,19 +495,32 @@ export class GameServer {
 
   // ---- Gửi tin ----
 
-  private stats(): LobbyStats {
+  stats(): LobbyStats {
     let anonymous = 0;
     for (const conn of this.conns.values()) if (!conn.user) anonymous++;
-    let playing = 0;
-    for (const room of this.rooms.values()) if (room.status === "playing") playing++;
-    return { online: this.userSockets.size + anonymous, playing };
+    const live: LiveGameSummary[] = [];
+    for (const room of this.rooms.values()) {
+      if (room.status !== "playing") continue;
+      live.push({
+        id: room.id,
+        variant: room.variant,
+        minutes: room.minutes,
+        increment: room.increment,
+        rated: room.rated,
+        red: { displayName: room.players.r.displayName, rating: room.players.r.rating },
+        black: { displayName: room.players.b.displayName, rating: room.players.b.rating },
+        plies: room.plies,
+      });
+    }
+    live.sort((x, y) => y.red.rating + y.black.rating - (x.red.rating + x.black.rating));
+    return { online: this.userSockets.size + anonymous, playing: live.length, games: live.slice(0, 8) };
   }
 
-  private send(ws: WebSocket, msg: ServerMessage) {
+  send(ws: WebSocket, msg: ServerMessage) {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
   }
 
-  private sendUser(userId: string, msg: ServerMessage) {
+  sendUser(userId: string, msg: ServerMessage) {
     for (const ws of this.userSockets.get(userId) ?? []) this.send(ws, msg);
   }
 
@@ -398,13 +538,13 @@ export class GameServer {
 
   // ---- Hẹn giờ (gom lại để close() dọn sạch) ----
 
-  private every(ms: number, fn: () => void) {
+  every(ms: number, fn: () => void) {
     const t = setInterval(fn, ms);
     t.unref?.();
     this.timers.add(t);
   }
 
-  private after(ms: number, fn: () => void) {
+  after(ms: number, fn: () => void) {
     const t = setTimeout(() => {
       this.timers.delete(t);
       fn();

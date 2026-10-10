@@ -4,21 +4,23 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useSocket } from "@/hooks/useSocket";
-import { TIME_CONTROLS, type LobbyStats, type TimeControl } from "@/lib/online/protocol";
-import type { PublicUser } from "@/server/auth";
+import { playSound } from "@/lib/sound";
+import { TIME_CONTROLS, findTimeControl, tcLabel, type LobbyStats, type QueueKey } from "@/lib/online/protocol";
+import type { SessionUser } from "@/lib/session-types";
 import styles from "./online.module.css";
-
-const isTimeControl = (n: number): n is TimeControl => (TIME_CONTROLS as readonly number[]).includes(n);
 
 function formatWait(seconds: number) {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
-export function OnlineLobby({ user }: { user: PublicUser }) {
+export function OnlineLobby({ user }: { user: SessionUser }) {
   const router = useRouter();
-  const requested = Number(useSearchParams().get("queue"));
-  const [minutes, setMinutes] = useState<TimeControl>(isTimeControl(requested) ? requested : 10);
-  const [queue, setQueue] = useState<{ minutes: TimeControl; since: number } | null>(null);
+  const params = useSearchParams();
+  const requestedTc = findTimeControl(params.get("tc") ?? "")?.id;
+  const requestedRated = params.get("rated") !== "0";
+  const [tc, setTc] = useState(requestedTc ?? "10+0");
+  const [rated, setRated] = useState(!user.isGuest && requestedRated);
+  const [queue, setQueue] = useState<{ key: QueueKey; since: number } | null>(null);
   const [activeGameId, setActiveGameId] = useState<string | null>(null);
   const [stats, setStats] = useState<LobbyStats | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,16 +36,17 @@ export function OnlineLobby({ user }: { user: PublicUser }) {
           setActiveGameId(msg.activeGameId);
           setSessionLost(!msg.user);
           // "Ván mới" từ trang kết quả: tự vào hàng đợi với thể thức cũ.
-          if (msg.user && !msg.activeGameId && isTimeControl(requested) && !autoQueued.current) {
+          if (msg.user && !msg.activeGameId && requestedTc && !autoQueued.current && !user.ban) {
             autoQueued.current = true;
-            send({ t: "queue", minutes: requested });
+            send({ t: "queue", tc: requestedTc, rated: !user.isGuest && requestedRated, variant: "xiangqi" });
           }
           break;
         case "queue":
-          setQueue(msg.minutes ? { minutes: msg.minutes, since: receivedAt } : null);
-          if (msg.minutes) setError(null);
+          setQueue(msg.key ? { key: msg.key, since: receivedAt } : null);
+          if (msg.key) setError(null);
           break;
         case "matched":
+          playSound("notify");
           router.push(`/game/${msg.gameId}`);
           break;
         case "stats":
@@ -64,17 +67,19 @@ export function OnlineLobby({ user }: { user: PublicUser }) {
 
   const waited = queue && now ? Math.max(0, Math.floor((now - queue.since) / 1000)) : 0;
   const connected = status === "open";
+  const banned = user.ban;
+  const queuedTc = queue ? findTimeControl(queue.key.tc) : null;
 
   return (
     <div className={styles.lobby}>
       <section className={`card ${styles.hero}`} aria-labelledby="ranked-title">
         <span className={styles.watermark} aria-hidden="true">排位</span>
         <div className={styles.heroText}>
-          <span className={styles.kicker}>ĐẤU XẾP HẠNG</span>
+          <span className={styles.kicker}>ĐẤU ONLINE</span>
           <h1 id="ranked-title" className={styles.title}>Tìm đối thủ thật</h1>
           <p className="muted">
-            Thắng được cộng Elo, thua bị trừ. Mỗi bên có cùng một quỹ thời gian, hết giờ là thua. Nếu một bên không đi nước đầu
-            trong 30 giây, ván sẽ bị hủy và không tính điểm.
+            Ván tính điểm: thắng được cộng Elo, thua bị trừ, hệ thống ưu tiên ghép người cùng trình độ. Ván không tính điểm
+            để chơi vui, không ảnh hưởng Elo. Nếu một bên không đi nước đầu trong 30 giây, ván bị hủy.
           </p>
           <p className={styles.stats} aria-live="polite">
             {stats ? `${stats.online} người đang online · ${stats.playing} ván đang diễn ra` : " "}
@@ -87,6 +92,19 @@ export function OnlineLobby({ user }: { user: PublicUser }) {
               Phiên đăng nhập đã hết hạn. <Link href="/login?next=/online">Đăng nhập lại</Link>
             </p>
           )}
+          {banned && (
+            <p className={styles.warn} role="alert">
+              Tài khoản đang bị khóa chơi online đến{" "}
+              {new Date(banned.until).toLocaleString("vi-VN", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Ho_Chi_Minh" })}
+              {banned.reason ? ` (${banned.reason})` : ""}.
+            </p>
+          )}
+          {user.isGuest && (
+            <p className={styles.note}>
+              Bạn đang chơi với tư cách khách, chỉ chơi được ván không tính điểm.{" "}
+              <Link href="/register?next=/online">Tạo tài khoản</Link> để đấu xếp hạng — lịch sử ván được giữ lại.
+            </p>
+          )}
           {activeGameId && (
             <div className={styles.resume}>
               <span>Bạn đang có một ván chưa kết thúc.</span>
@@ -94,20 +112,32 @@ export function OnlineLobby({ user }: { user: PublicUser }) {
             </div>
           )}
 
+          <div className={styles.group} role="group" aria-label="Loại ván">
+            <span className={styles.groupLabel}>Loại ván</span>
+            <div className={styles.segments}>
+              <button type="button" className={styles.segment} aria-pressed={rated} disabled={!!queue || user.isGuest} onClick={() => setRated(true)}>
+                Tính điểm
+              </button>
+              <button type="button" className={styles.segment} aria-pressed={!rated} disabled={!!queue} onClick={() => setRated(false)}>
+                Không tính điểm
+              </button>
+            </div>
+          </div>
+
           <div className={styles.group} role="group" aria-label="Thể thức thời gian">
-            <span className={styles.groupLabel}>Thời gian mỗi bên</span>
+            <span className={styles.groupLabel}>Thời gian (phút + giây cộng mỗi nước)</span>
             <div className={styles.chips}>
-              {TIME_CONTROLS.map((m) => (
+              {TIME_CONTROLS.map((t) => (
                 <button
-                  key={m}
+                  key={t.id}
                   type="button"
                   className={styles.chip}
-                  aria-pressed={minutes === m}
+                  aria-pressed={tc === t.id}
                   disabled={!!queue}
-                  onClick={() => setMinutes(m)}
+                  onClick={() => setTc(t.id)}
                 >
-                  <strong>{m} phút</strong>
-                  <span>{m === 5 ? "Nhanh" : m === 10 ? "Tiêu chuẩn" : "Cổ điển"}</span>
+                  <strong>{t.id}</strong>
+                  <span>{t.name}</span>
                 </button>
               ))}
             </div>
@@ -117,7 +147,10 @@ export function OnlineLobby({ user }: { user: PublicUser }) {
             <div className={styles.searching} role="status">
               <span className={styles.spinner} aria-hidden="true">帥</span>
               <span className={styles.searchText}>
-                <strong>Đang tìm đối thủ · {queue.minutes} phút</strong>
+                <strong>
+                  Đang tìm đối thủ · {queuedTc ? tcLabel(queuedTc.minutes, queuedTc.increment) : queue.key.tc} ·{" "}
+                  {queue.key.rated ? "tính điểm" : "không tính điểm"}
+                </strong>
                 <span className="muted">Đã chờ {formatWait(waited)}</span>
               </span>
               <button type="button" className="btn" onClick={() => send({ t: "cancelQueue" })}>Hủy</button>
@@ -126,10 +159,10 @@ export function OnlineLobby({ user }: { user: PublicUser }) {
             <button
               type="button"
               className={`btn btn-primary ${styles.cta}`}
-              disabled={!connected || !!activeGameId || sessionLost}
-              onClick={() => send({ t: "queue", minutes })}
+              disabled={!connected || !!activeGameId || sessionLost || !!banned}
+              onClick={() => send({ t: "queue", tc, rated: rated && !user.isGuest, variant: "xiangqi" })}
             >
-              Tìm đối thủ · {minutes} phút
+              Tìm đối thủ · {tc}
             </button>
           )}
 
@@ -138,12 +171,35 @@ export function OnlineLobby({ user }: { user: PublicUser }) {
         </div>
       </section>
 
+      <section className={`card ${styles.live}`} aria-labelledby="live-title">
+        <div className={styles.liveHead}>
+          <h2 id="live-title" className={styles.h2}>Đang thi đấu</h2>
+          <span className={styles.liveDot}>Trực tiếp</span>
+        </div>
+        {!stats?.games.length ? (
+          <p className="muted">Chưa có ván nào đang diễn ra.</p>
+        ) : (
+          <ul className={styles.liveList}>
+            {stats.games.map((g) => (
+              <li key={g.id} className={styles.liveRow}>
+                <span className={styles.livePlayers}>
+                  <span><span className={styles.dotRed} aria-hidden="true" />{g.red.displayName} <span className="muted">({g.red.rating})</span></span>
+                  <span><span className={styles.dotBlack} aria-hidden="true" />{g.black.displayName} <span className="muted">({g.black.rating})</span></span>
+                </span>
+                <span className="muted">{tcLabel(g.minutes, g.increment)} · {g.rated ? "tính điểm" : "giao hữu"} · nước {g.plies}</span>
+                <Link href={`/game/${g.id}`} className="btn">Xem</Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       <section className={styles.cards}>
         <Link href={`/u/${user.username}`} className={`card ${styles.cardLink}`}>
           <span className={`seal ${styles.cardSeal}`} style={{ background: "#3d4f7a" }}>我</span>
           <span>
             <strong>{user.displayName}</strong>
-            <span className="muted">Elo {user.rating} · Xem hồ sơ và lịch sử ván</span>
+            <span className="muted">{user.isGuest ? "Tài khoản khách" : `Elo ${user.rating}`} · Xem hồ sơ và lịch sử ván</span>
           </span>
         </Link>
         <Link href="/leaderboard" className={`card ${styles.cardLink}`}>

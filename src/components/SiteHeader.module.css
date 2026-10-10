@@ -131,12 +131,9 @@
   .brand {
     flex: 1 1 auto;
   }
+  /* Điện thoại dùng thanh tab dưới đáy (BottomTabs) thay cho menu trên. */
   .nav {
-    order: 3;
-    flex: 1 1 100%;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
+    display: none;
   }
   .link {
     white-space: nowrap;
@@ -148,4 +145,36 @@
   .user {
     padding: 2px;
   }
+}
+
+.iconButton {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.iconButton[aria-pressed="true"] {
+  color: var(--text);
+}
+
+.coins {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(217, 164, 65, 0.35);
+  background: var(--surface-2);
+  color: var(--gold-text);
+  font-weight: 700;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
 }

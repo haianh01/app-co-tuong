@@ -5,9 +5,17 @@ import { XiangqiBoard } from "@/components/board/XiangqiBoard";
 import { ResultOverlay } from "@/components/game/GamePanels";
 import { Move, applyMove, findKing, inCheck, legalMovesFrom, outcome, parseFen, sideOf } from "@/lib/xiangqi/engine";
 import { PUZZLES } from "@/lib/xiangqi/puzzles";
+import { playSound } from "@/lib/sound";
 import styles from "./puzzle.module.css";
 
 type Status = "play" | "wrong" | "solved";
+
+/** Mã cố định cho quân (thế cờ thế chỉ có tối đa một nước trước khi đặt lại). */
+function pieceIdsAfter(board: (string | null)[], last: Move | null): (number | null)[] {
+  const ids = board.map((p, i) => (p ? i : null));
+  if (last) ids[last.to] = last.from;
+  return ids;
+}
 
 export function PuzzleClient() {
   const [index, setIndex] = useState(0);
@@ -81,12 +89,14 @@ function PuzzleBoard({ index, onSolved, onNext }: { index: number; onSolved: () 
     const move = { from: selected, to: i };
     const next = applyMove(pos, move);
     const o = outcome(next);
+    playSound(o.over ? "check" : pos.board[move.to] ? "capture" : inCheck(next.board, next.turn) ? "check" : "move");
     setPos(next);
     setLastMove(move);
     setSelected(null);
     setTries((t) => t + 1);
     if (o.over && o.winner === "r") {
       setStatus("solved");
+      setTimeout(() => playSound("win"), 250);
       onSolved();
     } else {
       setStatus("wrong");
@@ -106,6 +116,7 @@ function PuzzleBoard({ index, onSolved, onNext }: { index: number; onSolved: () 
       <section className={styles.center} aria-label="Bàn cờ thế">
         <XiangqiBoard
           board={pos.board}
+          ids={pieceIdsAfter(pos.board, lastMove)}
           selected={selected}
           targets={targets}
           lastMove={lastMove}

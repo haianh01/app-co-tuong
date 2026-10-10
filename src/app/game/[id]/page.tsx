@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { connection } from "next/server";
 import { Suspense } from "react";
+import type { Variant } from "@/lib/online/protocol";
 import type { Side } from "@/lib/xiangqi/engine";
 import type { EndReason } from "@/lib/xiangqi/game";
+import { toPlayerInfo } from "@/server/auth";
 import { getCurrentUser } from "@/server/current-user";
 import { getDb } from "@/server/db";
 import { getGameRecord, type GameRecord } from "@/server/queries";
@@ -22,7 +24,12 @@ export default function GamePage({ params }: PageProps<"/game/[id]">) {
 function toReplay(r: GameRecord): ReplayData {
   return {
     id: r.id,
+    variant: r.variant as Variant,
     minutes: r.minutes,
+    increment: r.increment,
+    rated: r.rated,
+    tournamentId: r.tournamentId,
+    setup: r.setup,
     winner: (r.winner as Side | null) ?? null,
     reason: r.reason as EndReason,
     moves: r.moves,
@@ -39,6 +46,5 @@ async function GameLoader({ params }: Pick<PageProps<"/game/[id]">, "params">) {
   const user = await getCurrentUser();
   const record = /^[A-Za-z0-9]{6,12}$/.test(id) ? await getGameRecord(await getDb(), id) : null;
   if (record) return <GameReplay data={toReplay(record)} viewerId={user?.id ?? null} />;
-  const me = user ? { id: user.id, username: user.username, displayName: user.displayName, rating: user.rating } : null;
-  return <OnlineGame key={id} gameId={id} me={me} />;
+  return <OnlineGame key={id} gameId={id} me={user ? toPlayerInfo(user) : null} />;
 }

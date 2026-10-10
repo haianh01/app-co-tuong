@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Be_Vietnam_Pro, Noto_Serif, Noto_Serif_SC } from "next/font/google";
+import { Suspense } from "react";
+import { BottomTabs, BottomTabsLive } from "@/components/BottomTabs";
 import { SiteFooter } from "@/components/SiteFooter";
 import { SiteHeader } from "@/components/SiteHeader";
 import { SessionProvider } from "@/components/session/SessionProvider";
@@ -58,6 +60,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           <SiteHeader />
           {children}
           <SiteFooter />
+          <Suspense fallback={<BottomTabs pathname={null} />}>
+            <BottomTabsLive />
+          </Suspense>
         </SessionProvider>
       </body>
     </html>

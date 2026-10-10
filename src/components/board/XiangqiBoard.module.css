@@ -39,7 +39,8 @@
   font-family: var(--font-han);
   font-weight: 900;
   font-size: 30px;
-  fill: rgba(90, 52, 24, 0.75);
+  fill: var(--board-line);
+  opacity: 0.72;
   text-anchor: middle;
   dominant-baseline: central;
   letter-spacing: 6px;
@@ -49,7 +50,8 @@
   font-family: var(--font-body);
   font-size: 14px;
   font-weight: 600;
-  fill: #7a5230;
+  fill: var(--board-line);
+  opacity: 0.8;
   text-anchor: middle;
   dominant-baseline: central;
 }
@@ -68,12 +70,32 @@
   display: grid;
   place-items: center;
   padding: 0;
-  transition: transform 120ms ease, box-shadow 120ms ease;
+  /* left/top chuyển mượt: quân trượt tới ô mới thay vì nhảy (cần mã quân cố định, xem prop `ids`). */
+  transition: left 180ms ease, top 180ms ease, transform 120ms ease, box-shadow 120ms ease;
   z-index: 1;
+  touch-action: manipulation;
 }
 
 .board[data-disabled] .piece {
   cursor: default;
+}
+
+.dragging {
+  transition: box-shadow 120ms ease;
+  z-index: 6;
+  cursor: grabbing;
+  box-shadow: 0 0 0 3px var(--gold), 0 14px 22px rgba(0, 0, 0, 0.5);
+}
+
+/* Quân úp (cờ úp): mặt sau có hoa văn, không có chữ. */
+.hidden {
+  background:
+    repeating-linear-gradient(45deg, transparent 0 6%, rgba(0, 0, 0, 0.12) 6% 12%),
+    var(--piece-edge);
+}
+
+.hidden .face {
+  border-style: dashed;
 }
 
 .face {

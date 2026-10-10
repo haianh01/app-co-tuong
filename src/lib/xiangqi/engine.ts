@@ -266,3 +266,47 @@ export function outcome(pos: Position): Outcome {
 export function insufficientMaterial(board: Board): boolean {
   return board.every((p) => !p || "kab".includes(typeOf(p)));
 }
+
+/** Phe `side` còn quân có thể chiếu bí (xe, mã, pháo, tốt) không. */
+export function hasMatingMaterial(board: Board, side: Side): boolean {
+  return board.some((p) => !!p && sideOf(p) === side && "rncp".includes(typeOf(p)));
+}
+
+/** Các ô có quân phe `by` ăn được quân đang đứng ở ô `target` (theo cách đi, không xét tự lộ tướng). */
+export function attackersOf(board: Board, target: number, by: Side): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < board.length; i++) {
+    const p = board[i];
+    if (p && sideOf(p) === by && pseudoMoves(board, i).includes(target)) out.push(i);
+  }
+  return out;
+}
+
+/** Ô `target` có được phe `side` bảo vệ không: nếu quân ở đó bị ăn, phe `side` ăn lại được. */
+export function isDefended(board: Board, target: number, side: Side): boolean {
+  // Đặt tạm một quân đối phương vào ô đích để sinh các nước "ăn lại".
+  const probe = board.slice();
+  probe[target] = side === "r" ? "p" : "P";
+  return attackersOf(probe, target, side).length > 0;
+}
+
+/**
+ * Các quân của đối phương bị "đuổi bắt" sau nước đi của `mover` (luật trường sát, đơn giản hóa):
+ * quân vừa trở thành bị đe dọa ăn, và không được bảo vệ — hoặc là Xe bị Mã/Pháo đe dọa.
+ * Không tính Tướng (đó là chiếu) và Tốt chưa qua sông.
+ */
+export function chasedPieces(before: Board, after: Board, mover: Side): number[] {
+  const victimSide = opponent(mover);
+  const out: number[] = [];
+  for (let i = 0; i < after.length; i++) {
+    const v = after[i];
+    if (!v || sideOf(v) !== victimSide) continue;
+    const t = typeOf(v);
+    if (t === "k" || (t === "p" && !crossedRiver(rowOf(i), victimSide))) continue;
+    const now = attackersOf(after, i, mover);
+    if (!now.length || attackersOf(before, i, mover).length) continue;
+    const rookByMinor = t === "r" && now.some((a) => "nc".includes(typeOf(after[a]!)));
+    if (rookByMinor || !isDefended(after, i, victimSide)) out.push(i);
+  }
+  return out;
+}

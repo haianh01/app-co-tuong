@@ -1,27 +1,31 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { XiangqiBoard } from "@/components/board/XiangqiBoard";
 import { MoveList, PlayerCard, ResultOverlay } from "@/components/game/GamePanels";
 import { formatClock } from "@/hooks/useClock";
+import { useMoveSounds, useResultSound } from "@/hooks/useGameSounds";
 import { useSocket } from "@/hooks/useSocket";
 import { USER_REFRESH_EVENT } from "@/lib/events";
-import type { GameSnapshot, PlayerInfo } from "@/lib/online/protocol";
+import { QUICK_CHAT, tcLabel, type GameSnapshot, type PlayerInfo } from "@/lib/online/protocol";
 import { Move, Side, findKing, inCheck, legalMovesFrom, opponent, sideOf } from "@/lib/xiangqi/engine";
-import { currentPosition, describeResult, replayMoves } from "@/lib/xiangqi/game";
+import { currentPosition, describeResult, pieceIds, replayMoves } from "@/lib/xiangqi/game";
 import play from "@/app/play/play.module.css";
 import styles from "./game.module.css";
 
 const sideName = (s: Side) => (s === "r" ? "Đỏ" : "Đen");
 
 export function OnlineGame({ gameId, me }: { gameId: string; me: PlayerInfo | null }) {
+  const router = useRouter();
   const [snap, setSnap] = useState<{ game: GameSnapshot; at: number } | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [pending, setPending] = useState<Move | null>(null);
   const [selection, setSelection] = useState<{ ply: number; square: number } | null>(null);
   const [confirmResign, setConfirmResign] = useState(false);
+  const [chatCooldown, setChatCooldown] = useState(false);
   const [now, setNow] = useState(0);
 
   const { send, status } = useSocket({
@@ -33,6 +37,9 @@ export function OnlineGame({ gameId, me }: { gameId: string; me: PlayerInfo | nu
         setNotFound(false);
       } else if (msg.t === "notFound" && msg.gameId === gameId) {
         setNotFound(true);
+      } else if (msg.t === "matched" && msg.gameId !== gameId) {
+        // Hai bên đồng ý đấu lại: chuyển sang ván mới.
+        router.push(`/game/${msg.gameId}`);
       } else if (msg.t === "error") {
         setNotice(msg.message);
       }
@@ -67,11 +74,21 @@ export function OnlineGame({ gameId, me }: { gameId: string; me: PlayerInfo | nu
     return () => clearTimeout(id);
   }, [confirmResign]);
 
+  useEffect(() => {
+    if (!chatCooldown) return;
+    const id = setTimeout(() => setChatCooldown(false), 1600);
+    return () => clearTimeout(id);
+  }, [chatCooldown]);
+
   // Nước vừa đi được hiện ngay (chờ server xác nhận); server gửi trạng thái mới thì thay thế.
   const state = useMemo(
     () => replayMoves(game ? [...game.moves, ...(pending ? [pending] : [])] : []),
     [game, pending],
   );
+
+  const mySide: Side | null = me && game ? (game.players.r.id === me.id ? "r" : game.players.b.id === me.id ? "b" : null) : null;
+  useMoveSounds(state.moves);
+  useResultSound(game?.status === "ended" ? game.result : null, mySide);
 
   if (!game || !snap) {
     return (
@@ -89,7 +106,6 @@ export function OnlineGame({ gameId, me }: { gameId: string; me: PlayerInfo | nu
     );
   }
 
-  const mySide: Side | null = me ? (game.players.r.id === me.id ? "r" : game.players.b.id === me.id ? "b" : null) : null;
   const bottom: Side = mySide ?? "r";
   const pos = currentPosition(state);
   const ply = state.moves.length;
@@ -107,6 +123,7 @@ export function OnlineGame({ gameId, me }: { gameId: string; me: PlayerInfo | nu
   const checkSquare = inCheck(pos.board, pos.turn) ? findKing(pos.board, pos.turn) : null;
   const lastMove = state.moves[ply - 1]?.move ?? null;
   const opp = mySide ? opponent(mySide) : null;
+  const tc = tcLabel(game.minutes, game.increment);
 
   const onSquareClick = (i: number) => {
     if (!canMove || !mySide) return;
@@ -128,7 +145,11 @@ export function OnlineGame({ gameId, me }: { gameId: string; me: PlayerInfo | nu
   const card = (s: Side) => {
     const p = game.players[s];
     const delta = game.ratingChange?.[s];
-    const ratingText = delta === undefined ? `Elo ${p.rating}` : `Elo ${p.rating + delta} (${delta >= 0 ? "+" : "−"}${Math.abs(delta)})`;
+    const ratingText = p.isGuest
+      ? "Khách"
+      : delta === undefined
+        ? `Elo ${p.rating}`
+        : `Elo ${p.rating + delta} (${delta >= 0 ? "+" : "−"}${Math.abs(delta)})`;
     const away = playing && game.moves.length >= 2 && !game.connected[s] ? " · mất kết nối" : "";
     return (
       <PlayerCard
@@ -136,6 +157,8 @@ export function OnlineGame({ gameId, me }: { gameId: string; me: PlayerInfo | nu
         name={s === mySide ? `${p.displayName} (Bạn)` : p.displayName}
         subtitle={`${ratingText} · ${sideName(s)}${away}`}
         avatar={p.displayName.slice(0, 1).toUpperCase()}
+        avatarId={p.avatar}
+        frameId={p.frame}
         highlight={s === mySide}
         clock={formatClock(clockOf(s))}
         clockActive={clockSide === s}
@@ -155,11 +178,35 @@ export function OnlineGame({ gameId, me }: { gameId: string; me: PlayerInfo | nu
   } else if (mySide) statusText = mySide === pos.turn ? "Đến lượt bạn" : "Đối thủ đang suy nghĩ…";
   else statusText = `Lượt ${sideName(pos.turn)}`;
 
+  const rematchButtons = (() => {
+    if (!mySide || game.tournamentId) return null;
+    const r = game.rematch;
+    if (r.gameId) return <Link href={`/game/${r.gameId}`} className="btn btn-primary">Vào ván đấu lại</Link>;
+    if (r.offeredBy === mySide) return <button type="button" className="btn" disabled>Đã mời đấu lại…</button>;
+    if (r.offeredBy === opp) {
+      return (
+        <>
+          <button type="button" className="btn btn-primary" onClick={() => send({ t: "rematch", gameId, action: "accept" })}>
+            Đồng ý đấu lại
+          </button>
+          <button type="button" className="btn" onClick={() => send({ t: "rematch", gameId, action: "decline" })}>
+            Từ chối
+          </button>
+        </>
+      );
+    }
+    return <button type="button" className="btn btn-primary" onClick={() => send({ t: "rematch", gameId, action: "offer" })}>Đấu lại</button>;
+  })();
+
   const overlay = (() => {
     if (game.status === "playing") return null;
     const actions = (
       <>
-        {mySide && <Link href={`/online?queue=${game.minutes}`} className="btn btn-primary">Ván mới · {game.minutes} phút</Link>}
+        {rematchButtons}
+        {mySide && !game.tournamentId && (
+          <Link href={`/online?tc=${encodeURIComponent(tc)}&rated=${game.rated ? 1 : 0}`} className="btn">Ván mới · {tc}</Link>
+        )}
+        {game.tournamentId && <Link href={`/tournaments/${game.tournamentId}`} className="btn btn-primary">Về giải đấu</Link>}
         <Link href="/online" className="btn">Về sảnh</Link>
       </>
     );
@@ -170,9 +217,11 @@ export function OnlineGame({ gameId, me }: { gameId: string; me: PlayerInfo | nu
     const delta = mySide ? game.ratingChange?.[mySide] : undefined;
     const ratingLine = !mySide
       ? ""
-      : delta === undefined
-        ? " · Đang cập nhật Elo…"
-        : ` · Elo ${delta >= 0 ? "+" : "−"}${Math.abs(delta)}`;
+      : !game.rated
+        ? " · Ván giao hữu"
+        : delta === undefined
+          ? " · Đang cập nhật Elo…"
+          : ` · Elo ${delta >= 0 ? "+" : "−"}${Math.abs(delta)}`;
     return (
       <ResultOverlay seal={text.seal} title={text.title} detail={text.detail + ratingLine}>
         {actions}
@@ -199,6 +248,7 @@ export function OnlineGame({ gameId, me }: { gameId: string; me: PlayerInfo | nu
       <section className={play.center} aria-label="Bàn cờ">
         <XiangqiBoard
           board={pos.board}
+          ids={pieceIds(state)}
           orientation={bottom}
           selected={selected}
           targets={targets}
@@ -215,7 +265,9 @@ export function OnlineGame({ gameId, me }: { gameId: string; me: PlayerInfo | nu
         <div className={`card ${play.panel} ${play.controls}`}>
           <div className={play.panelHead}>
             <h2 className={play.panelTitle}>Biên bản</h2>
-            <span className="muted">{game.minutes} phút · {ply} nửa nước</span>
+            <span className="muted">
+              {tc} · {game.rated ? "Tính điểm" : "Giao hữu"} · {ply} nửa nước
+            </span>
           </div>
           <MoveList moves={state.moves} />
           {mySide && playing && (
@@ -264,6 +316,37 @@ export function OnlineGame({ gameId, me }: { gameId: string; me: PlayerInfo | nu
             <p className={styles.offer} role="alert">Đối thủ đề nghị hòa.</p>
           )}
           {notice && <p className={styles.warn} role="alert">{notice}</p>}
+        </div>
+
+        <div className={`card ${play.panel} ${play.setup}`}>
+          <h2 className={play.panelTitle}>Trò chuyện</h2>
+          <ul className={styles.chat} aria-live="polite" aria-label="Tin nhắn trong ván">
+            {game.chat.length === 0 && <li className="muted">Chưa có tin nhắn.</li>}
+            {game.chat.slice(-12).map((c, i) => (
+              <li key={`${c.at}-${i}`}>
+                <strong className={c.side === "r" ? styles.chatRed : undefined}>{game.players[c.side].displayName}:</strong>{" "}
+                {QUICK_CHAT[c.phrase]}
+              </li>
+            ))}
+          </ul>
+          {mySide && (
+            <div className={styles.phrases}>
+              {QUICK_CHAT.map((text, i) => (
+                <button
+                  key={text}
+                  type="button"
+                  className={styles.phrase}
+                  disabled={chatCooldown || !connected}
+                  onClick={() => {
+                    setChatCooldown(true);
+                    send({ t: "chat", gameId, phrase: i });
+                  }}
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </main>

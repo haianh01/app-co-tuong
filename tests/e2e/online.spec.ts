@@ -82,3 +82,49 @@ test("hai người chơi: ghép cặp, đánh, tải lại, cầu hòa, xin thua
   await b.waitForURL("**/");
   await expect(b.getByRole("link", { name: "Đăng nhập" })).toBeVisible();
 });
+
+test("khách chơi thử ván giao hữu, chat nhanh, đấu lại, AI phân tích ván", async ({ browser }) => {
+  const guestCtx = await browser.newContext();
+  const guest = await guestCtx.newPage();
+  await guest.goto("/online");
+  await guest.getByRole("button", { name: "Chơi thử không cần tài khoản" }).click();
+  await expect(guest.getByRole("heading", { name: "Tìm đối thủ thật" })).toBeVisible();
+  await expect(guest.getByRole("button", { name: "Tính điểm", exact: true })).toBeDisabled();
+
+  const id = uniq();
+  const host = await newPlayer(browser, `chu_${id}`, "Chủ Nhà");
+  await host.getByRole("button", { name: "Không tính điểm" }).click();
+  await host.getByRole("button", { name: /3\+2/ }).click();
+  await host.getByRole("button", { name: /Tìm đối thủ/ }).click();
+  await guest.getByRole("button", { name: /3\+2/ }).click();
+  await guest.getByRole("button", { name: /Tìm đối thủ/ }).click();
+  await Promise.all([host.waitForURL("**/game/**"), guest.waitForURL("**/game/**")]);
+  const firstGame = host.url();
+
+  await expect(host.getByText(/3\+2 · Giao hữu/)).toBeVisible();
+  await host.getByRole("button", { name: "Chào bạn!" }).click();
+  await expect(guest.getByLabel("Tin nhắn trong ván")).toContainText("Chào bạn!");
+
+  const hostIsRed = await host.getByText(/Hãy đi nước đầu/).isVisible();
+  const [red, black] = hostIsRed ? [host, guest] : [guest, host];
+  await move(red, sq(7, 7), sq(7, 4));
+  await expect(black.getByText(/Hãy đi nước đầu/)).toBeVisible();
+  await move(black, sq(0, 7), sq(2, 6));
+  await expect(red.getByText("Đến lượt bạn")).toBeVisible();
+  await black.getByRole("button", { name: "Xin thua" }).click();
+  await black.getByRole("button", { name: "Bấm lần nữa để xin thua" }).click();
+  await expect(red.getByRole("dialog")).toContainText("Ván giao hữu");
+
+  await red.getByRole("dialog").getByRole("button", { name: "Đấu lại" }).click();
+  await black.getByRole("dialog").getByRole("button", { name: "Đồng ý đấu lại" }).click();
+  await Promise.all([red.waitForURL((u) => u.href !== firstGame), black.waitForURL((u) => u.href !== firstGame)]);
+  await red.getByRole("button", { name: "Hủy ván" }).click();
+  await expect(red.getByRole("dialog", { name: "Ván bị hủy" })).toBeVisible();
+
+  // Xem lại ván đầu và cho AI phân tích.
+  await host.goto(firstGame);
+  await expect(host.getByRole("heading", { name: "Xem lại ván" })).toHaveCount(1);
+  await host.getByRole("button", { name: "Phân tích ván" }).click();
+  await expect(host.getByText(/Độ chính xác Đỏ/)).toBeVisible({ timeout: 30_000 });
+  await guestCtx.close();
+});

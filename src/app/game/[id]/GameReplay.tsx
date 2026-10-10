@@ -4,25 +4,36 @@ import Link from "next/link";
 import { useMemo, useState, type KeyboardEvent } from "react";
 import { XiangqiBoard } from "@/components/board/XiangqiBoard";
 import { MoveList, PlayerCard } from "@/components/game/GamePanels";
+import { useMoveSounds } from "@/hooks/useGameSounds";
+import { tcLabel, type Variant } from "@/lib/online/protocol";
 import { Side, findKing, inCheck, opponent } from "@/lib/xiangqi/engine";
-import { describeResult, replayMoves, type EndReason } from "@/lib/xiangqi/game";
+import { describeResult, pieceIds, replayMoves, type EndReason } from "@/lib/xiangqi/game";
 import play from "@/app/play/play.module.css";
+import { AnalysisPanel } from "./AnalysisPanel";
+import { ReportButton } from "./ReportButton";
 import styles from "./game.module.css";
 
 export interface ReplayPlayer {
   id: string;
   username: string;
   displayName: string;
+  avatar: string;
+  frame: string;
   before: number;
   after: number;
 }
 
 export interface ReplayData {
   id: string;
+  variant: Variant;
   minutes: number;
+  increment: number;
+  rated: boolean;
+  tournamentId: string | null;
+  setup: unknown;
   winner: Side | null;
   reason: EndReason;
-  moves: { from: number; to: number }[];
+  moves: { from: number; to: number; reveal?: string }[];
   red: ReplayPlayer;
   black: ReplayPlayer;
   endedAt: string;
@@ -33,6 +44,8 @@ export function GameReplay({ data, viewerId }: { data: ReplayData; viewerId: str
   const total = full.moves.length;
   const [ply, setPly] = useState(total);
   const go = (p: number) => setPly(Math.max(0, Math.min(total, p)));
+  const shown = useMemo(() => full.moves.slice(0, ply), [full, ply]);
+  useMoveSounds(shown);
 
   const mySide: Side | null = viewerId === data.red.id ? "r" : viewerId === data.black.id ? "b" : null;
   const bottom: Side = mySide ?? "r";
@@ -44,17 +57,20 @@ export function GameReplay({ data, viewerId }: { data: ReplayData; viewerId: str
   const card = (s: Side) => {
     const p = s === "r" ? data.red : data.black;
     const d = p.after - p.before;
+    const ratingText = data.rated ? `Elo ${p.before} → ${p.after} (${d >= 0 ? "+" : "−"}${Math.abs(d)})` : `Elo ${p.before}`;
     return (
       <PlayerCard
         className={s === bottom ? play.me : play.opp}
         name={s === mySide ? `${p.displayName} (Bạn)` : p.displayName}
-        subtitle={`Elo ${p.before} → ${p.after} (${d >= 0 ? "+" : "−"}${Math.abs(d)}) · ${s === "r" ? "Đỏ" : "Đen"}`}
+        subtitle={`${ratingText} · ${s === "r" ? "Đỏ" : "Đen"}`}
         avatar={p.displayName.slice(0, 1).toUpperCase()}
+        avatarId={p.avatar}
+        frameId={p.frame}
         highlight={s === mySide}
         clock={null}
         clockActive={false}
         clockLow={false}
-        captured={full.moves.slice(0, ply).filter((m) => m.side === s && m.captured).map((m) => m.captured!)}
+        captured={shown.filter((m) => m.side === s && m.captured).map((m) => m.captured!)}
       />
     );
   };
@@ -67,6 +83,8 @@ export function GameReplay({ data, viewerId }: { data: ReplayData; viewerId: str
     }
   };
 
+  const opponentOfViewer = mySide ? (opponent(mySide) === "r" ? data.red : data.black) : null;
+
   return (
     <main className={play.layout} onKeyDown={onKeyDown}>
       <div className={play.side}>
@@ -75,7 +93,7 @@ export function GameReplay({ data, viewerId }: { data: ReplayData; viewerId: str
           <strong>{result.title}</strong>
           <span className="muted">{result.detail}</span>
           <span className="muted">
-            {data.minutes} phút ·{" "}
+            {tcLabel(data.minutes, data.increment)} · {data.rated ? "Tính điểm" : "Giao hữu"} ·{" "}
             {new Date(data.endedAt).toLocaleString("vi-VN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Ho_Chi_Minh" })}
           </span>
         </div>
@@ -83,7 +101,14 @@ export function GameReplay({ data, viewerId }: { data: ReplayData; viewerId: str
       </div>
 
       <section className={play.center} aria-label="Bàn cờ">
-        <XiangqiBoard board={pos.board} orientation={bottom} lastMove={lastMove} checkSquare={checkSquare} disabled />
+        <XiangqiBoard
+          board={pos.board}
+          ids={pieceIds(full, ply)}
+          orientation={bottom}
+          lastMove={lastMove}
+          checkSquare={checkSquare}
+          disabled
+        />
       </section>
 
       <div className={play.side}>
@@ -100,10 +125,17 @@ export function GameReplay({ data, viewerId }: { data: ReplayData; viewerId: str
           </div>
           <MoveList moves={full.moves} current={ply} onSelect={go} />
           <div className={styles.players}>
-            <span>Hồ sơ: <Link href={`/u/${data.red.username}`}>{data.red.displayName}</Link> · <Link href={`/u/${data.black.username}`}>{data.black.displayName}</Link></span>
+            <span>
+              Hồ sơ: <Link href={`/u/${data.red.username}`}>{data.red.displayName}</Link> ·{" "}
+              <Link href={`/u/${data.black.username}`}>{data.black.displayName}</Link>
+            </span>
           </div>
-          <Link href="/online" className="btn btn-primary">Đấu ván mới</Link>
+          <div className={styles.replayActions}>
+            <Link href="/online" className="btn btn-primary">Đấu ván mới</Link>
+            {opponentOfViewer && <ReportButton targetId={opponentOfViewer.id} targetName={opponentOfViewer.displayName} gameId={data.id} />}
+          </div>
         </div>
+        <AnalysisPanel state={full} ply={ply} onSelect={go} viewer={mySide} />
       </div>
     </main>
   );

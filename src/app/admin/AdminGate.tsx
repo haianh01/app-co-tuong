@@ -16,13 +16,12 @@ export async function AdminGate({ children }: { children: (adminId: string) => R
   return <>{children(user.id)}</>;
 }
 
-export function AdminNav({ current }: { current: "home" | "users" | "reports" | "payments" | "tournaments" }) {
+export function AdminNav({ current }: { current: "home" | "users" | "reports" | "payments" }) {
   const links = [
     { id: "home", href: "/admin", label: "Tổng quan" },
     { id: "users", href: "/admin/users", label: "Người chơi" },
     { id: "reports", href: "/admin/reports", label: "Báo cáo" },
     { id: "payments", href: "/admin/payments", label: "Thanh toán" },
-    { id: "tournaments", href: "/admin/tournaments", label: "Giải đấu" },
   ];
   return (
     <nav className={styles.nav} aria-label="Quản trị">

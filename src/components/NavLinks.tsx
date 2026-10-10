@@ -6,7 +6,8 @@ import styles from "./SiteHeader.module.css";
 
 const LINKS = [
   { href: "/", label: "Sảnh" },
-  { href: "/online", label: "Đấu online", also: ["/game"] },
+  { href: "/online", label: "Đấu online", also: ["/game", "/challenge"] },
+  { href: "/tournaments", label: "Giải đấu" },
   { href: "/play", label: "Chơi với máy" },
   { href: "/puzzle", label: "Cờ thế" },
   { href: "/leaderboard", label: "Xếp hạng", also: ["/u/"] },

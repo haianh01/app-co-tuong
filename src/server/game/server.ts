@@ -3,6 +3,7 @@
 import { randomBytes } from "node:crypto";
 import type { IncomingMessage, Server as HttpServer } from "node:http";
 import type { Duplex } from "node:stream";
+import { and, eq, inArray } from "drizzle-orm";
 import { WebSocket, WebSocketServer } from "ws";
 import type { Side } from "@/lib/xiangqi/engine";
 import {
@@ -11,6 +12,9 @@ import {
 } from "@/lib/online/protocol";
 import { SESSION_COOKIE, getUserById, getUserBySession, isBanned, parseCookies, toPlayerInfo, type AuthUser } from "../auth";
 import type { Database } from "../db";
+import { tournamentPlayers } from "../db/schema";
+import { advanceTournaments, ensureSchedule, joinTournament, runningTournaments } from "../tournaments";
+import { ArenaPool } from "./arena";
 import { ChallengeBook } from "./challenges";
 import { Matchmaker } from "./matchmaker";
 import { saveFinishedGame } from "./persist";
@@ -61,6 +65,8 @@ export class GameServer implements GameServerHandle {
   private readonly activeGame = new Map<string, string>();
   private readonly matchmaker = new Matchmaker();
   private readonly challenges = new ChallengeBook();
+  readonly arena = new ArenaPool();
+  private readonly arenaWatchers = new Map<string, Set<WebSocket>>();
   private readonly watchers = new Map<string, Set<WebSocket>>();
   private readonly lastChat = new Map<string, number>();
   private readonly timers = new Set<NodeJS.Timeout>();
@@ -85,6 +91,8 @@ export class GameServer implements GameServerHandle {
     this.every(this.opts.tickMs ?? 250, () => this.tick());
     this.every(30_000, () => this.heartbeat());
     this.every(10_000, () => this.broadcastAll({ t: "stats", stats: this.stats() }));
+    this.every(30_000, () => void this.syncTournaments());
+    void this.syncTournaments();
     registerGameServer(this);
   }
 
@@ -179,6 +187,7 @@ export class GameServer implements GameServerHandle {
 
   private onClose(ws: WebSocket, conn: Conn) {
     this.conns.delete(ws);
+    for (const set of this.arenaWatchers.values()) set.delete(ws);
     for (const gameId of conn.watching) this.watchers.get(gameId)?.delete(ws);
     if (conn.user) {
       const set = this.userSockets.get(conn.user.id);
@@ -186,6 +195,7 @@ export class GameServer implements GameServerHandle {
       if (!set?.size) {
         this.userSockets.delete(conn.user.id);
         this.matchmaker.remove(conn.user.id);
+        this.arena.drop(conn.user.id);
       }
       for (const gameId of conn.watching) this.refreshPresence(gameId, conn.user.id);
     }
@@ -252,6 +262,7 @@ export class GameServer implements GameServerHandle {
     if (msg.t === "watch") return this.watch(ws, conn, msg.gameId);
     if (msg.t === "unwatch") return this.unwatch(ws, conn, msg.gameId);
     if (msg.t === "challengeInfo") return this.challengeInfo(ws, msg.code);
+    if (msg.t === "arenaWatch") return this.watchArena(ws, msg.id);
 
     const user = conn.user;
     if (!user) {
@@ -275,6 +286,12 @@ export class GameServer implements GameServerHandle {
         return;
       case "challengeAccept":
         return this.acceptChallenge(ws, conn, user, msg.code);
+      case "arenaJoin":
+        return void this.joinArena(ws, conn, user, msg.id);
+      case "arenaLeave":
+        this.arena.unready(msg.id, user.id);
+        this.sendUser(user.id, { t: "arena", id: msg.id, ready: false });
+        return;
       default:
         return this.act(ws, user, msg);
     }
@@ -443,6 +460,84 @@ export class GameServer implements GameServerHandle {
     });
   }
 
+  // ---- Giải Arena ----
+
+  /** Tạo lịch giải, chuyển trạng thái theo giờ, nạp các giải đang chạy vào bộ ghép cặp. */
+  async syncTournaments() {
+    try {
+      const now = this.now();
+      await ensureSchedule(this.opts.db, now);
+      const busy = new Set<string>();
+      for (const room of this.rooms.values()) if (room.status === "playing" && room.tournamentId) busy.add(room.tournamentId);
+      const { started, finished } = await advanceTournaments(this.opts.db, now, busy);
+      const running = await runningTournaments(this.opts.db);
+      this.arena.sync(
+        running.map((t) => ({ id: t.id, minutes: t.minutes, increment: t.increment, variant: t.variant, endsAt: t.endsAt.getTime() })),
+      );
+      for (const id of [...started, ...finished]) this.arenaUpdate(id);
+    } catch (err) {
+      this.log("Không cập nhật được giải đấu", err);
+    }
+  }
+
+  private watchArena(ws: WebSocket, id: string) {
+    const set = this.arenaWatchers.get(id) ?? new Set();
+    set.add(ws);
+    this.arenaWatchers.set(id, set);
+    const user = this.conns.get(ws)?.user;
+    if (user) this.send(ws, { t: "arena", id, ready: this.arena.isReady(id, user.id) });
+  }
+
+  private async joinArena(ws: WebSocket, conn: Conn, user: PlayerInfo, id: string) {
+    if (conn.banned) {
+      this.send(ws, { t: "error", message: "Tài khoản của bạn đang bị khóa chơi online." });
+      return;
+    }
+    const res = await joinTournament(this.opts.db, id, user.id, this.now());
+    if (!res.ok) {
+      this.send(ws, { t: "error", message: res.error });
+      return;
+    }
+    const [row] = await this.opts.db
+      .select({ score: tournamentPlayers.score })
+      .from(tournamentPlayers)
+      .where(and(eq(tournamentPlayers.tournamentId, id), eq(tournamentPlayers.userId, user.id)));
+    if (!this.userSockets.has(user.id)) return; // Đã rời mạng trong lúc chờ DB.
+    this.arena.setReady(id, conn.user ?? user, row?.score ?? 0);
+    this.watchArena(ws, id);
+    this.sendUser(user.id, { t: "arena", id, ready: true });
+    this.arenaUpdate(id);
+  }
+
+  private pairArenas() {
+    const pairs = this.arena.pair(this.now(), (id) => this.userSockets.has(id) && !this.activeGame.has(id));
+    for (const p of pairs) {
+      this.createRoom({
+        players: [p.red, p.black],
+        firstSide: "r",
+        minutes: p.arena.minutes,
+        options: { increment: p.arena.increment, rated: true, variant: p.arena.variant as Variant, tournamentId: p.arena.id },
+      });
+    }
+  }
+
+  /** Ván giải đấu vừa xong: cập nhật điểm trong bộ ghép cặp và báo các trang đang xem giải. */
+  private async arenaGameDone(room: GameRoom) {
+    const id = room.tournamentId!;
+    const ids = [room.players.r.id, room.players.b.id];
+    const rows = await this.opts.db
+      .select({ userId: tournamentPlayers.userId, score: tournamentPlayers.score })
+      .from(tournamentPlayers)
+      .where(and(eq(tournamentPlayers.tournamentId, id), inArray(tournamentPlayers.userId, ids)));
+    this.arena.finished(id, ids[0], ids[1], Object.fromEntries(rows.map((r) => [r.userId, r.score])), this.now());
+    this.arenaUpdate(id);
+  }
+
+  private arenaUpdate(id: string) {
+    const data = JSON.stringify({ t: "arenaUpdate", id } satisfies ServerMessage);
+    for (const ws of this.arenaWatchers.get(id) ?? []) if (ws.readyState === WebSocket.OPEN) ws.send(data);
+  }
+
   // ---- Đấu lại ----
 
   private rematch(ws: WebSocket, conn: Conn, user: PlayerInfo, gameId: string, action: "offer" | "accept" | "decline") {
@@ -520,6 +615,7 @@ export class GameServer implements GameServerHandle {
       if (room.update(now)) this.changed(room);
     }
     if (this.matchmaker.size > 1) this.pairQueue();
+    this.pairArenas();
     for (const c of this.challenges.sweep(now)) this.sendUser(c.by.id, { t: "challenge", challenge: null });
   }
 
@@ -542,10 +638,12 @@ export class GameServer implements GameServerHandle {
           room.ratingChange = delta;
           for (const side of SIDES) this.updateRating(room.players[side].id, after[side]);
           this.broadcast(room);
+          if (room.tournamentId) this.arenaGameDone(room).catch((err) => this.log("Lỗi cập nhật giải", err));
           this.onRoomFinished?.(room);
         })
         .catch((err) => this.log(`Không lưu được ván ${room.id}`, err));
     } else {
+      if (room.tournamentId) this.arenaGameDone(room).catch((err) => this.log("Lỗi cập nhật giải", err));
       this.onRoomFinished?.(room);
     }
     this.after(this.opts.endedRoomTtlMs ?? 10 * 60_000, () => this.removeRoom(room.id));

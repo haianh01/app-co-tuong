@@ -11,8 +11,8 @@ const MODES = [
   { seal: "殘局", bg: "#5a3e6e", title: "Cờ thế · Tàn cuộc", desc: `${PUZZLES.length} thế sát cục kinh điển, hệ thống tự chấm đúng sai.`, href: "/puzzle" },
   { seal: "榜", bg: "#8a5a12", title: "Bảng xếp hạng", desc: "Những kỳ thủ có Elo cao nhất, xem hồ sơ và ván đấu của họ.", href: "/leaderboard" },
   { seal: "揭棋", bg: "#2f5d50", title: "Cờ úp", desc: "Quân úp ngẫu nhiên, lật mới biết. Mỗi ván một thế trận.", soon: true },
-  { seal: "好友", bg: "#3d4f7a", title: "Phòng bạn bè", desc: "Tạo phòng riêng, gửi mã mời, tự chọn luật chơi.", soon: true },
-  { seal: "比賽", bg: "#7a3b5c", title: "Giải đấu", desc: "Giải loại trực tiếp hằng ngày, thưởng xu và khung avatar.", soon: true },
+  { seal: "好友", bg: "#3d4f7a", title: "Phòng bạn bè", desc: "Tạo link mời, gửi qua Zalo hay Messenger, bạn bấm là vào ván.", href: "/online#friends-title" },
+  { seal: "比賽", bg: "#7a3b5c", title: "Giải đấu", desc: "Arena trưa và tối mỗi ngày, đấu liên tục, thưởng xu và khung Quán quân.", href: "/tournaments" },
 ];
 
 export default function Home() {

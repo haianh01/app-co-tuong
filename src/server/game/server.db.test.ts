@@ -10,7 +10,7 @@ import type { GameSnapshot, ServerMessage } from "@/lib/online/protocol";
 import { resetDb } from "@/test/db";
 import { createGuest, createSession, registerUser } from "../auth";
 import type { Database } from "../db";
-import { games, users } from "../db/schema";
+import { games, tournamentPlayers, tournaments, users } from "../db/schema";
 import { GameServer } from "./server";
 
 type Msg<T extends ServerMessage["t"]> = Extract<ServerMessage, { t: T }>;
@@ -424,5 +424,73 @@ describe("phòng bạn bè", () => {
     c.send({ t: "challengeCreate", tc: "99+0", rated: false, variant: "xiangqi", color: "r" });
     await c.waitFor("error", (m) => /không hợp lệ/.test(m.message));
     c.close();
+  });
+});
+
+describe("giải Arena", () => {
+  it("đăng ký sẵn sàng thì tự được ghép; xong ván được cộng điểm, nghỉ vài giây rồi ghép ván mới đổi màu; tạm nghỉ thì thôi", async () => {
+    const server = servers.at(-1)!.server;
+    for (const n of ["quang", "son"]) {
+      const res = await registerUser(db, { username: n, displayName: n.toUpperCase(), password: "matkhau123" });
+      if (!res.ok) throw new Error(JSON.stringify(res.errors));
+      ids[n] = res.user.id;
+      tokens[n] = (await createSession(db, res.user.id)).token;
+    }
+    const tid = "ztest01";
+    await db.insert(tournaments).values({
+      id: tid, name: "Arena thử", startsAt: new Date(clock - 60_000), endsAt: new Date(clock + 60 * 60_000),
+      minutes: 3, increment: 2, status: "running", prizes: [100],
+    });
+    await server.syncTournaments();
+
+    const q = await connect("quang");
+    const s = await connect("son");
+    const viewer = await connect();
+    viewer.send({ t: "arenaWatch", id: tid });
+    q.send({ t: "arenaJoin", id: tid });
+    await q.waitFor("arena", (m) => m.ready);
+    s.send({ t: "arenaJoin", id: tid });
+    const { gameId } = await q.waitFor("matched");
+    expect((await s.waitFor("matched")).gameId).toBe(gameId);
+    q.send({ t: "watch", gameId });
+    s.send({ t: "watch", gameId });
+    const g = await q.game();
+    expect(g).toMatchObject({ tournamentId: tid, rated: true, minutes: 3, increment: 2 });
+    const [red, black] = g.players.r.id === ids.quang ? [q, s] : [s, q];
+    const firstRed = g.players.r.id;
+    await open(red, black, gameId);
+    black.send({ t: "resign", gameId });
+    await viewer.waitFor("arenaUpdate", (m) => m.id === tid);
+    await waitUntil(async () => {
+      const [r] = await db.select().from(tournamentPlayers).where(eq(tournamentPlayers.userId, firstRed));
+      return r?.score === 2;
+    });
+
+    // Đang nghỉ: chưa ghép ngay.
+    await advance(1000);
+    await expect(q.waitFor("matched", () => true, 150)).rejects.toThrow();
+    await advance(4000);
+    const next = (await q.waitFor("matched")).gameId;
+    expect(next).not.toBe(gameId);
+    q.send({ t: "watch", gameId: next });
+    const g2 = await q.game((x) => x.id === next);
+    expect(g2.players.b.id).toBe(firstRed);
+
+    // Hủy ván (chưa đi nước nào) rồi tạm nghỉ: không bị ghép tiếp.
+    q.send({ t: "abort", gameId: next });
+    await q.game((x) => x.id === next && x.status === "aborted");
+    q.send({ t: "arenaLeave", id: tid });
+    await q.waitFor("arena", (m) => !m.ready);
+    await advance(10_000);
+    await expect(q.waitFor("matched", () => true, 200)).rejects.toThrow();
+    for (const c of [q, s, viewer]) c.close();
+  });
+
+  it("khách không tham gia được giải", async () => {
+    const guest = await createGuest(db);
+    const g = await connect(undefined, (await createSession(db, guest.id)).token);
+    g.send({ t: "arenaJoin", id: "ztest01" });
+    await g.waitFor("error", (m) => /Khách/.test(m.message));
+    g.close();
   });
 });

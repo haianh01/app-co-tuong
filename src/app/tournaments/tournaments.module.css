@@ -1,0 +1,177 @@
+.main {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.hero {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kicker {
+  color: var(--gold-text);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 2px;
+}
+
+.title {
+  font-size: clamp(26px, 4vw, 36px);
+}
+
+.h2 {
+  font-size: 22px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.item {
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.item[data-live] {
+  border-color: var(--red);
+}
+
+.seal {
+  width: 52px;
+  height: 52px;
+  flex: none;
+  font-size: 16px;
+  writing-mode: vertical-rl;
+  background: #7a3b5c;
+}
+
+.itemText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.prize {
+  color: var(--gold-text);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.prizes {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 14px;
+}
+
+.arena {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.clock {
+  font-size: 18px;
+}
+
+.clock strong {
+  font-variant-numeric: tabular-nums;
+  color: var(--gold-text);
+}
+
+.readyRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.ready {
+  font-weight: 700;
+  color: #8fd1b0;
+}
+
+.warn {
+  color: var(--red-text);
+  font-size: 14px;
+}
+
+.warn a {
+  text-decoration: underline;
+}
+
+.tableCard {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scroll {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 8px;
+}
+
+.table td {
+  padding: 8px;
+  border-top: 1px solid var(--line);
+}
+
+.table tr[data-me] td {
+  background: rgba(217, 164, 65, 0.1);
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.table th.num {
+  text-align: right;
+}
+
+.player {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

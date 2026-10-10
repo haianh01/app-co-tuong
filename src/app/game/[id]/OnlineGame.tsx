@@ -38,7 +38,7 @@ export function OnlineGame({ gameId, me }: { gameId: string; me: PlayerInfo | nu
       } else if (msg.t === "notFound" && msg.gameId === gameId) {
         setNotFound(true);
       } else if (msg.t === "matched" && msg.gameId !== gameId) {
-        // Hai bên đồng ý đấu lại: chuyển sang ván mới.
+        // Hai bên đồng ý đấu lại, hoặc giải Arena ghép ván tiếp: chuyển sang ván mới.
         router.push(`/game/${msg.gameId}`);
       } else if (msg.t === "error") {
         setNotice(msg.message);
@@ -207,6 +207,11 @@ export function OnlineGame({ gameId, me }: { gameId: string; me: PlayerInfo | nu
           <Link href={`/online?tc=${encodeURIComponent(tc)}&rated=${game.rated ? 1 : 0}`} className="btn">Ván mới · {tc}</Link>
         )}
         {game.tournamentId && <Link href={`/tournaments/${game.tournamentId}`} className="btn btn-primary">Về giải đấu</Link>}
+        {game.tournamentId && mySide && (
+          <button type="button" className="btn" onClick={() => send({ t: "arenaLeave", id: game.tournamentId! })}>
+            Tạm nghỉ (không ghép ván tiếp)
+          </button>
+        )}
         <Link href="/online" className="btn">Về sảnh</Link>
       </>
     );

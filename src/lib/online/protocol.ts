@@ -129,6 +129,7 @@ export interface ChallengeInfo extends QueueKey {
 }
 
 export const CHALLENGE_CODE = /^[a-z2-9]{6}$/;
+export const TOURNAMENT_ID = /^[a-z0-9]{6,12}$/;
 
 export type ClientMessage =
   | ({ t: "queue" } & QueueKey)
@@ -144,7 +145,11 @@ export type ClientMessage =
   | ({ t: "challengeCreate"; color: ChallengeColor } & QueueKey)
   | { t: "challengeCancel" }
   | { t: "challengeInfo"; code: string }
-  | { t: "challengeAccept"; code: string };
+  | { t: "challengeAccept"; code: string }
+  /** Giải Arena: theo dõi bảng điểm / sẵn sàng thi đấu / tạm nghỉ. */
+  | { t: "arenaWatch"; id: string }
+  | { t: "arenaJoin"; id: string }
+  | { t: "arenaLeave"; id: string };
 
 export type ServerMessage =
   | { t: "hello"; user: PlayerInfo | null; activeGameId: string | null; stats: LobbyStats }
@@ -157,7 +162,11 @@ export type ServerMessage =
   /** Lời mời đang mở của chính người dùng (null = không có). */
   | { t: "challenge"; challenge: ChallengeInfo | null }
   /** Thông tin một lời mời theo mã (null = không tồn tại / hết hạn); `online` = người mời đang trực tuyến. */
-  | { t: "challengeInfo"; code: string; challenge: ChallengeInfo | null; online: boolean };
+  | { t: "challengeInfo"; code: string; challenge: ChallengeInfo | null; online: boolean }
+  /** Trạng thái sẵn sàng của chính người dùng trong một giải. */
+  | { t: "arena"; id: string; ready: boolean }
+  /** Bảng điểm / trạng thái giải vừa thay đổi (tải lại để xem). */
+  | { t: "arenaUpdate"; id: string };
 
 const isId = (v: unknown): v is string => typeof v === "string" && /^[A-Za-z0-9]{6,12}$/.test(v);
 const isSquare = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0 && (v as number) < 90;
@@ -182,6 +191,10 @@ export function parseClientMessage(raw: string): ClientMessage | null {
         : null;
     case "challengeCancel":
       return { t: "challengeCancel" };
+    case "arenaWatch":
+    case "arenaJoin":
+    case "arenaLeave":
+      return typeof m.id === "string" && TOURNAMENT_ID.test(m.id) ? { t: m.t, id: m.id } : null;
     case "challengeInfo":
     case "challengeAccept":
       return typeof m.code === "string" && CHALLENGE_CODE.test(m.code) ? { t: m.t, code: m.code } : null;

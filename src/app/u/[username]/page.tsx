@@ -3,10 +3,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
+import { Avatar } from "@/components/Avatar";
+import { computeBadges } from "@/lib/badges";
 import { rankTitle } from "@/lib/online/rank";
+import type { OpeningStat } from "@/lib/xiangqi/openings";
+import { PUZZLES } from "@/lib/xiangqi/puzzles";
 import { REASON_TEXT, type EndReason } from "@/lib/xiangqi/game";
 import { getDb } from "@/server/db";
-import { getProfile, getRecentGames } from "@/server/queries";
+import { getProfile, getProfileExtras, getRecentGames } from "@/server/queries";
 import styles from "./profile.module.css";
 
 export const metadata: Metadata = { title: "Hồ sơ kỳ thủ" };
@@ -30,16 +34,20 @@ async function Profile({ params }: Pick<PageProps<"/u/[username]">, "params">) {
   const db = await getDb();
   const profile = await getProfile(db, decodeURIComponent(username));
   if (!profile) notFound();
-  const games = await getRecentGames(db, profile.id, 30);
+  const [games, extras] = await Promise.all([getRecentGames(db, profile.id, 30), getProfileExtras(db, profile.id)]);
+  const badges = computeBadges({ ...profile, ...extras, puzzlesTotal: PUZZLES.length });
   const title = rankTitle(profile.rating);
   const winRate = profile.gamesPlayed ? Math.round((profile.wins * 100) / profile.gamesPlayed) : 0;
 
   return (
     <>
       <section className={`card ${styles.header}`}>
-        <span className={styles.avatar} aria-hidden="true">{profile.displayName.slice(0, 1).toUpperCase()}</span>
+        <Avatar avatar={profile.avatar} frame={profile.frame} size={88} />
         <div className={styles.who}>
-          <h1 className={styles.name}>{profile.displayName}</h1>
+          <h1 className={styles.name}>
+            {profile.displayName}
+            {extras.vip && <span className={styles.vip}>VIP</span>}
+          </h1>
           <span className="muted">@{profile.username} · Tham gia {profile.createdAt.toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" })}</span>
         </div>
         <div className={styles.rank}>
@@ -65,6 +73,33 @@ async function Profile({ params }: Pick<PageProps<"/u/[username]">, "params">) {
           </div>
         ))}
       </section>
+
+      <section className={`card ${styles.games}`} aria-labelledby="badges">
+        <h2 id="badges" className={styles.h2}>
+          Huy hiệu <span className="muted">{badges.filter((b) => b.earned).length}/{badges.length}</span>
+        </h2>
+        <ul className={styles.badges}>
+          {badges.map((b) => (
+            <li key={b.id} className={styles.badge} data-earned={b.earned || undefined} title={b.desc}>
+              <span className={`seal ${styles.badgeSeal}`} aria-hidden="true">{b.seal}</span>
+              <span>
+                <strong>{b.name}</strong>
+                <span className="muted">{b.earned ? b.desc : `Chưa đạt · ${b.desc}`}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      {(extras.openingsRed.length > 0 || extras.openingsBlack.length > 0) && (
+        <section className={`card ${styles.games}`} aria-labelledby="openings">
+          <h2 id="openings" className={styles.h2}>Khai cuộc ưa dùng</h2>
+          <div className={styles.openingCols}>
+            <OpeningTable caption="Khi cầm Đỏ (nước đầu)" rows={extras.openingsRed} />
+            <OpeningTable caption="Khi cầm Đen (nước đáp)" rows={extras.openingsBlack} />
+          </div>
+        </section>
+      )}
 
       <section className={`card ${styles.games}`} aria-labelledby="recent">
         <h2 id="recent" className={styles.h2}>Ván gần đây</h2>
@@ -101,5 +136,30 @@ async function Profile({ params }: Pick<PageProps<"/u/[username]">, "params">) {
         </ul>
       </section>
     </>
+  );
+}
+
+function OpeningTable({ caption, rows }: { caption: string; rows: OpeningStat[] }) {
+  if (!rows.length) return null;
+  return (
+    <table className={styles.openings}>
+      <caption>{caption}</caption>
+      <thead>
+        <tr>
+          <th scope="col">Khai cuộc</th>
+          <th scope="col">Số ván</th>
+          <th scope="col">Thắng · Hòa · Thua</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.slice(0, 6).map((o) => (
+          <tr key={o.id}>
+            <td>{o.name}</td>
+            <td>{o.games}</td>
+            <td>{o.wins} · {o.draws} · {o.losses} <span className="muted">({Math.round((o.wins * 100) / o.games)}%)</span></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }

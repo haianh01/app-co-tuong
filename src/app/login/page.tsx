@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
+import { OAuthButtons } from "@/components/auth/OAuthButtons";
+import { LoginNotice } from "@/components/auth/RecoveryForms";
 import { LoginForm } from "@/components/auth/AuthForms";
 import styles from "@/components/auth/auth.module.css";
 
@@ -13,7 +16,11 @@ export default function LoginPage() {
           <h1 className={styles.title}>Đăng nhập</h1>
           <p className="muted">Đăng nhập để đấu xếp hạng với người thật.</p>
         </div>
+        <LoginNotice />
         <LoginForm />
+        <Suspense>
+          <OAuthButtons />
+        </Suspense>
       </div>
     </main>
   );

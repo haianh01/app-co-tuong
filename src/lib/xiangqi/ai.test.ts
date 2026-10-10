@@ -7,6 +7,7 @@ import { AI_LEVELS, evaluate, findBestMove, type AiLevel } from "./ai";
 import {
   Board, Position, applyMove, colOf, initialPosition, isLegal, legalMoves, outcome, parseFen, rowOf, sq,
 } from "./engine";
+import { moveWins } from "./mate";
 import { PUZZLES } from "./puzzles";
 
 const LEVELS = [1, 2, 3, 4, 5] as const satisfies readonly AiLevel[];
@@ -75,10 +76,11 @@ describe("tình huống chiến thuật", () => {
     expect(outcome(applyMove(p, move!))).toMatchObject({ over: true, winner: "r" });
   });
 
-  it.each(PUZZLES.map((p) => [p.title, p] as const))("giải được cờ thế '%s'", (_title, puzzle) => {
+  it.each(PUZZLES.map((p) => [p.id, p] as const))("giải được cờ thế %s", (_id, puzzle) => {
     const p = parseFen(puzzle.fen);
     const { move } = findBestMove(p, 3, () => 0);
-    expect(outcome(applyMove(p, move!))).toMatchObject({ over: true, winner: "r" });
+    // Thế 1 nước: chiếu bí ngay. Thế 2 nước: nước đầu phải giữ được thắng ép buộc.
+    expect(moveWins(p, move!, puzzle.depth)).toBe(true);
   });
 
   it("cầm quân Đen cũng chiếu bí được", () => {

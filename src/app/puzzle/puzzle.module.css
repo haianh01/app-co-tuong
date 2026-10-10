@@ -151,3 +151,44 @@
     gap: 8px;
   }
 }
+
+.chapter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chapter + .chapter {
+  margin-top: 10px;
+}
+
+.vip {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  vertical-align: middle;
+  background: rgba(217, 164, 65, 0.2);
+  color: var(--gold-text);
+}
+
+.stars {
+  color: var(--gold-text);
+  letter-spacing: 1px;
+}
+
+.reward {
+  width: 100%;
+  text-align: center;
+  font-weight: 700;
+  color: var(--gold-text);
+}
+
+@media (min-width: 900px) {
+  .list {
+    max-height: calc(100vh - 120px);
+    overflow-y: auto;
+    position: sticky;
+    top: 88px;
+  }
+}

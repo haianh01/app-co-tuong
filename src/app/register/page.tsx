@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
+import { OAuthButtons } from "@/components/auth/OAuthButtons";
 import { RegisterForm } from "@/components/auth/AuthForms";
 import styles from "@/components/auth/auth.module.css";
 
@@ -14,6 +16,9 @@ export default function RegisterPage() {
           <p className="muted">Miễn phí. Bắt đầu với 1.500 điểm Elo.</p>
         </div>
         <RegisterForm />
+        <Suspense>
+          <OAuthButtons />
+        </Suspense>
       </div>
     </main>
   );

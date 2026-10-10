@@ -12,9 +12,14 @@ const subscribe = (onChange: () => void) => {
  * tĩnh được (không cần `<Suspense>` thay nội dung sau khi tải, tránh mất chữ người dùng đang gõ).
  */
 export function useNextParam(fallback = "/online"): string {
+  return useQueryParam("next", fallback);
+}
+
+/** Tham số bất kỳ trên URL, đọc ở client (trên server trả về `fallback`). */
+export function useQueryParam(name: string, fallback = ""): string {
   return useSyncExternalStore(
     subscribe,
-    () => new URLSearchParams(window.location.search).get("next") ?? fallback,
+    () => new URLSearchParams(window.location.search).get(name) ?? fallback,
     () => fallback,
   );
 }

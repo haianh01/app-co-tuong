@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { PUZZLES } from "@/lib/xiangqi/puzzles";
+import { DailyPanel } from "./DailyPanel";
 import { QuickStart } from "./QuickStart";
 import styles from "./page.module.css";
 
@@ -27,6 +29,10 @@ export default function Home() {
         </div>
         <QuickStart />
       </section>
+
+      <Suspense fallback={null}>
+        <DailyPanel />
+      </Suspense>
 
       <section aria-labelledby="modes" className={styles.section}>
         <h2 id="modes" className={styles.h2}>Chế độ chơi</h2>

@@ -1,0 +1,183 @@
+.main {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.title {
+  font-size: 30px;
+}
+
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.nav a {
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.nav a[aria-current="page"] {
+  background: var(--red);
+  color: #fff4e0;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.stat {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.stat strong {
+  font-size: 24px;
+}
+
+.section {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.list {
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.link {
+  color: var(--gold-text);
+  text-decoration: underline;
+}
+
+.search {
+  display: flex;
+  gap: 8px;
+}
+
+.search input,
+.inline input,
+.inline select {
+  min-height: 40px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-sunken);
+  color: var(--text);
+  font: inherit;
+}
+
+.search input {
+  flex: 1;
+}
+
+.tableCard {
+  padding: 8px 16px;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th {
+  text-align: left;
+  padding: 10px 8px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.table td {
+  padding: 10px 8px;
+  border-top: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.tag,
+.tagDanger {
+  display: inline-block;
+  margin: 0 6px 4px 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(217, 164, 65, 0.18);
+  color: var(--gold-text);
+}
+
+.tagDanger {
+  background: rgba(229, 72, 62, 0.18);
+  color: var(--red-text);
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.inline input[type="number"] {
+  width: 110px;
+}
+
+.cards {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reportCard {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.note {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.ok {
+  color: #8fd1b0;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.error {
+  color: var(--red-text);
+  font-weight: 600;
+  font-size: 13px;
+}

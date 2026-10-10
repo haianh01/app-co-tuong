@@ -44,6 +44,9 @@ export function LoginForm() {
         {pending ? "Đang đăng nhập…" : "Đăng nhập"}
       </button>
       <p className={styles.switch}>
+        <Link href="/forgot-password">Quên mật khẩu?</Link>
+      </p>
+      <p className={styles.switch}>
         Chưa có tài khoản? <Link href={`/register?next=${encodeURIComponent(next)}`}>Đăng ký miễn phí</Link>
       </p>
     </form>

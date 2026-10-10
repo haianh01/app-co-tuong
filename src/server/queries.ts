@@ -1,9 +1,12 @@
 // Truy vấn đọc cho các trang (bảng xếp hạng, hồ sơ, xem lại ván).
 
-import { desc, eq, gt, or } from "drizzle-orm";
+import { and, count, desc, eq, gt, or, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Database } from "./db";
-import { games, users } from "./db/schema";
+import { applyMove, initialPosition } from "@/lib/xiangqi/engine";
+import { moveNotation } from "@/lib/xiangqi/notation";
+import { tallyOpenings } from "@/lib/xiangqi/openings";
+import { coinTransactions, games, puzzleProgress, users, type StoredMove } from "./db/schema";
 
 const publicColumns = {
   id: users.id,
@@ -27,7 +30,7 @@ export async function getLeaderboard(db: Database, limit = 50) {
   return db
     .select(publicColumns)
     .from(users)
-    .where(gt(users.gamesPlayed, 0))
+    .where(and(gt(users.gamesPlayed, 0), eq(users.isGuest, false)))
     .orderBy(desc(users.rating), desc(users.gamesPlayed))
     .limit(limit);
 }
@@ -84,4 +87,42 @@ export async function getGameRecord(db: Database, id: string) {
     .where(eq(games.id, id))
     .limit(1);
   return row ?? null;
+}
+
+/** Thống kê thêm cho hồ sơ: khai cuộc (theo nước đầu), số thế cờ đã giải, số mùa vào top 10, VIP. */
+export async function getProfileExtras(db: Database, userId: string, now = Date.now()) {
+  const [recent, [solved], [seasons], [u]] = await Promise.all([
+    db
+      .select({
+        redId: games.redId,
+        winner: games.winner,
+        first: sql<StoredMove | null>`${games.moves}->0`,
+        second: sql<StoredMove | null>`${games.moves}->1`,
+      })
+      .from(games)
+      .where(and(or(eq(games.redId, userId), eq(games.blackId, userId)), eq(games.variant, "xiangqi")))
+      .orderBy(desc(games.endedAt))
+      .limit(300),
+    db.select({ n: count() }).from(puzzleProgress).where(eq(puzzleProgress.userId, userId)),
+    db.select({ n: count() }).from(coinTransactions).where(and(eq(coinTransactions.userId, userId), eq(coinTransactions.reason, "season"))),
+    db.select({ vipUntil: users.vipUntil }).from(users).where(eq(users.id, userId)),
+  ]);
+
+  const start = initialPosition();
+  const asRed: Parameters<typeof tallyOpenings>[0] = [];
+  const asBlack: Parameters<typeof tallyOpenings>[0] = [];
+  for (const g of recent) {
+    const side = g.redId === userId ? "r" : "b";
+    const result = g.winner === null ? "draw" : g.winner === side ? "win" : "loss";
+    if (!g.first) continue;
+    if (side === "r") asRed.push({ notation: moveNotation(start.board, g.first), result });
+    else if (g.second) asBlack.push({ notation: moveNotation(applyMove(start, g.first).board, g.second), result });
+  }
+  return {
+    openingsRed: tallyOpenings(asRed),
+    openingsBlack: tallyOpenings(asBlack),
+    puzzlesSolved: solved.n,
+    seasonsTop10: seasons.n,
+    vip: !!u?.vipUntil && u.vipUntil.getTime() > now,
+  };
 }

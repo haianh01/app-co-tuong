@@ -103,3 +103,24 @@
     padding: 24px 18px;
   }
 }
+
+.formOk {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: rgba(46, 125, 90, 0.18);
+  color: #8fd1b0;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.oauth {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.or {
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+}

@@ -9,10 +9,15 @@ const dev = process.argv.includes("--dev");
 Object.assign(process.env, { NODE_ENV: dev ? "development" : "production" });
 
 async function main() {
+  // Nạp .env trước mọi thứ khác (CSDL, OAuth, thanh toán đọc biến môi trường ngay khi khởi tạo).
+  const { loadEnvConfig } = await import("@next/env");
+  loadEnvConfig(process.cwd(), dev);
   const { default: next } = await import("next");
   const { getDbHandle } = await import("./src/server/db");
   const { GameServer } = await import("./src/server/game/server");
   const { purgeExpiredSessions } = await import("./src/server/auth");
+  const { promoteAdmins } = await import("./src/server/admin");
+  const { awardPreviousSeasonIfDue } = await import("./src/server/economy");
 
   const port = Number(process.env.PORT ?? 3000);
   const server = createServer();
@@ -36,6 +41,18 @@ async function main() {
   const purge = () => purgeExpiredSessions(dbHandle.db).catch((err) => console.error("Không dọn được phiên cũ", err));
   void purge();
   setInterval(purge, 6 * 60 * 60 * 1000).unref();
+
+  // Tài khoản quản trị khai báo qua ADMIN_USERNAMES=ten1,ten2 (đã đăng ký từ trước).
+  const admins = process.env.ADMIN_USERNAMES?.split(",") ?? [];
+  if (admins.length) {
+    const n = await promoteAdmins(dbHandle.db, admins);
+    console.log(`> Quản trị viên: ${n}/${admins.length} tài khoản`);
+  }
+
+  // Trao thưởng mùa trước (idempotent): lúc khởi động và mỗi giờ.
+  const season = () => awardPreviousSeasonIfDue(dbHandle.db).catch((err) => console.error("Không trao được thưởng mùa", err));
+  void season();
+  setInterval(season, 60 * 60 * 1000).unref();
 
   server.listen(port, () => {
     const db = process.env.DATABASE_URL ? "PostgreSQL" : "PGlite (.data/pglite)";

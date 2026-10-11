@@ -220,6 +220,11 @@
   color: var(--gold-text);
 }
 
+.reviewTag[data-cls="good"] {
+  background: rgba(46, 125, 90, 0.22);
+  color: var(--green);
+}
+
 .reviewTag[data-cls="blunder"] {
   background: rgba(229, 72, 62, 0.2);
   color: var(--red-text);

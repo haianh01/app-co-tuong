@@ -11,6 +11,7 @@ import { formatClock, useClock } from "@/hooks/useClock";
 import { AI_LEVELS, AiLevel } from "@/lib/xiangqi/ai";
 import { Move, findKing, inCheck, legalMovesFrom, opponent, sideOf, toFen } from "@/lib/xiangqi/engine";
 import { GameResult, currentPosition, describeResult, forbiddenMoves, gameReducer, newGame, pieceIds, timeoutResult } from "@/lib/xiangqi/game";
+import { LiveCoach } from "./LiveCoach";
 import { PlaySettings, TIME_OPTIONS, settingsHref } from "./settings";
 import styles from "./play.module.css";
 
@@ -83,6 +84,7 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
   const [hint, setHint] = useState<{ ply: number; move: Move } | null>(null);
   // Hết ván: nửa nước đang xem lại khi bấm vào nước bị AI chấm (null = thế cuối).
   const [review, setReview] = useState<number | null>(null);
+  const [coach, setCoach] = useState(true);
   const think = useAiWorker();
 
   const pos = currentPosition(state);
@@ -249,7 +251,12 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
             </button>
             <button type="button" className="btn btn-primary" onClick={onNewGame}>Ván mới</button>
           </div>
+          <label className={styles.coachToggle}>
+            <input type="checkbox" checked={coach} onChange={(e) => setCoach(e.target.checked)} />
+            Phân tích từng nước khi đang đánh
+          </label>
         </div>
+        {coach && !result && <LiveCoach state={state} player={player} />}
         {result && state.moves.length > 0 && (
           <AnalysisPanel state={state} ply={viewPly} onSelect={setReview} viewer={player} />
         )}

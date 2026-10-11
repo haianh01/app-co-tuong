@@ -127,9 +127,9 @@ describe("giải thích nước đi bằng AI thật", () => {
   });
 });
 
-describe("không tìm ra lý do cụ thể", () => {
-  it("nói nước đáp mạnh nhất và mức thiệt theo AI", () => {
-    // Điểm AI dựng tay: nước đáp là một nước yên (không ăn, không bắt quân nào).
+describe("nguyên lý chiến lược", () => {
+  it("khai cuộc: lên Xe biên làm Mã mất gốc, đáng lẽ ra Pháo đầu", () => {
+    // Điểm AI dựng tay: nước đáp là một nước yên (không ăn, không bắt quân nào), nên lý do phải là chiến lược.
     const state = replayMoves([{ from: sq(9, 8), to: sq(8, 8) }]);
     const evals: PositionEval[] = [
       { score: 20, best: { from: sq(7, 7), to: sq(7, 4) } },
@@ -137,7 +137,11 @@ describe("không tìm ra lý do cụ thể", () => {
     ];
     const m = reviewGame(state, evals).moves[0];
     expect(m.cls).toBe("mistake");
-    expect(m.facts).toEqual([{ kind: "evalDrop", reply: "M2.3", check: false, points: 150 }]);
-    expect(explainText(m.facts, m.side)).toBe("Nước đáp mạnh nhất của Đen là M2.3; theo AI, Đỏ thiệt khoảng 1,5 điểm.");
+    expect(m.facts).toEqual([
+      { kind: "strategy", plan: "raQuan", played: "X1.1", better: "P2-5", gains: ["matGoc"], worsened: ["matGoc"], loose: ["Mã 2"] },
+    ]);
+    expect(explainText(m.facts, m.side)).toBe(
+      "Đang khai cuộc, việc chính là ra quân nhanh và cân đối. Nên đi P2-5: không để quân mất gốc, còn X1.1 để Mã 2 mất gốc.",
+    );
   });
 });

@@ -3,12 +3,14 @@
 // 2. Ghép dữ kiện thành câu bằng mẫu có sẵn.
 // Dữ kiện là JSON thuần: sau này có thể đưa thẳng cho LLM viết lời giảng thay cho bước 2.
 
+import { findBestMove } from "./ai";
 import type { PositionEval } from "./analysis";
 import {
   Board, Move, Piece, PieceType, Side,
   attackersOf, colOf, inCheck, isDefended, opponent, rowOf, sideOf, typeOf, ROWS,
 } from "./engine";
 import { PIECE_NAME, moveNotation } from "./notation";
+import { GAIN_TEXT, LOSS_TEXT, PLAN_TEXT, choosePlan, comparePrinciples, type Plan, type Principle } from "./strategy";
 
 /** Điểm thắng tuyệt đối mà AI trả về khi thấy chiếu bí (khớp với MATE trong ai.ts). */
 const MATE = 100_000;
@@ -130,6 +132,8 @@ export type Fact =
   | { kind: "missedCapture"; better: string; victim: PieceRef; points: number }
   /** Nước tốt hơn `better` đưa `piece` đang bị bắt ra chỗ an toàn. */
   | { kind: "missedEscape"; better: string; piece: PieceRef }
+  /** Không có lỗi chiến thuật: theo kế hoạch `plan`, nước `better` hơn ở các nguyên lý `gains`; nước đã đi làm kém `worsened`. */
+  | { kind: "strategy"; plan: Plan; played: string; better: string; gains: Principle[]; worsened: Principle[]; loose: string[] }
   /** Không tìm ra lý do cụ thể: chỉ nói nước đáp mạnh nhất và mức thiệt theo AI. */
   | { kind: "evalDrop"; reply: string | null; check: boolean; points: number };
 
@@ -143,6 +147,8 @@ export interface MoveContext {
   evalAfter: PositionEval | null;
   /** Điểm mất so với nước tốt nhất (từ reviewGame). */
   loss: number;
+  /** Số nửa nước đã đi trước nước này (để biết giai đoạn ván). */
+  ply?: number;
 }
 
 const sameMove = (a: Move | null | undefined, b: Move) => !!a && a.from === b.from && a.to === b.to;
@@ -174,11 +180,46 @@ export function explainMove(ctx: MoveContext): Fact[] {
     const missed = missedChance(before, after, move, better, mover);
     if (missed) facts.push(missed);
   }
+  const tactical = facts.some((f) => f.kind === "losesPiece" || f.kind === "missedCapture" || f.kind === "missedEscape");
+  if (better && !tactical) {
+    const plan = strategyFact(ctx, better);
+    if (plan) facts.push(plan);
+  }
   if (facts.length === 0) {
     const check = !!reply && inCheck(play(after, reply), mover);
     facts.push({ kind: "evalDrop", reply: reply && moveNotation(after, reply), check, points: loss });
   }
   return facts;
+}
+
+/** Thế cờ sau một nước và nước đáp mạnh nhất của đối phương (để việc đổi quân dở dang không làm lệch chỉ số). */
+function settle(board: Board, m: Move, reply?: Move | null): Board {
+  const after = play(board, m);
+  const turn = opponent(sideOf(board[m.from]!));
+  const r = reply !== undefined ? reply : findBestMove({ board: after, turn }, 5, () => 0, { depth: 2, timeMs: 2_000, noise: 0 }).move;
+  return r ? play(after, r) : after;
+}
+
+function strategyFact(ctx: MoveContext, better: Move): Fact | null {
+  const { before, move, evalAfter } = ctx;
+  const mover = sideOf(before[move.from]!);
+  const plan = choosePlan(before, mover, ctx.ply ?? 40);
+  const played = settle(before, move, evalAfter?.best ?? null);
+  const gaps = comparePrinciples(before, played, settle(before, better), mover, plan);
+  if (gaps.length === 0) return null;
+  const top = gaps.slice(0, 2);
+  const isLoose = (b: Board, i: number) => !!b[i] && sideOf(b[i]!) === mover && "rnc".includes(typeOf(b[i]!)) && !isDefended(b, i, mover);
+  // Quân vừa đi được đối chiếu với ô cũ của nó; quân khác giữ nguyên ô.
+  const origin = (i: number) => (i === move.to ? move.from : i);
+  return {
+    kind: "strategy",
+    plan,
+    played: moveNotation(before, move),
+    better: moveNotation(before, better),
+    gains: top.map((g) => g.principle),
+    worsened: top.filter((g) => g.worsened).map((g) => g.principle).slice(0, 1),
+    loose: played.map((_, i) => i).filter((i) => isLoose(played, i) && !isLoose(before, origin(i))).map((i) => ref(played, i).name),
+  };
 }
 
 function lossByCapture(ctx: MoveContext, reply: Move): Fact | null {
@@ -317,6 +358,13 @@ function sentence(f: Fact, mover: Side): string {
       return `Nên đi ${f.better} ăn ${f.victim.name} ${o}.`;
     case "missedEscape":
       return `Nên đi ${f.better} để đưa ${f.piece.name} khỏi chỗ bị bắt.`;
+    case "strategy": {
+      const intro = PLAN_TEXT[f.plan](O);
+      const why = f.gains.map((p) => GAIN_TEXT[p]).join(" và ");
+      const loss = f.worsened[0] === "matGoc" && f.loose.length ? `để ${f.loose.join(", ")} mất gốc` : LOSS_TEXT[f.worsened[0]];
+      const worse = f.worsened.length ? `, còn ${f.played} ${loss}` : "";
+      return `${intro ? intro + " " : ""}Nên đi ${f.better}: ${why}${worse}.`;
+    }
     case "evalDrop": {
       const lost = `${SIDE_NAME[mover]} thiệt khoảng ${formatPoints(f.points)} điểm`;
       if (!f.reply) return `Theo AI, ${lost} so với nước tốt nhất.`;

@@ -81,6 +81,7 @@ export function reviewGame(state: GameState, evals: (PositionEval | null)[]): { 
           evalBefore: before,
           evalAfter: afterEval,
           loss,
+          ply: i,
         })
         : [],
     });

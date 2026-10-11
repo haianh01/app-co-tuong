@@ -6,6 +6,7 @@ import { useSession } from "@/components/session/SessionProvider";
 import { useAiWorker } from "@/hooks/useAiWorker";
 import { CLASS_NAME, reviewGame, type PositionEval } from "@/lib/xiangqi/analysis";
 import { toFen, type Side } from "@/lib/xiangqi/engine";
+import { explainText } from "@/lib/xiangqi/explain";
 import type { GameState } from "@/lib/xiangqi/game";
 import play from "@/app/play/play.module.css";
 import styles from "./game.module.css";
@@ -106,19 +107,23 @@ export function AnalysisPanel({
           {review.moves.every((m) => !m.cls) ? (
             <p className="muted">Không có nước hớ nào đáng kể.</p>
           ) : (
-            <ul className={styles.reviewList}>
-              {review.moves.filter((m) => m.cls).map((m) => (
-                <li key={m.ply}>
-                  <button type="button" className={styles.reviewItem} aria-current={m.ply === ply ? "step" : undefined} onClick={() => onSelect(m.ply)}>
-                    <span className={styles.reviewTag} data-cls={m.cls}>{CLASS_NAME[m.cls!]}</span>
-                    <span>
-                      {Math.ceil(m.ply / 2)}. {sideName(m.side)} {m.notation}
-                      {m.better && <span className="muted"> · nên đi {m.better}</span>}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <>
+              <p className="muted">Bấm vào từng nước để xem vì sao.</p>
+              <ul className={styles.reviewList}>
+                {review.moves.filter((m) => m.cls).map((m) => (
+                  <li key={m.ply}>
+                    <button type="button" className={styles.reviewItem} aria-current={m.ply === ply ? "step" : undefined} onClick={() => onSelect(m.ply)}>
+                      <span className={styles.reviewTag} data-cls={m.cls}>{CLASS_NAME[m.cls!]}</span>
+                      <span>
+                        {Math.ceil(m.ply / 2)}. {sideName(m.side)} {m.notation}
+                        {m.better && <span className="muted"> · nên đi {m.better}</span>}
+                      </span>
+                    </button>
+                    {m.ply === ply && m.facts.length > 0 && <p className={styles.reviewNote}>{explainText(m.facts, m.side)}</p>}
+                  </li>
+                ))}
+              </ul>
+            </>
           )}
         </>
       )}

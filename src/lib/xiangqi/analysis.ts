@@ -1,6 +1,7 @@
 // Đánh giá các nước đã đi dựa trên điểm AI cho từng thế cờ: nước hớ, nước kém, thiếu chính xác, độ chính xác.
 
 import type { Move, Side } from "./engine";
+import { explainMove, type Fact } from "./explain";
 import type { GameState } from "./game";
 import { moveNotation } from "./notation";
 
@@ -22,6 +23,8 @@ export interface MoveReview {
   cls: MoveClass | null;
   /** Nước AI đề xuất thay thế (nếu khác nước đã đi). */
   better: string | null;
+  /** Dữ kiện giải thích vì sao nước bị chấm (rỗng nếu nước không bị chấm), xem explain.ts. */
+  facts: Fact[];
 }
 
 export const CLASS_NAME: Record<MoveClass, string> = {
@@ -56,7 +59,7 @@ export function reviewGame(state: GameState, evals: (PositionEval | null)[]): { 
     if (isLast && state.result?.winner === m.side && (state.result.reason === "checkmate" || state.result.reason === "stalemate")) after = CAP;
     else if (afterEval) after = -clamp(afterEval.score);
     if (!before || after === null) {
-      reviews.push({ ply: i + 1, side: m.side, notation: m.notation, loss: 0, cls: null, better: null });
+      reviews.push({ ply: i + 1, side: m.side, notation: m.notation, loss: 0, cls: null, better: null, facts: [] });
       return;
     }
     const playedBest = before.best?.from === m.move.from && before.best?.to === m.move.to;
@@ -70,6 +73,16 @@ export function reviewGame(state: GameState, evals: (PositionEval | null)[]): { 
       loss: Math.round(loss),
       cls,
       better: cls && before.best ? moveNotation(state.history[i].board, before.best) : null,
+      facts: cls
+        ? explainMove({
+          before: state.history[i].board,
+          move: m.move,
+          after: state.history[i + 1].board,
+          evalBefore: before,
+          evalAfter: afterEval,
+          loss,
+        })
+        : [],
     });
   });
   const avg = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);

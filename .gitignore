@@ -50,3 +50,6 @@ next-env.d.ts
 # kết quả Playwright
 /test-results/
 /playwright-report/
+
+# Kỳ phổ và lời bình tải về để nghiên cứu nội bộ (có bản quyền, không đưa lên git)
+/data/

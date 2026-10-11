@@ -204,6 +204,12 @@
   outline: 1.5px solid var(--gold);
 }
 
+.reviewNote {
+  margin: 6px 4px 2px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .reviewTag {
   flex: none;
   padding: 2px 8px;

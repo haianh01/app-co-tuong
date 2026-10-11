@@ -1,6 +1,7 @@
 "use client";
 
 import { ReactNode, useEffect, useMemo, useReducer, useState } from "react";
+import { AnalysisPanel } from "@/app/game/[id]/AnalysisPanel";
 import { XiangqiBoard } from "@/components/board/XiangqiBoard";
 import { MoveList, PlayerCard, ResultOverlay } from "@/components/game/GamePanels";
 import { useSession } from "@/components/session/SessionProvider";
@@ -80,6 +81,8 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
   const [state, dispatch] = useReducer(gameReducer, undefined, () => newGame());
   const [selection, setSelection] = useState<{ ply: number; square: number } | null>(null);
   const [hint, setHint] = useState<{ ply: number; move: Move } | null>(null);
+  // Hết ván: nửa nước đang xem lại khi bấm vào nước bị AI chấm (null = thế cuối).
+  const [review, setReview] = useState<number | null>(null);
   const think = useAiWorker();
 
   const pos = currentPosition(state);
@@ -115,8 +118,12 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
   const selected = selection?.ply === ply ? selection.square : null;
   const targets = selected !== null ? legalMovesFrom(pos, selected).map((m) => m.to) : [];
   const activeHint = hint?.ply === ply ? hint.move : null;
-  const checkSquare = inCheck(pos.board, pos.turn) ? findKing(pos.board, pos.turn) : null;
-  const lastMove = state.moves[ply - 1]?.move ?? null;
+  const viewPly = result && review !== null ? review : ply;
+  const reviewing = viewPly !== ply;
+  const viewBoard = state.history[viewPly].board;
+  const lastMove = state.moves[viewPly - 1]?.move ?? null;
+  const viewTurn = state.history[viewPly].turn;
+  const checkSquare = inCheck(viewBoard, viewTurn) ? findKing(viewBoard, viewTurn) : null;
   const canAct = !result && pos.turn === player;
   // Đi lại về lượt của mình: lùi 2 nửa nước nếu máy đã đáp, 1 nửa nước nếu máy chưa đi.
   const undoPlies = pos.turn === player ? (ply >= 2 ? 2 : 0) : ply >= 1 ? 1 : 0;
@@ -134,7 +141,9 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
   };
 
   const undo = () => {
-    if (canUndo) dispatch({ type: "undo", plies: undoPlies });
+    if (!canUndo) return;
+    setReview(null);
+    dispatch({ type: "undo", plies: undoPlies });
   };
 
   const askHint = () => {
@@ -200,8 +209,8 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
 
       <section className={styles.center} aria-label="Bàn cờ">
         <XiangqiBoard
-          board={pos.board}
-          ids={pieceIds(state)}
+          board={viewBoard}
+          ids={reviewing ? undefined : pieceIds(state)}
           orientation={player}
           selected={selected}
           targets={targets}
@@ -211,7 +220,7 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
           disabled={!canAct}
           onSquareClick={onSquareClick}
         >
-          {outcomeText && (
+          {outcomeText && !reviewing && (
             <ResultOverlay seal={outcomeText.seal} title={outcomeText.title} detail={outcomeText.detail}>
               {canUndo && <button type="button" className="btn" onClick={undo}>Đi lại</button>}
               <button type="button" className="btn btn-primary" onClick={onNewGame}>Ván mới</button>
@@ -241,6 +250,10 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
             <button type="button" className="btn btn-primary" onClick={onNewGame}>Ván mới</button>
           </div>
         </div>
+        {result && state.moves.length > 0 && (
+          <AnalysisPanel state={state} ply={viewPly} onSelect={setReview} viewer={player} />
+        )}
+        {reviewing && <button type="button" className="btn" onClick={() => setReview(null)}>Về thế cuối ván</button>}
         <div className={styles.setup}>{setup}</div>
       </div>
     </main>

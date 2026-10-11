@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { findBestMove } from "./ai";
 import { reviewGame, type PositionEval } from "./analysis";
 import { parseFen, sq, type Position } from "./engine";
-import { exchangeGain, explainText, formatPoints, hangingPieces } from "./explain";
+import { exchangeGain, explainText, formatPoints, hangingPieces, moveIdea } from "./explain";
 import { replayMoves } from "./game";
 
 /** Cùng độ sâu với màn phân tích ván (3), bỏ giới hạn thời gian để kết quả không phụ thuộc tốc độ máy. */
@@ -143,5 +143,24 @@ describe("nguyên lý chiến lược", () => {
     expect(explainText(m.facts, m.side)).toBe(
       "Đang khai cuộc, việc chính là ra quân nhanh và cân đối. Nên đi P2-5: không để quân mất gốc và đưa quân vào điểm then chốt, còn X1.1 để Mã 2 mất gốc.",
     );
+  });
+});
+
+describe("nhận xét chiến lược cho mọi nước (moveIdea)", () => {
+  // Pháo đầu – Bình phong mã, rồi Đỏ ra Xe và đưa Xe qua hà.
+  const line = [[7, 7, 7, 4], [0, 7, 2, 6], [9, 7, 7, 6], [0, 8, 0, 7], [9, 8, 9, 7], [0, 1, 2, 2], [9, 7, 3, 7]] as const;
+  const state = replayMoves(line.map(([a, b, c, d]) => ({ from: sq(a, b), to: sq(c, d) })));
+  const idea = (i: number) => {
+    const reply = findBestMove(state.history[i + 1], 3, () => 0, { depth: 3, timeMs: 60_000, noise: 0 }).move;
+    return explainText([moveIdea(state.history[i].board, state.moves[i].move, reply, i)], "r");
+  };
+
+  it("nước khai cuộc tốt vẫn có nhận xét theo kế hoạch ra quân", () => {
+    expect(idea(2)).toBe("Kế hoạch: ra quân. M2.3 giúp đưa thêm quân ra trận.");
+    expect(idea(4)).toBe("Kế hoạch: ra quân. X1-2 giúp Xe thông đường hơn và quân có gốc hơn.");
+  });
+
+  it("Xe qua hà: khen ra quân nhưng nhắc Xe mất gốc", () => {
+    expect(idea(6)).toBe("Kế hoạch: ra quân. X2.6 giúp đưa thêm quân ra trận và Xe thông đường hơn, nhưng để Xe 2 mất gốc.");
   });
 });

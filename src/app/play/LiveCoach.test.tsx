@@ -35,5 +35,7 @@ describe("LiveCoach", () => {
     render(<LiveCoach state={state} player="r" />);
     expect(await screen.findByText("Nước tốt nhất", {}, { timeout: 10_000 })).toBeTruthy();
     expect(screen.getByText(/Độ chính xác 100%/)).toBeTruthy();
+    // Nước tốt vẫn có nhận xét chiến lược.
+    expect(screen.getByText(/^Kế hoạch: .+X9\.2/)).toBeTruthy();
   });
 });

@@ -10,7 +10,10 @@ import {
   attackersOf, colOf, inCheck, isDefended, opponent, rowOf, sideOf, typeOf, ROWS,
 } from "./engine";
 import { PIECE_NAME, moveNotation } from "./notation";
-import { GAIN_TEXT, LOSS_TEXT, PLAN_TEXT, choosePlan, comparePrinciples, type Plan, type Principle } from "./strategy";
+import {
+  GAIN_TEXT, LOSS_TEXT, PLAN_NAME, PLAN_TEXT, PRINCIPLES, WEIGHTS, choosePlan, comparePrinciples, principleScores,
+  type Plan, type Principle,
+} from "./strategy";
 
 /** Điểm thắng tuyệt đối mà AI trả về khi thấy chiếu bí (khớp với MATE trong ai.ts). */
 const MATE = 100_000;
@@ -134,6 +137,8 @@ export type Fact =
   | { kind: "missedEscape"; better: string; piece: PieceRef }
   /** Không có lỗi chiến thuật: theo kế hoạch `plan`, nước `better` hơn ở các nguyên lý `gains`; nước đã đi làm kém `worsened`. */
   | { kind: "strategy"; plan: Plan; played: string; better: string; gains: Principle[]; worsened: Principle[]; loose: string[] }
+  /** Nhận xét chiến lược cho một nước bất kỳ: theo kế hoạch `plan`, nước đã đi cải thiện `gains`, làm kém `worsened`. */
+  | { kind: "idea"; plan: Plan; played: string; gains: Principle[]; worsened: Principle[]; loose: string[] }
   /** Không tìm ra lý do cụ thể: chỉ nói nước đáp mạnh nhất và mức thiệt theo AI. */
   | { kind: "evalDrop"; reply: string | null; check: boolean; points: number };
 
@@ -219,6 +224,36 @@ function strategyFact(ctx: MoveContext, better: Move): Fact | null {
     gains: top.map((g) => g.principle),
     worsened: top.filter((g) => g.worsened).map((g) => g.principle).slice(0, 1),
     loose: played.map((_, i) => i).filter((i) => isLoose(played, i) && !isLoose(before, origin(i))).map((i) => ref(played, i).name),
+  };
+}
+
+/** Quân lớn của phe `mover` mất gốc sau nước đi (trước đó còn gốc), kèm tên. */
+function newlyLoose(before: Board, move: Move, after: Board, mover: Side): string[] {
+  const isLoose = (b: Board, i: number) => !!b[i] && sideOf(b[i]!) === mover && "rnc".includes(typeOf(b[i]!)) && !isDefended(b, i, mover);
+  const origin = (i: number) => (i === move.to ? move.from : i);
+  return after.map((_, i) => i).filter((i) => isLoose(after, i) && !isLoose(before, origin(i))).map((i) => ref(after, i).name);
+}
+
+/**
+ * Nhận xét chiến lược cho mọi nước (kể cả nước tốt): kế hoạch hiện tại và nước này làm được / làm hỏng gì
+ * so với trước khi đi (đã tính nước đáp `reply` của đối phương nếu có).
+ */
+export function moveIdea(before: Board, move: Move, reply: Move | null, ply: number): Fact {
+  const mover = sideOf(before[move.from]!);
+  const plan = choosePlan(before, mover, ply);
+  const after = settle(before, move, reply);
+  const b0 = principleScores(before, mover);
+  const a = principleScores(after, mover);
+  const deltas = PRINCIPLES.map((p) => ({ p, d: WEIGHTS[plan][p] * (a[p] - b0[p]) }));
+  return {
+    kind: "idea",
+    plan,
+    played: moveNotation(before, move),
+    gains: deltas.filter((x) => x.d >= 1).sort((x, y) => y.d - x.d).slice(0, 2).map((x) => x.p),
+    // Ngưỡng chê cao hơn ngưỡng khen: thay đổi nhỏ (vd. Xe đối phương thêm một ô) không đáng nhắc.
+    // Riêng quân mất gốc giữ ngưỡng thấp vì nói được đúng tên quân.
+    worsened: deltas.filter((x) => x.d <= (x.p === "matGoc" ? -1 : -1.5)).sort((x, y) => x.d - y.d).slice(0, 1).map((x) => x.p),
+    loose: newlyLoose(before, move, after, mover),
   };
 }
 
@@ -364,6 +399,15 @@ function sentence(f: Fact, mover: Side): string {
       const loss = f.worsened[0] === "matGoc" && f.loose.length ? `để ${f.loose.join(", ")} mất gốc` : LOSS_TEXT[f.worsened[0]];
       const worse = f.worsened.length ? `, còn ${f.played} ${loss}` : "";
       return `${intro ? intro + " " : ""}Nên đi ${f.better}: ${why}${worse}.`;
+    }
+    case "idea": {
+      const head = `Kế hoạch: ${PLAN_NAME[f.plan]}.`;
+      const lossText = (p: Principle) => (p === "matGoc" && f.loose.length ? `để ${f.loose.join(", ")} mất gốc` : LOSS_TEXT[p]);
+      const good = f.gains.map((p) => (p === "matGoc" ? "quân có gốc hơn" : GAIN_TEXT[p])).join(" và ");
+      if (good && f.worsened.length) return `${head} ${f.played} giúp ${good}, nhưng ${lossText(f.worsened[0])}.`;
+      if (good) return `${head} ${f.played} giúp ${good}.`;
+      if (f.worsened.length) return `${head} ${f.played} ${lossText(f.worsened[0])}.`;
+      return `${head} ${f.played} giữ thế, chưa thay đổi nhiều.`;
     }
     case "evalDrop": {
       const lost = `${SIDE_NAME[mover]} thiệt khoảng ${formatPoints(f.points)} điểm`;

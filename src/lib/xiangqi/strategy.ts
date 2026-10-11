@@ -163,6 +163,16 @@ export function comparePrinciples(before: Board, played: Board, better: Board, s
     .sort((x, y) => y.gain - x.gain);
 }
 
+/** Tên ngắn của kế hoạch. */
+export const PLAN_NAME: Record<Plan, string> = {
+  raQuan: "ra quân",
+  tanCong: "tấn công cung tướng",
+  phongThu: "phòng thủ",
+  donGianHoa: "giữ chắc, đơn giản hóa",
+  tanCuoc: "tàn cuộc",
+  canBang: "giữ thế, tăng hoạt động quân",
+};
+
 export const PLAN_TEXT: Record<Plan, (opp: string) => string> = {
   raQuan: () => "Đang khai cuộc, việc chính là ra quân nhanh và cân đối.",
   tanCong: (opp) => `Cung tướng ${opp} đang yếu, nên dồn quân tấn công.`,

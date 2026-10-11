@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAiWorker } from "@/hooks/useAiWorker";
 import { CLASS_NAME, reviewGame, type PositionEval } from "@/lib/xiangqi/analysis";
 import { toFen, type Side } from "@/lib/xiangqi/engine";
-import { explainText } from "@/lib/xiangqi/explain";
+import { explainText, moveIdea } from "@/lib/xiangqi/explain";
 import type { GameState } from "@/lib/xiangqi/game";
 import game from "@/app/game/[id]/game.module.css";
 import styles from "./play.module.css";
@@ -51,6 +51,11 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
   const mine = review.moves
     .map((r, i) => ({ ...r, ready: !!evals[i] && (!!evals[i + 1] || (i + 1 === state.moves.length && !!state.result)), best: sameMove(evals[i]?.best, state.moves[i].move) }))
     .filter((r) => r.side === player)
+    .map((r) => ({
+      ...r,
+      // Nhận xét chiến lược cho mọi nước, kể cả nước tốt.
+      idea: r.ready ? explainText([moveIdea(state.history[r.ply - 1].board, state.moves[r.ply - 1].move, evals[r.ply]?.best ?? null, r.ply - 1)], r.side) : "",
+    }))
     .reverse();
 
   return (
@@ -79,6 +84,7 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
                 </span>
               </div>
               {m.facts.length > 0 && <p className={game.reviewNote}>{explainText(m.facts, m.side)}</p>}
+              {m.ready && <p className={`${game.reviewNote} muted`}>{m.idea}</p>}
             </li>
           ))}
         </ul>

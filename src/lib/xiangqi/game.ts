@@ -3,7 +3,7 @@
 
 import {
   Board, Move, Piece, Position, Side,
-  START_FEN, applyMove, chasedPieces, hasMatingMaterial, inCheck, insufficientMaterial, isLegal, opponent, outcome,
+  START_FEN, applyMove, chasedPieces, hasMatingMaterial, inCheck, insufficientMaterial, isLegal, legalMoves, opponent, outcome,
   parseFen, toFen,
 } from "./engine";
 import { moveNotation } from "./notation";
@@ -144,6 +144,23 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
     case "end":
       return state.result ? state : { ...state, result: action.result };
   }
+}
+
+/** Các nước hợp lệ mà đi xong thì bên đi bị xử thua ngay (phạm luật chiếu mãi / đuổi bắt mãi) — để máy tránh. */
+export function forbiddenMoves(state: GameState): Move[] {
+  if (state.result) return [];
+  const side = currentPosition(state).turn;
+  const penalized = (r: GameResult | null) =>
+    !!r && r.winner === opponent(side) && (r.reason === "perpetualCheck" || r.reason === "perpetualChase");
+  return legalMoves(currentPosition(state)).filter((move) => {
+    const after = gameReducer(state, { type: "move", move });
+    if (penalized(after.result)) return true;
+    if (after.result) return false;
+    // Thế lặp lần 3 có thể rơi vào nước đáp của đối phương; chỉ nước chiếu/đuổi mới có thể bị phạt.
+    const played = after.moves[after.moves.length - 1];
+    if (!played.check && !played.chase) return false;
+    return legalMoves(currentPosition(after)).some((reply) => penalized(gameReducer(after, { type: "move", move: reply }).result));
+  });
 }
 
 /** Dựng lại trạng thái ván từ danh sách nước đi (dùng khi nhận dữ liệu từ server hoặc xem lại ván). */

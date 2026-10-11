@@ -7,9 +7,10 @@ import {
   Move, Position, START_FEN, applyMove, inCheck, initialPosition, legalMoves, parseFen, sq, toFen,
 } from "./engine";
 import {
-  NO_CAPTURE_LIMIT, REASON_TEXT, currentPosition, describeResult, gameReducer, newGame, replayMoves,
+  NO_CAPTURE_LIMIT, REASON_TEXT, currentPosition, describeResult, forbiddenMoves, gameReducer, newGame, replayMoves,
   type EndReason, type GameState,
 } from "./game";
+import { findBestMove } from "./ai";
 
 const P2_5 = m(7, 7, 7, 4);
 const M8_7 = m(0, 7, 2, 6);
@@ -163,6 +164,17 @@ describe("lặp lại thế cờ", () => {
     s = play(s, ...cycle, ...cycle);
     expect(s.moves.filter((x) => x.side === "r").every((x) => x.check)).toBe(true);
     expect(s.result).toEqual({ winner: "b", reason: "perpetualCheck" });
+  });
+
+  it("máy nhận biết nước chiếu mãi bị cấm và chọn nước khác", () => {
+    const cycle = [m(5, 4, 5, 3), m(0, 3, 0, 4), m(5, 3, 5, 4), m(0, 4, 0, 3)];
+    const s = play(newGame("3k5/9/9/9/9/4R4/9/9/9/5K3 w"), ...cycle, ...cycle.slice(0, 2));
+    expect(s.result).toBeNull();
+    const avoid = forbiddenMoves(s);
+    expect(avoid).toContainEqual(m(5, 3, 5, 4));
+    const { move } = findBestMove(currentPosition(s), 3, () => 0, { avoid });
+    expect(move).not.toBeNull();
+    expect(play(s, move!).result?.winner).not.toBe("b");
   });
 
   it("Đen chiếu mãi thì Đen thua", () => {

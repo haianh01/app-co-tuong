@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect, useReducer, useState } from "react";
+import { ReactNode, useEffect, useMemo, useReducer, useState } from "react";
 import { XiangqiBoard } from "@/components/board/XiangqiBoard";
 import { MoveList, PlayerCard, ResultOverlay } from "@/components/game/GamePanels";
 import { useSession } from "@/components/session/SessionProvider";
@@ -9,7 +9,7 @@ import { useMoveSounds, useResultSound } from "@/hooks/useGameSounds";
 import { formatClock, useClock } from "@/hooks/useClock";
 import { AI_LEVELS, AiLevel } from "@/lib/xiangqi/ai";
 import { Move, findKing, inCheck, legalMovesFrom, opponent, sideOf, toFen } from "@/lib/xiangqi/engine";
-import { GameResult, currentPosition, describeResult, gameReducer, newGame, pieceIds, timeoutResult } from "@/lib/xiangqi/game";
+import { GameResult, currentPosition, describeResult, forbiddenMoves, gameReducer, newGame, pieceIds, timeoutResult } from "@/lib/xiangqi/game";
 import { PlaySettings, TIME_OPTIONS, settingsHref } from "./settings";
 import styles from "./play.module.css";
 
@@ -93,13 +93,16 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
 
   const aiToMove = !result && pos.turn === ai;
   const fen = toFen(pos);
+  // Nước đi xong sẽ phạm luật chiếu mãi / đuổi bắt mãi: máy và gợi ý phải tránh.
+  const avoidKey = useMemo(() => JSON.stringify(forbiddenMoves(state)), [state]);
 
   useEffect(() => {
     if (!aiToMove) return;
     let cancelled = false;
     // Giữ nhịp tối thiểu để nước đi của máy không xuất hiện "giật".
     const minDelay = new Promise((resolve) => setTimeout(resolve, 450));
-    Promise.all([think(fen, level), minDelay])
+    const avoid: Move[] = JSON.parse(avoidKey);
+    Promise.all([think(fen, level, avoid.length ? { avoid } : undefined), minDelay])
       .then(([res]) => {
         if (!cancelled && res.move) dispatch({ type: "move", move: res.move });
       })
@@ -107,7 +110,7 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
     return () => {
       cancelled = true;
     };
-  }, [aiToMove, fen, level, think]);
+  }, [aiToMove, fen, level, think, avoidKey]);
 
   const selected = selection?.ply === ply ? selection.square : null;
   const targets = selected !== null ? legalMovesFrom(pos, selected).map((m) => m.to) : [];
@@ -137,7 +140,8 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
   const askHint = () => {
     if (!canAct) return;
     const atPly = ply;
-    think(fen, 4).then((res) => {
+    const avoid: Move[] = JSON.parse(avoidKey);
+    think(fen, 4, avoid.length ? { avoid } : undefined).then((res) => {
       if (res.move) {
         setHint({ ply: atPly, move: res.move });
         setSelection({ ply: atPly, square: res.move.from });

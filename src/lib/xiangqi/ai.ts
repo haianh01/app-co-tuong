@@ -151,6 +151,8 @@ export interface SearchOverrides {
   depth?: number;
   timeMs?: number;
   noise?: number;
+  /** Nước bị cấm ở gốc (vd. phạm luật chiếu mãi); chỉ đi khi không còn nước nào khác. */
+  avoid?: Move[];
 }
 
 export function findBestMove(
@@ -166,12 +168,23 @@ export function findBestMove(
   let bestMove: Move | null = null;
   let bestScore = -MATE;
   let reached = 0;
+  const avoid = cfg.avoid ?? [];
+  const isAvoided = (m: Move) => avoid.some((a) => a.from === m.from && a.to === m.to);
+  const allowed = orderedMoves(board, s, false).filter((m) => {
+    const cap = make(board, m);
+    const ok = !inCheck(board, s);
+    unmake(board, m, cap);
+    return ok && !isAvoided(m);
+  });
+  // Mọi nước đều bị cấm thì vẫn phải đi (thua theo luật), không tự bỏ lượt.
+  const skip = allowed.length > 0 ? isAvoided : () => false;
 
   for (let depth = 1; depth <= cfg.depth; depth++) {
     let iterBest: Move | null = null;
     let iterScore = -Infinity;
     let alpha = -MATE - 1;
     for (const m of orderedMoves(board, s, false, bestMove ?? undefined)) {
+      if (skip(m)) continue;
       const cap = make(board, m);
       if (inCheck(board, s)) {
         unmake(board, m, cap);

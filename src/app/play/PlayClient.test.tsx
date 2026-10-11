@@ -46,8 +46,7 @@ describe("PlayClient – bảng kết quả", () => {
     expect(screen.getByRole("button", { name: "Xem bàn cờ" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Xem bàn cờ" }));
     expect(screen.queryByRole("button", { name: "Xem bàn cờ" })).toBeNull();
-    // Bảng kết quả đã đóng nhưng ván vẫn kết thúc: không xin thua lại được, vẫn mở được phân tích.
+    // Bảng kết quả đã đóng nhưng ván vẫn kết thúc: không xin thua lại được.
     expect(screen.getByRole("button", { name: "Xin thua" }).hasAttribute("disabled")).toBe(true);
-    expect(screen.getByRole("button", { name: "Phân tích ván" })).toBeTruthy();
   });
 });

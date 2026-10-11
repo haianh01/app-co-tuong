@@ -256,11 +256,13 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
             Phân tích từng nước khi đang đánh
           </label>
         </div>
-        {coach && !result && <LiveCoach state={state} player={player} />}
-        {result && state.moves.length > 0 && (
-          <AnalysisPanel state={state} ply={viewPly} onSelect={setReview} viewer={player} />
-        )}
-        {reviewing && <button type="button" className="btn" onClick={() => setReview(null)}>Về thế cuối ván</button>}
+        <div className={styles.review}>
+          {coach && !result && <LiveCoach state={state} player={player} />}
+          {result && state.moves.length > 0 && (
+            <AnalysisPanel state={state} ply={viewPly} onSelect={setReview} viewer={player} />
+          )}
+          {reviewing && <button type="button" className="btn" onClick={() => setReview(null)}>Về thế cuối ván</button>}
+        </div>
         <div className={styles.setup}>{setup}</div>
       </div>
     </main>

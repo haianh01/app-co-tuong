@@ -144,6 +144,9 @@
   .controls .actions {
     order: -1;
   }
+  .review {
+    order: 5;
+  }
   .setup {
     order: 6;
   }
@@ -162,4 +165,15 @@
   gap: 8px;
   font-size: 13px;
   cursor: pointer;
+}
+
+/* Huấn luyện / phân tích ván: ngay dưới khung điều khiển, cả trên màn hình hẹp. */
+.review {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.review:empty {
+  display: none;
 }

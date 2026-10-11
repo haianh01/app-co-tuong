@@ -138,10 +138,10 @@ describe("nguyên lý chiến lược", () => {
     const m = reviewGame(state, evals).moves[0];
     expect(m.cls).toBe("mistake");
     expect(m.facts).toEqual([
-      { kind: "strategy", plan: "raQuan", played: "X1.1", better: "P2-5", gains: ["matGoc"], worsened: ["matGoc"], loose: ["Mã 2"] },
+      { kind: "strategy", plan: "raQuan", played: "X1.1", better: "P2-5", gains: ["matGoc", "diemThenChot"], worsened: ["matGoc"], loose: ["Mã 2"] },
     ]);
     expect(explainText(m.facts, m.side)).toBe(
-      "Đang khai cuộc, việc chính là ra quân nhanh và cân đối. Nên đi P2-5: không để quân mất gốc, còn X1.1 để Mã 2 mất gốc.",
+      "Đang khai cuộc, việc chính là ra quân nhanh và cân đối. Nên đi P2-5: không để quân mất gốc và đưa quân vào điểm then chốt, còn X1.1 để Mã 2 mất gốc.",
     );
   });
 });

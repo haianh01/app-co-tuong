@@ -29,3 +29,23 @@ describe("principleScores", () => {
     expect(principleScores(board("3k5/9/9/4P4/2P6/9/9/9/9/4K4 w"), "r").tot).toBe(2);
   });
 });
+
+describe("nguyên lý mới", () => {
+  it("điểm then chốt: Pháo đầu và Mã hà khẩu", () => {
+    // Pháo đỏ ở cột giữa, Mã đỏ ở hà khẩu (hàng 5, cột 6).
+    const s = principleScores(board("4k4/9/9/9/9/6N2/9/4C4/9/4K4 w"), "r");
+    expect(s.diemThenChot).toBe(2);
+  });
+
+  it("cắt liên lạc: đếm quân lớn đối phương không có gốc", () => {
+    // Xe đen bảo vệ Mã đen cùng hàng; Pháo đen đứng riêng không có gốc.
+    const s = principleScores(board("3k5/9/r1n6/9/6c2/9/9/9/9/4K4 w"), "r");
+    expect(s.catLienLac).toBe(2); // Xe (không ai giữ) và Pháo; Mã có Xe giữ
+  });
+
+  it("khống chế Tướng: Xe chiếm hàng trước mặt Tướng đối phương", () => {
+    const free = principleScores(board("4k4/9/9/9/9/9/9/9/9/3K5 w"), "r").khongCheTuong;
+    const held = principleScores(board("4k4/R8/9/9/9/9/9/9/9/3K5 w"), "r").khongCheTuong;
+    expect(held).toBeGreaterThan(free);
+  });
+});

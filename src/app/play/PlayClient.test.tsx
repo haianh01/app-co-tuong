@@ -9,8 +9,8 @@ import { PlayClient } from "./PlayClient";
 vi.mock("@/components/session/SessionProvider", () => ({ useSession: () => ({ user: undefined, setUser: () => {}, refresh: () => {} }) }));
 vi.mock("@/hooks/useGameSounds", () => ({ useMoveSounds: () => {}, useResultSound: () => {} }));
 // AI thật chạy trong luồng test thay cho Web Worker, độ sâu giới hạn để test nhẹ.
-vi.mock("@/hooks/useAiWorker", () => ({
-  useAiWorker: () => async (fen: string, level: AiLevel, overrides?: SearchOverrides) =>
+vi.mock("@/hooks/useEngine", () => ({
+  useEngine: () => async (fen: string, level: AiLevel, overrides?: SearchOverrides) =>
     findBestMove(parseFen(fen), level, () => 0, { depth: 2, ...overrides, timeMs: 60_000 }),
 }));
 

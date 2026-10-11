@@ -5,7 +5,7 @@ import { AnalysisPanel } from "@/app/game/[id]/AnalysisPanel";
 import { XiangqiBoard } from "@/components/board/XiangqiBoard";
 import { MoveList, PlayerCard, ResultOverlay } from "@/components/game/GamePanels";
 import { useSession } from "@/components/session/SessionProvider";
-import { useAiWorker } from "@/hooks/useAiWorker";
+import { useEngine } from "@/hooks/useEngine";
 import { useMoveSounds, useResultSound } from "@/hooks/useGameSounds";
 import { formatClock, useClock } from "@/hooks/useClock";
 import { AI_LEVELS, AiLevel } from "@/lib/xiangqi/ai";
@@ -86,7 +86,7 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
   const [review, setReview] = useState<number | null>(null);
   const [coach, setCoach] = useState(true);
   const [overlayClosed, setOverlayClosed] = useState(false);
-  const think = useAiWorker();
+  const think = useEngine();
 
   const pos = currentPosition(state);
   const ply = state.moves.length;

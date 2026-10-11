@@ -9,3 +9,5 @@ playwright-report
 *.tsbuildinfo
 Dockerfile
 docker-compose.yml
+engine
+data

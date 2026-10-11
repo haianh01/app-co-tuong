@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useSession } from "@/components/session/SessionProvider";
-import { useAiWorker } from "@/hooks/useAiWorker";
+import { useEngine } from "@/hooks/useEngine";
 import { CLASS_NAME, reviewGame, type PositionEval } from "@/lib/xiangqi/analysis";
 import { toFen, type Side } from "@/lib/xiangqi/engine";
 import { explainText } from "@/lib/xiangqi/explain";
@@ -29,7 +29,7 @@ function usedToday(): number {
 export function AnalysisPanel({
   state, ply, onSelect, viewer,
 }: { state: GameState; ply: number; onSelect: (ply: number) => void; viewer: Side | null }) {
-  const think = useAiWorker();
+  const think = useEngine();
   const { user } = useSession();
   const [evals, setEvals] = useState<(PositionEval | null)[] | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
@@ -57,7 +57,7 @@ export function AnalysisPanel({
         const terminal = i === state.history.length - 1 && state.result;
         if (terminal) out.push(null);
         else {
-          const res = await think(toFen(state.history[i]), 3, { depth: 3, timeMs: 300, noise: 0 });
+          const res = await think(toFen(state.history[i]), 3, { depth: 3, timeMs: 300, noise: 0 }, "analysis");
           out.push({ score: res.score, best: res.move });
         }
         setProgress((i + 1) / state.history.length);

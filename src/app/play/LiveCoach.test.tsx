@@ -7,8 +7,8 @@ import { parseFen, sq } from "@/lib/xiangqi/engine";
 import { replayMoves } from "@/lib/xiangqi/game";
 import { LiveCoach } from "./LiveCoach";
 
-vi.mock("@/hooks/useAiWorker", () => ({
-  useAiWorker: () => async (fen: string, level: AiLevel, overrides?: SearchOverrides) =>
+vi.mock("@/hooks/useEngine", () => ({
+  useEngine: () => async (fen: string, level: AiLevel, overrides?: SearchOverrides) =>
     findBestMove(parseFen(fen), level, () => 0, { ...overrides, timeMs: 60_000 }),
 }));
 

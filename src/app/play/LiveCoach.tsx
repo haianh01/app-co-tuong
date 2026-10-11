@@ -4,7 +4,7 @@
 // không tranh với máy đang đánh). Điểm được nhớ theo thế cờ (FEN) nên "Đi lại" rồi đi nước khác vẫn đúng.
 
 import { useEffect, useMemo, useState } from "react";
-import { useAiWorker } from "@/hooks/useAiWorker";
+import { useEngine } from "@/hooks/useEngine";
 import { CLASS_NAME, reviewGame, type PositionEval } from "@/lib/xiangqi/analysis";
 import { toFen, type Side } from "@/lib/xiangqi/engine";
 import { explainText, moveIdea } from "@/lib/xiangqi/explain";
@@ -16,7 +16,7 @@ import styles from "./play.module.css";
 const COACH = { depth: 3, timeMs: 300, noise: 0 } as const;
 
 export function LiveCoach({ state, player }: { state: GameState; player: Side }) {
-  const think = useAiWorker();
+  const think = useEngine();
   const [cache, setCache] = useState<Record<string, PositionEval>>({});
   const fens = useMemo(() => state.history.map((p) => toFen(p)), [state.history]);
 
@@ -36,7 +36,7 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
   useEffect(() => {
     if (!next) return;
     let cancelled = false;
-    think(next, 3, COACH)
+    think(next, 3, COACH, "analysis")
       .then((res) => {
         if (!cancelled) setCache((c) => ({ ...c, [next]: { score: res.score, best: res.move } }));
       })

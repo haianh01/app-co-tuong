@@ -53,3 +53,6 @@ next-env.d.ts
 
 # Kỳ phổ và lời bình tải về để nghiên cứu nội bộ (có bản quyền, không đưa lên git)
 /data/
+
+# Engine Pikafish (tải bằng scripts/fetch-engine.mjs; file NNUE không được dùng thương mại khi chưa xin phép)
+/engine/

@@ -2,6 +2,13 @@
 #   docker build -t kydai .
 #   docker run -p 3000:3000 -e DATABASE_URL=postgres://... kydai
 
+# Engine cờ tướng mạnh (Pikafish) cho máy cấp Trung bình trở lên và phân tích ván.
+FROM debian:bookworm-slim AS engine
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates p7zip-full && rm -rf /var/lib/apt/lists/*
+WORKDIR /engine-build
+COPY scripts/fetch-engine.sh ./
+RUN sh fetch-engine.sh
+
 FROM node:24-slim AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -20,6 +27,7 @@ COPY --from=build /app/public ./public
 COPY --from=build /app/drizzle ./drizzle
 COPY --from=build /app/src ./src
 COPY --from=build /app/server.ts /app/next.config.ts /app/tsconfig.json ./
+COPY --from=engine /engine-build/engine ./engine
 # Chỉ dùng khi không đặt DATABASE_URL (PGlite ghi dữ liệu vào đây).
 RUN mkdir -p /app/.data && chown node:node /app/.data
 USER node

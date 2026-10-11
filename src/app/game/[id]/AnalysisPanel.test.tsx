@@ -10,8 +10,8 @@ import { AnalysisPanel } from "./AnalysisPanel";
 
 vi.mock("@/components/session/SessionProvider", () => ({ useSession: () => ({ user: undefined, setUser: () => {}, refresh: () => {} }) }));
 // Bỏ giới hạn thời gian để kết quả không phụ thuộc tốc độ máy; độ sâu vẫn do màn phân tích quyết định.
-vi.mock("@/hooks/useAiWorker", () => ({
-  useAiWorker: () => async (fen: string, level: AiLevel, overrides?: SearchOverrides) =>
+vi.mock("@/hooks/useEngine", () => ({
+  useEngine: () => async (fen: string, level: AiLevel, overrides?: SearchOverrides) =>
     findBestMove(parseFen(fen), level, () => 0, { ...overrides, timeMs: 60_000 }),
 }));
 

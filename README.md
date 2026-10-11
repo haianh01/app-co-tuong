@@ -37,6 +37,13 @@ npm run lint
 npm run build && npm start
 ```
 
+### Engine cờ tướng (Pikafish)
+
+Máy cấp Trung bình, Khó, Đại sư, nút Gợi ý, phân tích ván và huấn luyện dùng engine Pikafish chạy trên server (`/api/engine`). Cấp Tân thủ và Dễ dùng AI JavaScript trong trình duyệt. Không có engine thì mọi thứ tự quay về AI JavaScript (yếu hơn nhiều).
+
+- Docker: ảnh tự tải Pikafish (`scripts/fetch-engine.sh`).
+- Máy phát triển: đặt file chạy và `pikafish.nnue` vào thư mục `engine/` (`pikafish-windows.exe` hoặc `pikafish-linux`), lấy từ [bản phát hành Pikafish](https://github.com/official-pikafish/Pikafish/releases). Trên Linux/macOS có 7z thì chạy `sh scripts/fetch-engine.sh`.
+
 Cấp quyền quản trị cho một tài khoản đã đăng ký: `npm run admin:promote -- <tên đăng nhập>`, hoặc khai báo `ADMIN_USERNAMES`.
 
 ### Biến môi trường
@@ -55,6 +62,9 @@ Xem đầy đủ trong `.env.example`. App tự nạp file `.env` khi khởi đ�
 | `FACEBOOK_CLIENT_ID`, `FACEBOOK_CLIENT_SECRET` | Tùy | Đăng nhập Facebook. Callback: `{PUBLIC_URL}/api/auth/facebook/callback`. |
 | `PAYMENT_PROVIDER` | | `vnpay`, hoặc `mock` (cổng giả lập, **không bật khi chạy thật**). Để trống thì tắt thanh toán. |
 | `VNP_TMN_CODE`, `VNP_HASH_SECRET`, `VNP_URL` | **Có** (để bán hàng) | Khóa merchant VNPay. `VNP_URL` mặc định là sandbox. IPN URL: `{PUBLIC_URL}/api/payments/vnpay/ipn`. |
+| `ENGINE_PATH` | | File chạy engine UCI (mặc định `engine/pikafish-…`). |
+| `ENGINE_EVAL_FILE` | | File mạng nơ-ron của engine (mặc định `pikafish.nnue` cạnh file chạy). |
+| `ENGINE_POOL` | | Số tiến trình engine chạy song song (mặc định 2, mỗi tiến trình dùng 1 nhân CPU). |
 | `ALLOWED_ORIGINS` | | Các origin khác host được phép mở WebSocket. |
 | `COOKIE_SECURE` | | Đặt `false` nếu chạy qua HTTP thường (không khuyến khích). |
 
@@ -131,8 +141,9 @@ location / {
    - `PUBLIC_URL`, `CONTACT_EMAIL`.
    - Khóa Resend (email), Google/Facebook (đăng nhập), VNPay (thanh toán).
    - Khi đã có khóa VNPay thật: đặt `PAYMENT_PROVIDER=vnpay` và tuyệt đối **không** để `mock`.
-3. **Chốt giá** trong `src/lib/products.ts`.
-4. **Sao lưu PostgreSQL** định kỳ.
+3. **Giấy phép engine:** `pikafish.nnue` ghi rõ không được dùng thương mại khi chưa xin phép. Xin phép nhóm Pikafish, hoặc đổi sang engine có trọng số cho phép thương mại (vd. Fairy-Stockfish, trọng số cờ tướng CC0) qua `ENGINE_PATH` / `ENGINE_EVAL_FILE`.
+4. **Chốt giá** trong `src/lib/products.ts`.
+5. **Sao lưu PostgreSQL** định kỳ.
 
 ## Giới hạn hiện tại
 

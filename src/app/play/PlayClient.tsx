@@ -85,6 +85,7 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
   // Hết ván: nửa nước đang xem lại khi bấm vào nước bị AI chấm (null = thế cuối).
   const [review, setReview] = useState<number | null>(null);
   const [coach, setCoach] = useState(true);
+  const [overlayClosed, setOverlayClosed] = useState(false);
   const think = useAiWorker();
 
   const pos = currentPosition(state);
@@ -145,6 +146,7 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
   const undo = () => {
     if (!canUndo) return;
     setReview(null);
+    setOverlayClosed(false);
     dispatch({ type: "undo", plies: undoPlies });
   };
 
@@ -222,8 +224,9 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
           disabled={!canAct}
           onSquareClick={onSquareClick}
         >
-          {outcomeText && !reviewing && (
+          {outcomeText && !reviewing && !overlayClosed && (
             <ResultOverlay seal={outcomeText.seal} title={outcomeText.title} detail={outcomeText.detail}>
+              <button type="button" className="btn" onClick={() => setOverlayClosed(true)}>Xem bàn cờ</button>
               {canUndo && <button type="button" className="btn" onClick={undo}>Đi lại</button>}
               <button type="button" className="btn btn-primary" onClick={onNewGame}>Ván mới</button>
             </ResultOverlay>

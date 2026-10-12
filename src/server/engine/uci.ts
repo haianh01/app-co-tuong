@@ -28,6 +28,8 @@ export interface EngineResult {
   /** Số nước đến chiếu bí (dương = bên đang đi chiếu bí được). */
   mate: number | null;
   depth: number;
+  /** Chuỗi biến chính (Principal Variation) dạng UCI/ICCS, vd. ["h2e2", "b9c7"]. */
+  pv?: string[];
 }
 
 export function defaultEnginePath(): string | null {
@@ -39,13 +41,17 @@ export function defaultEnginePath(): string | null {
 }
 
 /** Phân tích một dòng "info ..." của UCI. */
-export function parseInfo(line: string): { depth?: number; cp?: number; mate?: number } {
+export function parseInfo(line: string): { depth?: number; cp?: number; mate?: number; pv?: string[] } {
   const t = line.split(/\s+/);
-  const out: { depth?: number; cp?: number; mate?: number } = {};
+  const out: { depth?: number; cp?: number; mate?: number; pv?: string[] } = {};
   for (let i = 0; i < t.length; i++) {
     if (t[i] === "depth") out.depth = Number(t[i + 1]);
     else if (t[i] === "score" && t[i + 1] === "cp") out.cp = Number(t[i + 2]);
     else if (t[i] === "score" && t[i + 1] === "mate") out.mate = Number(t[i + 2]);
+    else if (t[i] === "pv") {
+      out.pv = t.slice(i + 1).filter((s) => /^[a-i][0-9][a-i][0-9]$/.test(s));
+      break;
+    }
   }
   return out;
 }
@@ -111,7 +117,7 @@ class UciProcess {
 
   async search(fen: string, limits: EngineLimits, searchmoves?: string[]): Promise<EngineResult> {
     await this.ready;
-    let last: { depth?: number; cp?: number; mate?: number } = {};
+    let last: { depth?: number; cp?: number; mate?: number; pv?: string[] } = {};
     this.send("ucinewgame");
     this.send(`position fen ${fen}`);
     const go = ["go"];
@@ -124,7 +130,10 @@ class UciProcess {
       (l) => l.startsWith("bestmove"),
       (limits.movetime ?? 5_000) + 10_000,
       (l) => {
-        if (l.startsWith("info") && l.includes(" score ")) last = parseInfo(l);
+        if (l.startsWith("info") && l.includes(" score ")) {
+          const info = parseInfo(l);
+          last = { ...last, ...info };
+        }
       },
     );
     const move = line.split(/\s+/)[1];
@@ -133,6 +142,7 @@ class UciProcess {
       cp: last.mate !== undefined ? null : (last.cp ?? 0),
       mate: last.mate ?? null,
       depth: last.depth ?? 0,
+      pv: last.pv,
     };
   }
 

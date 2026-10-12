@@ -267,8 +267,10 @@ export function explainMove(ctx: MoveContext): Fact[] {
 /** Thế cờ sau một nước và nước đáp mạnh nhất của đối phương (để việc đổi quân dở dang không làm lệch chỉ số). */
 function settle(board: Board, m: Move, reply?: Move | null): Board {
   const after = play(board, m);
+  if (reply !== undefined) return reply ? play(after, reply) : after;
   const turn = opponent(sideOf(board[m.from]!));
-  const r = reply !== undefined ? reply : findBestMove({ board: after, turn }, 5, () => 0, { depth: 2, timeMs: 2_000, noise: 0 }).move;
+  // Tìm phản đòn nhanh 1 nửa nước (< 1ms) để giải quyết nước ăn lại quân, tránh block main thread
+  const r = findBestMove({ board: after, turn }, 1, () => 0, { depth: 1, timeMs: 30, noise: 0 }).move;
   return r ? play(after, r) : after;
 }
 

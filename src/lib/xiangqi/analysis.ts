@@ -6,11 +6,16 @@ import { explainMove, type Fact } from "./explain";
 import type { GameState } from "./game";
 import { moveNotation } from "./notation";
 import { openingOf } from "./openings";
+import { formatPvLine } from "./uci";
 
 /** Điểm AI của một thế cờ, tính theo phe đang đến lượt (dương = phe đó đang hơn), kèm nước tốt nhất. */
 export interface PositionEval {
   score: number;
   best: Move | null;
+  /** Chuỗi nước đi chính từ engine (PV). */
+  pv?: Move[];
+  /** Chuỗi biến cờ tướng ký hiệu tiếng Việt có sẵn. */
+  line?: string[];
 }
 
 export type MoveClass = "blunder" | "mistake" | "inaccuracy";
@@ -70,7 +75,7 @@ export function computeTacticalLine(
     if (inCheck(currentBoard, currentTurn) && legalMoves({ board: currentBoard, turn: currentTurn }).length === 0) {
       break;
     }
-    const res = findBestMove({ board: currentBoard, turn: currentTurn }, 3, () => 0, { depth: 2, timeMs: 150, noise: 0 });
+    const res = findBestMove({ board: currentBoard, turn: currentTurn }, 1, () => 0, { depth: 1, timeMs: 25, noise: 0 });
     currentMove = res.move;
   }
 
@@ -126,7 +131,16 @@ export function reviewGame(state: GameState, evals: (PositionEval | null)[]): { 
     acc[m.side].push(Math.max(0, 100 - loss / 3));
     const cls = classify(loss);
     const historyMoves = state.moves.slice(0, i).map((x) => x.move);
-    const line = cls && afterEval?.best ? computeTacticalLine(state.history[i + 1].board, afterEval.best, m.side, 3) : undefined;
+    let line: string[] | undefined;
+    if (cls) {
+      if (afterEval?.pv && afterEval.pv.length > 0) {
+        line = formatPvLine(state.history[i + 1].board, afterEval.pv, 3);
+      } else if (afterEval?.line && afterEval.line.length > 0) {
+        line = afterEval.line.slice(0, 3);
+      } else if (afterEval?.best) {
+        line = computeTacticalLine(state.history[i + 1].board, afterEval.best, m.side, 3);
+      }
+    }
     const highlights = cls ? computeHighlights(m.move, afterEval?.best ?? null, before.best ?? null) : undefined;
 
     reviews.push({

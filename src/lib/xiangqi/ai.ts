@@ -144,6 +144,10 @@ export interface AiResult {
   score: number;
   depth: number;
   nodes: number;
+  /** Chuỗi nước đi chính của engine dạng UCI (vd: ["h2e2", "b9c7"]). */
+  pv?: string[];
+  /** Chuỗi nước đi chính dạng Move. */
+  pvMoves?: Move[];
 }
 
 /** Ghi đè cấu hình của cấp độ (vd. phân tích ván: độ sâu cố định, không nhiễu). */

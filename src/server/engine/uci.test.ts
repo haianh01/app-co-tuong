@@ -5,9 +5,9 @@ import { engineScore, toUciFen, uciToMove } from "@/lib/xiangqi/uci";
 import { EnginePool, defaultEnginePath, parseInfo } from "./uci";
 
 describe("parseInfo", () => {
-  it("đọc độ sâu và điểm", () => {
-    expect(parseInfo("info depth 12 seldepth 18 multipv 1 score cp -34 nodes 1 pv h2e2")).toEqual({ depth: 12, cp: -34 });
-    expect(parseInfo("info depth 5 score mate 2 pv a0a9")).toEqual({ depth: 5, mate: 2 });
+  it("đọc độ sâu, điểm và chuỗi biến PV", () => {
+    expect(parseInfo("info depth 12 seldepth 18 multipv 1 score cp -34 nodes 1 pv h2e2 b9c7")).toEqual({ depth: 12, cp: -34, pv: ["h2e2", "b9c7"] });
+    expect(parseInfo("info depth 5 score mate 2 pv a0a9")).toEqual({ depth: 5, mate: 2, pv: ["a0a9"] });
   });
 });
 

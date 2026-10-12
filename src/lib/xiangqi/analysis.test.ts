@@ -99,6 +99,22 @@ describe("reviewGame", () => {
       expect(opFault.piece?.name).toContain("Pháo");
     }
   });
+
+  it("dùng trực tiếp chuỗi PV từ engine cho line khi có sẵn", () => {
+    const fen = "4k4/9/9/9/r8/9/9/C8/9/3K5 w";
+    const state = replayMoves([{ from: sq(7, 0), to: sq(5, 0) }], fen);
+    const pvMoves = [
+      { from: sq(4, 0), to: sq(5, 0) }, // Xe ăn Pháo
+      { from: sq(9, 3), to: sq(8, 3) }, // Tướng lên
+    ];
+    const evals: PositionEval[] = [
+      { score: 0, best: { from: sq(7, 0), to: sq(7, 4) } },
+      { score: 900, best: pvMoves[0], pv: pvMoves },
+    ];
+    const { moves } = reviewGame(state, evals);
+    expect(moves[0].cls).toBe("blunder");
+    expect(moves[0].line).toEqual(["X1.1", "Tg6.1"]);
+  });
 });
 
 describe("computeTacticalLine & computeHighlights", () => {

@@ -54,7 +54,18 @@ export async function POST(request: Request) {
   try {
     const res = await pool.search(toUciFen(pos), limits, searchmoves);
     const move = res.bestmove ? uciToMove(res.bestmove) : null;
-    return Response.json({ move, score: engineScore(res.cp, res.mate), depth: res.depth, nodes: 0 }, { headers: noStore });
+    const pvMoves = res.pv ? res.pv.map(uciToMove).filter((m): m is Move => m !== null) : [];
+    return Response.json(
+      {
+        move,
+        score: engineScore(res.cp, res.mate),
+        depth: res.depth,
+        nodes: 0,
+        pv: res.pv ?? [],
+        pvMoves,
+      },
+      { headers: noStore },
+    );
   } catch {
     return Response.json({ error: "Engine lỗi" }, { status: 503, headers: noStore });
   }

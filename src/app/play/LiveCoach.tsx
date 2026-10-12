@@ -3,7 +3,7 @@
 // Huấn luyện khi đánh với máy: chấm ngay từng nước của người chơi bằng một AI riêng (worker thứ hai,
 // không tranh với máy đang đánh). Điểm được nhớ theo thế cờ (FEN) nên "Đi lại" rồi đi nước khác vẫn đúng.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useEngine } from "@/hooks/useEngine";
 import { CLASS_NAME, reviewGame, type PositionEval } from "@/lib/xiangqi/analysis";
 import { toFen, type Side } from "@/lib/xiangqi/engine";
@@ -18,6 +18,7 @@ const COACH = { depth: 3, timeMs: 300, noise: 0 } as const;
 export function LiveCoach({ state, player }: { state: GameState; player: Side }) {
   const think = useEngine();
   const [cache, setCache] = useState<Record<string, PositionEval>>({});
+  const ideaCache = useRef<Map<string, string>>(new Map());
   const fens = useMemo(() => state.history.map((p) => toFen(p)), [state.history]);
 
   // Thế cần chấm: trước và sau mỗi nước của người chơi, kể cả thế hiện tại khi đến lượt người chơi (chấm sẵn).
@@ -38,7 +39,7 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
     let cancelled = false;
     think(next, 3, COACH, "analysis")
       .then((res) => {
-        if (!cancelled) setCache((c) => ({ ...c, [next]: { score: res.score, best: res.move } }));
+        if (!cancelled) setCache((c) => ({ ...c, [next]: { score: res.score, best: res.move, pv: res.pvMoves } }));
       })
       .catch(() => {});
     return () => {
@@ -52,26 +53,33 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
     .map((r, i) => ({ ...r, ready: !!evals[i] && (!!evals[i + 1] || (i + 1 === state.moves.length && !!state.result)), best: sameMove(evals[i]?.best, state.moves[i].move) }))
     .filter((r) => r.side === player)
     .map((r) => {
-      const historyMoves = state.moves.slice(0, r.ply - 1).map((m) => m.move);
+      let idea = "";
+      if (r.ready) {
+        const key = `${r.ply}:${state.moves[r.ply - 1].move.from}-${state.moves[r.ply - 1].move.to}:${r.best}`;
+        if (ideaCache.current.has(key)) {
+          idea = ideaCache.current.get(key)!;
+        } else {
+          const historyMoves = state.moves.slice(0, r.ply - 1).map((m) => m.move);
+          idea = explainText(
+            [
+              moveIdea(
+                state.history[r.ply - 1].board,
+                state.moves[r.ply - 1].move,
+                evals[r.ply]?.best ?? null,
+                r.ply - 1,
+                review.opening,
+                historyMoves,
+                r.best,
+              ),
+            ],
+            r.side,
+          );
+          ideaCache.current.set(key, idea);
+        }
+      }
       return {
         ...r,
-        // Nhận xét chiến lược cho mọi nước, kể cả nước tốt.
-        idea: r.ready
-          ? explainText(
-              [
-                moveIdea(
-                  state.history[r.ply - 1].board,
-                  state.moves[r.ply - 1].move,
-                  evals[r.ply]?.best ?? null,
-                  r.ply - 1,
-                  review.opening,
-                  historyMoves,
-                  r.best,
-                ),
-              ],
-              r.side,
-            )
-          : "",
+        idea,
       };
     })
     .reverse();

@@ -58,7 +58,7 @@ export function AnalysisPanel({
         if (terminal) out.push(null);
         else {
           const res = await think(toFen(state.history[i]), 3, { depth: 3, timeMs: 300, noise: 0 }, "analysis");
-          out.push({ score: res.score, best: res.move });
+          out.push({ score: res.score, best: res.move, pv: res.pvMoves });
         }
         setProgress((i + 1) / state.history.length);
       }

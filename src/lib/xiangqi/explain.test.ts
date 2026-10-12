@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { findBestMove } from "./ai";
 import { reviewGame, type PositionEval } from "./analysis";
 import { parseFen, sq, type Position } from "./engine";
-import { exchangeGain, explainText, formatPoints, hangingPieces, moveIdea } from "./explain";
+import { exchangeGain, explainMove, explainText, formatPoints, hangingPieces, moveIdea } from "./explain";
 import { replayMoves } from "./game";
+import { detectOpeningFault, principleScores } from "./strategy";
 
 /** Cùng độ sâu với màn phân tích ván (3), bỏ giới hạn thời gian để kết quả không phụ thuộc tốc độ máy. */
 function evalOf(pos: Position): PositionEval {
@@ -146,6 +147,126 @@ describe("nguyên lý chiến lược", () => {
   });
 });
 
+describe("đòn chiến thuật nâng cao (Phase 1)", () => {
+  it("nhận diện đòn chiếu kép (doubleCheck)", () => {
+    // Tướng đỏ ở (9, 4). Xe đen ở (4, 4), Mã đen ở (7, 4) đang chắn.
+    // Mã đen nhảy sang (8, 2): vừa chiếu tướng vừa mở đường cho Xe chiếu tướng.
+    const before = parseFen("4k4/9/9/9/4r4/9/9/4n4/9/4K4 w").board;
+    const after = parseFen("4k4/9/9/9/4r4/9/9/4n4/9/4K4 b").board;
+    const move = { from: sq(9, 4), to: sq(9, 4) };
+    const reply = { from: sq(7, 4), to: sq(8, 2) };
+    const facts = explainMove({
+      before,
+      move,
+      after,
+      evalBefore: { score: 0, best: null },
+      evalAfter: { score: 500, best: reply },
+      loss: 500,
+    });
+    expect(facts[0]).toMatchObject({ kind: "doubleCheck" });
+    expect(explainText(facts, "r")).toContain("cùng lúc chiếu tướng (chiếu kép), buộc Tướng phải chạy.");
+  });
+
+  it("nhận diện đòn chiếu rút (discoveredCheck)", () => {
+    // Tướng đỏ ở (9, 4). Xe đen ở (4, 4). Mã đen ở (7, 4) đang chắn.
+    // Pháo đỏ ở (6, 2).
+    // Mã đen nhảy sang (6, 2) ăn Pháo đỏ: không chiếu tướng nhưng mở đường cho Xe đen chiếu.
+    const before = parseFen("4k4/9/9/9/4r4/9/2C6/4n4/9/4K4 w").board;
+    const after = parseFen("4k4/9/9/9/4r4/9/2C6/4n4/9/4K4 b").board;
+    const move = { from: sq(9, 4), to: sq(9, 4) };
+    const reply = { from: sq(7, 4), to: sq(6, 2) };
+    const facts = explainMove({
+      before,
+      move,
+      after,
+      evalBefore: { score: 0, best: null },
+      evalAfter: { score: 600, best: reply },
+      loss: 600,
+    });
+    expect(facts[0]).toMatchObject({ kind: "discoveredCheck" });
+    expect(explainText(facts, "r")).toContain("chiếu tướng (chiếu rút)");
+  });
+
+  it("nhận diện đòn ghim quân (pin) của Xe", () => {
+    // Tướng đỏ ở (9, 4), Mã đỏ ở (7, 4). Xe đen ở (3, 1).
+    // Xe đen bình sang (3, 4): ghim chặt Mã đỏ trước Tướng đỏ.
+    const before = parseFen("4k4/9/9/1r7/9/9/9/4N4/9/4K4 w").board;
+    const after = parseFen("4k4/9/9/1r7/9/9/9/4N4/9/4K4 b").board;
+    const move = { from: sq(9, 4), to: sq(9, 4) };
+    const reply = { from: sq(3, 1), to: sq(3, 4) };
+    const facts = explainMove({
+      before,
+      move,
+      after,
+      evalBefore: { score: 0, best: null },
+      evalAfter: { score: 400, best: reply },
+      loss: 400,
+    });
+    expect(facts[0]).toMatchObject({ kind: "pin", absolute: true });
+    expect(explainText(facts, "r")).toContain("ghim chặt Mã");
+    expect(explainText(facts, "r")).toContain("không thể di chuyển vì để lộ Tướng");
+  });
+
+  it("nhận diện tự cản chân Mã của mình (horseBlock)", () => {
+    // King đen ở (0, 3), King đỏ ở (9, 4).
+    // Mã đỏ ở (7, 2). Pháo đỏ ở (9, 2).
+    // Xe đen ở (7, 6) đang dọa ăn Mã đỏ.
+    // Pháo đỏ đi lên (8, 2), cản chân Mã đỏ.
+    const before = parseFen("3k5/9/9/9/9/9/9/2N3r2/9/2C1K4 w").board;
+    const after = parseFen("3k5/9/9/9/9/9/9/2N3r2/2C6/4K4 b").board;
+    const move = { from: sq(9, 2), to: sq(8, 2) };
+    const facts = explainMove({
+      before,
+      move,
+      after,
+      evalBefore: { score: 0, best: { from: sq(7, 2), to: sq(5, 3) } },
+      evalAfter: { score: 400, best: { from: sq(7, 6), to: sq(7, 2) } },
+      loss: 400,
+    });
+    expect(facts[0]).toMatchObject({ kind: "horseBlock", byOpponent: false });
+    expect(explainText(facts, "r")).toContain("vừa đi làm cản chân Mã");
+  });
+
+  it("nhận diện đối phương ngáng chân Mã (horseBlock)", () => {
+    // King đen ở (0, 3), King đỏ ở (9, 4).
+    // Mã đỏ ở (7, 2). Xe đen ở (7, 6) đang nhắm ăn Mã đỏ.
+    // Tốt đen ở (6, 3) đi sang (6, 2): ngáng chân Mã đỏ!
+    const before = parseFen("3k5/9/9/9/9/9/3p5/2N3r2/9/4K4 w").board;
+    const after = parseFen("3k5/9/9/9/9/9/3p5/2N3r2/9/4K4 b").board;
+    const move = { from: sq(9, 4), to: sq(9, 4) };
+    const reply = { from: sq(6, 3), to: sq(6, 2) }; // Tốt đen đi vào ô cản chân (6, 2)
+    const facts = explainMove({
+      before,
+      move,
+      after,
+      evalBefore: { score: 0, best: null },
+      evalAfter: { score: 400, best: reply },
+      loss: 400,
+    });
+    expect(facts[0]).toMatchObject({ kind: "horseBlock", byOpponent: true });
+    expect(explainText(facts, "r")).toContain("ngáng chân Mã");
+  });
+
+  it("nhận diện quân lớn bị vây khốn không còn ô an toàn (trappedPiece)", () => {
+    // Xe đỏ ở (0, 0). King đen ở (0, 3), King đỏ ở (9, 4).
+    // Các ô xung quanh Xe (0, 0) là (0, 1) và (1, 0) đều có Tốt đen được Mã đen (2, 2) bảo vệ.
+    // Pháo đen ở (5, 0) tấn công Xe đỏ qua ngòi Tốt (1, 0).
+    const before = parseFen("R2k5/p8/2n6/9/9/c8/9/9/9/4K4 w").board;
+    const after = parseFen("Rp1k5/p8/2n6/9/9/c8/9/9/9/4K4 b").board;
+    const move = { from: sq(0, 0), to: sq(0, 0) };
+    const facts = explainMove({
+      before,
+      move,
+      after,
+      evalBefore: { score: 0, best: null },
+      evalAfter: { score: 900, best: null },
+      loss: 900,
+    });
+    expect(facts.some((f) => f.kind === "trappedPiece")).toBe(true);
+    expect(explainText(facts, "r")).toContain("bị vây khốn");
+  });
+});
+
 describe("nhận xét chiến lược cho mọi nước (moveIdea)", () => {
   // Pháo đầu – Bình phong mã, rồi Đỏ ra Xe và đưa Xe qua hà.
   const line = [[7, 7, 7, 4], [0, 7, 2, 6], [9, 7, 7, 6], [0, 8, 0, 7], [9, 8, 9, 7], [0, 1, 2, 2], [9, 7, 3, 7]] as const;
@@ -163,4 +284,143 @@ describe("nhận xét chiến lược cho mọi nước (moveIdea)", () => {
   it("Xe qua hà: khen ra quân nhưng nhắc Xe mất gốc", () => {
     expect(idea(6)).toBe("Kế hoạch: ra quân. X2.6 giúp đưa thêm quân ra trận và Xe thông đường hơn, nhưng để Xe 2 mất gốc.");
   });
+
+  it("gắn tên khai cuộc vào kế hoạch khi được cung cấp", () => {
+    const move = { from: sq(9, 7), to: sq(7, 6) };
+    const text = explainText([moveIdea(state.history[2].board, move, null, 2, "Pháo đầu (Trung pháo)")], "r");
+    expect(text).toContain("Kế hoạch ra quân (Pháo đầu (Trung pháo))");
+  });
 });
+
+describe("tri thức khai cuộc & định thức tàn cuộc (Phase 3)", () => {
+  it("phát hiện lỗi đi một quân nhiều lần trong khai cuộc (repeatPiece)", () => {
+    const fen = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w";
+    const pos = parseFen(fen);
+    // Giả sử Đỏ đã đi Pháo (7, 7) -> (7, 4), bàn cờ hiện tại Pháo đỏ ở (7, 4)
+    pos.board[sq(7, 4)] = "C";
+    pos.board[sq(7, 7)] = null;
+    const history = [
+      { from: sq(7, 7), to: sq(7, 4) },
+      { from: sq(0, 1), to: sq(2, 2) },
+    ];
+    const fault = detectOpeningFault(pos.board, { from: sq(7, 4), to: sq(5, 4) }, 2, "r", history);
+    expect(fault).not.toBeNull();
+    expect(fault?.fault).toBe("repeatPiece");
+  });
+
+  it("phát hiện lỗi chậm xuất Xe quá 8 nửa nước (lateRook)", () => {
+    // 2 Xe đỏ vẫn ở vị trí xuất phát (81 và 89), ply = 8, nước đi lại là đi Tốt hoặc Mã
+    const fen = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w";
+    const pos = parseFen(fen);
+    const fault = detectOpeningFault(pos.board, { from: sq(6, 4), to: sq(5, 4) }, 8, "r", []);
+    expect(fault).not.toBeNull();
+    expect(fault?.fault).toBe("lateRook");
+  });
+
+  it("định thức tàn cuộc: khuyết Sĩ kỵ Song Xa / Pháo gánh", () => {
+    // Đỏ có Mã, Đen chỉ còn 1 Sĩ -> điểm khuyetSi của Đỏ phải > 0
+    const board = parseFen("3k1a3/9/9/9/9/9/9/4N4/9/4K4 w").board;
+    const scores = principleScores(board, "r");
+    expect(scores.khuyetSi).toBeGreaterThan(0);
+  });
+
+  it("định thức tàn cuộc: khuyết Tượng kỵ Pháo", () => {
+    // Đỏ có Pháo, Đen không còn Tượng nào -> điểm khuyetTuong của Đỏ phải > 0
+    const board = parseFen("4k4/9/9/9/9/9/9/4C4/9/4K4 w").board;
+    const scores = principleScores(board, "r");
+    expect(scores.khuyetTuong).toBeGreaterThan(0);
+  });
+
+  it("định thức tàn cuộc: tốt vào cung", () => {
+    // Tốt đỏ lọt vào cung tướng Đen (row <= 2, col trong [3..5])
+    const board = parseFen("4k4/4P4/9/9/9/9/9/9/9/4K4 w").board;
+    const scores = principleScores(board, "r");
+    expect(scores.totVaoCung).toBeGreaterThan(0);
+  });
+
+  it("explainText diễn đạt cảnh báo lỗi khai cuộc tự nhiên", () => {
+    const textRepeat = explainText([{ kind: "openingFault", fault: "repeatPiece" }], "r");
+    expect(textRepeat).toContain("đã đi nhiều lần trong khai cuộc");
+    const textRook = explainText([{ kind: "openingFault", fault: "lateRook" }], "r");
+    expect(textRook).toContain("Một Xe mười quân");
+  });
+
+  it("detectOpeningFault hoạt động với cả bàn cờ trước nước đi (before) lẫn sau nước đi (after)", () => {
+    const fen = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w";
+    const beforePos = parseFen(fen);
+    beforePos.board[sq(7, 4)] = "C";
+    beforePos.board[sq(7, 7)] = null;
+    const move = { from: sq(7, 4), to: sq(5, 4) };
+    const history = [
+      { from: sq(7, 7), to: sq(7, 4) },
+      { from: sq(0, 1), to: sq(2, 2) },
+    ];
+
+    // 1. Kiểm tra với bàn cờ trước nước đi
+    const faultBefore = detectOpeningFault(beforePos.board, move, 2, "r", history);
+    expect(faultBefore).not.toBeNull();
+    expect(faultBefore?.fault).toBe("repeatPiece");
+    expect(faultBefore?.pieceSquare).toBe(move.from);
+
+    // 2. Tạo bàn cờ sau nước đi (ô move.from đã trống, quân ở move.to)
+    const afterBoard = beforePos.board.slice();
+    afterBoard[move.to] = afterBoard[move.from];
+    afterBoard[move.from] = null;
+    const faultAfter = detectOpeningFault(afterBoard, move, 2, "r", history);
+    expect(faultAfter).not.toBeNull();
+    expect(faultAfter?.fault).toBe("repeatPiece");
+    expect(faultAfter?.pieceSquare).toBe(move.to);
+  });
+
+  it("explainMove báo lỗi openingFault trong phân tích ván", () => {
+    const fen = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w";
+    const beforePos = parseFen(fen);
+    beforePos.board[sq(7, 4)] = "C";
+    beforePos.board[sq(7, 7)] = null;
+    const move = { from: sq(7, 4), to: sq(5, 4) };
+    const afterBoard = beforePos.board.slice();
+    afterBoard[move.to] = afterBoard[move.from];
+    afterBoard[move.from] = null;
+
+    const history = [
+      { from: sq(7, 7), to: sq(7, 4) },
+      { from: sq(0, 1), to: sq(2, 2) },
+    ];
+
+    const facts = explainMove({
+      before: beforePos.board,
+      move,
+      after: afterBoard,
+      evalBefore: { score: 20, best: { from: sq(9, 7), to: sq(7, 6) } }, // Nên ra Mã thay vì đi Pháo tiếp
+      evalAfter: { score: 150, best: null },
+      loss: 130,
+      ply: 2,
+      historyMoves: history,
+    });
+
+    const opFault = facts.find((f) => f.kind === "openingFault");
+    expect(opFault).toBeDefined();
+    expect(opFault?.kind === "openingFault" && opFault.fault).toBe("repeatPiece");
+  });
+
+  it("moveIdea không báo lỗi openingFault khi nước đó là nước tốt nhất của engine (isBest = true)", () => {
+    const fen = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w";
+    const beforePos = parseFen(fen);
+    beforePos.board[sq(7, 4)] = "C";
+    beforePos.board[sq(7, 7)] = null;
+    const move = { from: sq(7, 4), to: sq(7, 3) };
+    const history = [
+      { from: sq(7, 7), to: sq(7, 4) },
+      { from: sq(0, 1), to: sq(2, 2) },
+    ];
+
+    // Khi isBest = false: báo lỗi openingFault
+    const ideaWrong = moveIdea(beforePos.board, move, null, 2, undefined, history, false);
+    expect(ideaWrong.kind).toBe("openingFault");
+
+    // Khi isBest = true: không báo lỗi openingFault, giải thích theo kế hoạch
+    const ideaBest = moveIdea(beforePos.board, move, null, 2, undefined, history, true);
+    expect(ideaBest.kind).toBe("idea");
+  });
+});
+

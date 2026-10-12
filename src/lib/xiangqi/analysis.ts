@@ -1,9 +1,11 @@
 // Đánh giá các nước đã đi dựa trên điểm AI cho từng thế cờ: nước hớ, nước kém, thiếu chính xác, độ chính xác.
 
-import type { Move, Side } from "./engine";
+import { findBestMove } from "./ai";
+import { inCheck, legalMoves, opponent, type Board, type Move, type Side } from "./engine";
 import { explainMove, type Fact } from "./explain";
 import type { GameState } from "./game";
 import { moveNotation } from "./notation";
+import { openingOf } from "./openings";
 
 /** Điểm AI của một thế cờ, tính theo phe đang đến lượt (dương = phe đó đang hơn), kèm nước tốt nhất. */
 export interface PositionEval {
@@ -25,6 +27,10 @@ export interface MoveReview {
   better: string | null;
   /** Dữ kiện giải thích vì sao nước bị chấm (rỗng nếu nước không bị chấm), xem explain.ts. */
   facts: Fact[];
+  /** Chuỗi biến nước phản đòn tiếp theo của đối phương (2-3 nước). */
+  line?: string[];
+  /** Các ô cờ then chốt liên quan đến sai lầm để hiển thị highlight. */
+  highlights?: number[];
 }
 
 export const CLASS_NAME: Record<MoveClass, string> = {
@@ -37,6 +43,55 @@ export const CLASS_NAME: Record<MoveClass, string> = {
 const CAP = 1500;
 const clamp = (v: number) => Math.max(-CAP, Math.min(CAP, v));
 
+function play(board: Board, m: Move): Board {
+  const next = board.slice();
+  next[m.to] = next[m.from];
+  next[m.from] = null;
+  return next;
+}
+
+/** Tính chuỗi biến phản đòn tiếp theo (tối đa maxPly nước) để giải thích sâu cho người chơi. */
+export function computeTacticalLine(
+  after: Board,
+  reply: Move | null,
+  mover: Side,
+  maxPly: number = 3,
+): string[] {
+  if (!reply) return [];
+  const line: string[] = [];
+  let currentBoard = after;
+  let currentTurn = opponent(mover);
+  let currentMove: Move | null = reply;
+
+  while (currentMove && line.length < maxPly) {
+    line.push(moveNotation(currentBoard, currentMove));
+    currentBoard = play(currentBoard, currentMove);
+    currentTurn = opponent(currentTurn);
+    if (inCheck(currentBoard, currentTurn) && legalMoves({ board: currentBoard, turn: currentTurn }).length === 0) {
+      break;
+    }
+    const res = findBestMove({ board: currentBoard, turn: currentTurn }, 3, () => 0, { depth: 2, timeMs: 150, noise: 0 });
+    currentMove = res.move;
+  }
+
+  return line;
+}
+
+/** Tập hợp các ô cờ trọng điểm liên quan đến nước đi và nước đáp. */
+export function computeHighlights(move: Move, reply: Move | null, better: Move | null): number[] {
+  const set = new Set<number>();
+  set.add(move.to);
+  if (reply) {
+    set.add(reply.from);
+    set.add(reply.to);
+  }
+  if (better) {
+    set.add(better.from);
+    set.add(better.to);
+  }
+  return [...set];
+}
+
 export function classify(loss: number): MoveClass | null {
   if (loss >= 300) return "blunder";
   if (loss >= 150) return "mistake";
@@ -48,9 +103,13 @@ export function classify(loss: number): MoveClass | null {
  * `evals[i]` là điểm của thế cờ thứ i (sau i nửa nước), `null` nếu chưa/không phân tích.
  * Một nước mất điểm = điểm trước nước (theo người đi) − điểm sau nước (vẫn theo người đi).
  */
-export function reviewGame(state: GameState, evals: (PositionEval | null)[]): { moves: MoveReview[]; accuracy: Record<Side, number | null> } {
+export function reviewGame(state: GameState, evals: (PositionEval | null)[]): { moves: MoveReview[]; accuracy: Record<Side, number | null>; opening?: string } {
   const reviews: MoveReview[] = [];
   const acc: Record<Side, number[]> = { r: [], b: [] };
+  const firstMove = state.moves[0]?.notation;
+  const op = firstMove ? openingOf(firstMove) : null;
+  const opening = op && op.id !== "other" ? op.name : undefined;
+
   state.moves.forEach((m, i) => {
     const before = evals[i];
     const afterEval = evals[i + 1];
@@ -66,6 +125,10 @@ export function reviewGame(state: GameState, evals: (PositionEval | null)[]): { 
     const loss = playedBest ? 0 : Math.max(0, clamp(before.score) - after);
     acc[m.side].push(Math.max(0, 100 - loss / 3));
     const cls = classify(loss);
+    const historyMoves = state.moves.slice(0, i).map((x) => x.move);
+    const line = cls && afterEval?.best ? computeTacticalLine(state.history[i + 1].board, afterEval.best, m.side, 3) : undefined;
+    const highlights = cls ? computeHighlights(m.move, afterEval?.best ?? null, before.best ?? null) : undefined;
+
     reviews.push({
       ply: i + 1,
       side: m.side,
@@ -82,10 +145,14 @@ export function reviewGame(state: GameState, evals: (PositionEval | null)[]): { 
           evalAfter: afterEval,
           loss,
           ply: i,
+          opening,
+          historyMoves,
         })
         : [],
+      line,
+      highlights,
     });
   });
   const avg = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
-  return { moves: reviews, accuracy: { r: avg(acc.r), b: avg(acc.b) } };
+  return { moves: reviews, accuracy: { r: avg(acc.r), b: avg(acc.b) }, opening };
 }

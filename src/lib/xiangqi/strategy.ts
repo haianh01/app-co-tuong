@@ -4,7 +4,7 @@
 // 3. Nguyên lý: các chỉ số đo được trên bàn cờ; kế hoạch quyết định trọng số của từng chỉ số.
 // Giải thích một nước = so chỉ số của thế sau nước đã đi với thế sau nước nên đi, lấy nguyên lý chênh nhiều nhất.
 
-import { Board, Side, colOf, isDefended, opponent, pseudoMoves, rowOf, sideOf, typeOf } from "./engine";
+import { Board, Move, Side, colOf, isDefended, opponent, pseudoMoves, rowOf, sideOf, typeOf } from "./engine";
 
 export type Principle =
   | "xe" // Xe thông đường (số ô Xe đi được)
@@ -17,10 +17,14 @@ export type Principle =
   | "tot" // Tốt đã qua sông
   | "diemThenChot" // quân đứng ở điểm then chốt: Mã hà khẩu/ngọa tào/quải giác, Xe chiếm sườn, Pháo đầu
   | "catLienLac" // quân lớn của đối phương không có gốc (liên lạc bị cắt)
-  | "khongCheTuong"; // đường ra của Tướng đối phương bị khống chế
+  | "khongCheTuong" // đường ra của Tướng đối phương bị khống chế
+  | "khuyetSi" // tận dụng đối phương khuyết Sĩ (khuyết Sĩ kỵ Mã)
+  | "khuyetTuong" // tận dụng đối phương khuyết Tượng (khuyết Tượng kỵ Pháo)
+  | "totVaoCung"; // Tốt áp sát uy hiếp cung tướng đối phương
 
 export const PRINCIPLES: Principle[] = [
   "xe", "ma", "raQuan", "apLuc", "anToan", "matGoc", "phongToa", "tot", "diemThenChot", "catLienLac", "khongCheTuong",
+  "khuyetSi", "khuyetTuong", "totVaoCung",
 ];
 
 export type Plan = "raQuan" | "tanCong" | "phongThu" | "donGianHoa" | "tanCuoc" | "canBang";
@@ -109,6 +113,9 @@ export function principleScores(board: Board, s: Side): Record<Principle, number
     diemThenChot: keySquares(board, s),
     catLienLac: pieces(board, o, "rnc").filter((i) => !isDefended(board, i, o)).length,
     khongCheTuong: kingControl(board, s),
+    khuyetSi: pieces(board, s, "n").length > 0 && pieces(board, o, "a").length <= 1 ? (2 - pieces(board, o, "a").length) * 1.5 : 0,
+    khuyetTuong: pieces(board, s, "c").length > 0 && pieces(board, o, "b").length <= 1 ? (2 - pieces(board, o, "b").length) * 1.5 : 0,
+    totVaoCung: pieces(board, s, "p").filter((i) => (s === "r" ? rowOf(i) <= 2 : rowOf(i) >= 7) && colOf(i) >= 3 && colOf(i) <= 5).length * 2,
   };
 }
 
@@ -130,12 +137,12 @@ export function choosePlan(board: Board, s: Side, ply: number): Plan {
 
 /** Trọng số nguyên lý theo kế hoạch. Đây là bảng cần người hiểu cờ (và lời bình cao thủ) để chỉnh. */
 export const WEIGHTS: Record<Plan, Record<Principle, number>> = {
-  raQuan: { xe: 1.5, ma: 0.3, raQuan: 3, apLuc: 0.5, anToan: 1, matGoc: 1, phongToa: 1, tot: 0, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1 },
-  tanCong: { xe: 0.7, ma: 0.2, raQuan: 0.5, apLuc: 3, anToan: 1, matGoc: 1, phongToa: 0.7, tot: 0.5, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1 },
-  phongThu: { xe: 0.3, ma: 0.1, raQuan: 0.3, apLuc: 0.5, anToan: 3, matGoc: 1.5, phongToa: 1, tot: 0, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1 },
-  donGianHoa: { xe: 0.5, ma: 0.2, raQuan: 0, apLuc: 0.5, anToan: 2, matGoc: 2, phongToa: 1, tot: 1, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1 },
-  tanCuoc: { xe: 0.7, ma: 0.2, raQuan: 0, apLuc: 1, anToan: 1, matGoc: 1, phongToa: 1, tot: 3, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1 },
-  canBang: { xe: 1.5, ma: 0.3, raQuan: 0.5, apLuc: 1, anToan: 1, matGoc: 1, phongToa: 1.5, tot: 0.5, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1 },
+  raQuan: { xe: 1.5, ma: 0.3, raQuan: 3, apLuc: 0.5, anToan: 1, matGoc: 1, phongToa: 1, tot: 0, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 0, khuyetTuong: 0, totVaoCung: 0 },
+  tanCong: { xe: 0.7, ma: 0.2, raQuan: 0.5, apLuc: 3, anToan: 1, matGoc: 1, phongToa: 0.7, tot: 0.5, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 1.5, khuyetTuong: 1.5, totVaoCung: 2 },
+  phongThu: { xe: 0.3, ma: 0.1, raQuan: 0.3, apLuc: 0.5, anToan: 3, matGoc: 1.5, phongToa: 1, tot: 0, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 0.5, khuyetTuong: 0.5, totVaoCung: 0 },
+  donGianHoa: { xe: 0.5, ma: 0.2, raQuan: 0, apLuc: 0.5, anToan: 2, matGoc: 2, phongToa: 1, tot: 1, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 1, khuyetTuong: 1, totVaoCung: 1 },
+  tanCuoc: { xe: 0.7, ma: 0.2, raQuan: 0, apLuc: 1, anToan: 1, matGoc: 1, phongToa: 1, tot: 3, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 3, khuyetTuong: 3, totVaoCung: 3.5 },
+  canBang: { xe: 1.5, ma: 0.3, raQuan: 0.5, apLuc: 1, anToan: 1, matGoc: 1, phongToa: 1.5, tot: 0.5, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 1, khuyetTuong: 1, totVaoCung: 1 },
 };
 
 /** Điểm chiến lược tổng của phe `s` trên một thế cờ, theo kế hoạch `plan`. */
@@ -173,12 +180,15 @@ export const PLAN_NAME: Record<Plan, string> = {
   canBang: "giữ thế, tăng hoạt động quân",
 };
 
-export const PLAN_TEXT: Record<Plan, (opp: string) => string> = {
-  raQuan: () => "Đang khai cuộc, việc chính là ra quân nhanh và cân đối.",
+export const PLAN_TEXT: Record<Plan, (opp: string, opening?: string) => string> = {
+  raQuan: (_opp, opening) =>
+    opening
+      ? `Đang trong thế trận ${opening}, việc chính là ra quân nhanh và cân đối.`
+      : "Đang khai cuộc, việc chính là ra quân nhanh và cân đối.",
   tanCong: (opp) => `Cung tướng ${opp} đang yếu, nên dồn quân tấn công.`,
   phongThu: () => "Cung tướng mình đang bị uy hiếp, nên ưu tiên phòng thủ.",
   donGianHoa: () => "Đang hơn quân, nên giữ chắc và đơn giản hóa thế cờ.",
-  tanCuoc: () => "Đã vào tàn cuộc, Tốt qua sông và quân linh hoạt là then chốt.",
+  tanCuoc: () => "Đã vào tàn cuộc, Tốt qua sông và khai thác điểm yếu Sĩ Tượng là then chốt.",
   canBang: () => "",
 };
 
@@ -195,6 +205,9 @@ export const GAIN_TEXT: Record<Principle, string> = {
   diemThenChot: "đưa quân vào điểm then chốt",
   catLienLac: "cắt liên lạc giữa các quân đối phương",
   khongCheTuong: "khống chế đường ra của Tướng đối phương",
+  khuyetSi: "tận dụng điểm yếu đối phương khuyết Sĩ (khuyết Sĩ kỵ Mã)",
+  khuyetTuong: "khoét sâu vào thế đối phương khuyết Tượng (khuyết Tượng kỵ Pháo)",
+  totVaoCung: "đưa Tốt áp sát uy hiếp cung tướng",
 };
 
 /** Câu cho việc nước đã đi làm nguyên lý kém đi. */
@@ -210,4 +223,66 @@ export const LOSS_TEXT: Record<Principle, string> = {
   diemThenChot: "rời điểm then chốt",
   catLienLac: "để quân đối phương nối lại liên lạc",
   khongCheTuong: "nới đường ra cho Tướng đối phương",
+  khuyetSi: "bỏ lỡ cơ hội đánh vào điểm yếu khuyết Sĩ của đối phương",
+  khuyetTuong: "chưa khai thác được thế khuyết Tượng của đối phương",
+  totVaoCung: "chưa đưa được Tốt áp sát cung tướng",
 };
+
+export type OpeningFaultType = "repeatPiece" | "lateRook";
+
+export interface OpeningFault {
+  fault: OpeningFaultType;
+  pieceSquare: number;
+}
+
+/** Nhận diện các lỗi khai cuộc căn bản: đi một quân nhiều lần, ra Xe chậm trễ. */
+export function detectOpeningFault(
+  board: Board,
+  move: Move,
+  ply: number,
+  mover: Side,
+  historyMoves?: Move[],
+): OpeningFault | null {
+  if (ply > 16) return null;
+
+  const undeveloped = HOME[mover].filter(
+    (i) => board[i] && sideOf(board[i]!) === mover && "rnc".includes(typeOf(board[i]!)),
+  ).length;
+
+  // Tìm quân đang đi: ưu tiên ô move.from (trước nước đi), nếu trống thì kiểm tra ô move.to (sau nước đi)
+  const square = (board[move.from] && sideOf(board[move.from]!) === mover)
+    ? move.from
+    : (board[move.to] && sideOf(board[move.to]!) === mover)
+      ? move.to
+      : null;
+  if (square === null) return null;
+
+  const movingPiece = board[square]!;
+  const pType = typeOf(movingPiece);
+
+  // 1. Đi một quân nhiều lần trong khai cuộc khi còn >= 2 quân lớn chưa xuất quân
+  if (historyMoves && historyMoves.length >= 2 && undeveloped >= 2) {
+    const timesMoved = historyMoves.filter((m, idx) => idx % 2 === (mover === "r" ? 0 : 1) && m.to === move.from).length;
+    if (timesMoved >= 1 && "rnc".includes(pType)) {
+      return { fault: "repeatPiece", pieceSquare: square };
+    }
+  }
+
+  // 2. Ra Xe chậm: sau 8 nửa nước (ply >= 8), cả 2 Xe vẫn nằm nguyên ở ô ban đầu mà nước này lại đi quân khác
+  if (ply >= 8) {
+    const [leftRook, rightRook] = mover === "r" ? [81, 89] : [0, 8];
+    const bothRooksHome =
+      board[leftRook] &&
+      typeOf(board[leftRook]!) === "r" &&
+      sideOf(board[leftRook]!) === mover &&
+      board[rightRook] &&
+      typeOf(board[rightRook]!) === "r" &&
+      sideOf(board[rightRook]!) === mover;
+
+    if (bothRooksHome && pType !== "r") {
+      return { fault: "lateRook", pieceSquare: square };
+    }
+  }
+
+  return null;
+}

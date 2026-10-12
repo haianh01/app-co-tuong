@@ -51,11 +51,29 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
   const mine = review.moves
     .map((r, i) => ({ ...r, ready: !!evals[i] && (!!evals[i + 1] || (i + 1 === state.moves.length && !!state.result)), best: sameMove(evals[i]?.best, state.moves[i].move) }))
     .filter((r) => r.side === player)
-    .map((r) => ({
-      ...r,
-      // Nhận xét chiến lược cho mọi nước, kể cả nước tốt.
-      idea: r.ready ? explainText([moveIdea(state.history[r.ply - 1].board, state.moves[r.ply - 1].move, evals[r.ply]?.best ?? null, r.ply - 1)], r.side) : "",
-    }))
+    .map((r) => {
+      const historyMoves = state.moves.slice(0, r.ply - 1).map((m) => m.move);
+      return {
+        ...r,
+        // Nhận xét chiến lược cho mọi nước, kể cả nước tốt.
+        idea: r.ready
+          ? explainText(
+              [
+                moveIdea(
+                  state.history[r.ply - 1].board,
+                  state.moves[r.ply - 1].move,
+                  evals[r.ply]?.best ?? null,
+                  r.ply - 1,
+                  review.opening,
+                  historyMoves,
+                  r.best,
+                ),
+              ],
+              r.side,
+            )
+          : "",
+      };
+    })
     .reverse();
 
   return (
@@ -84,6 +102,11 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
                 </span>
               </div>
               {m.facts.length > 0 && <p className={game.reviewNote}>{explainText(m.facts, m.side)}</p>}
+              {m.line && m.line.length > 1 && (
+                <p className={game.reviewLine}>
+                  Biến tiếp diễn: {m.line.join(" ➔ ")}
+                </p>
+              )}
               {m.ready && <p className={`${game.reviewNote} muted`}>{m.idea}</p>}
             </li>
           ))}

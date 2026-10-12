@@ -210,6 +210,14 @@
   line-height: 1.5;
 }
 
+.reviewLine {
+  margin: 4px 4px 2px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--gold-text);
+  word-break: break-word;
+}
+
 .reviewTag {
   flex: none;
   padding: 2px 8px;

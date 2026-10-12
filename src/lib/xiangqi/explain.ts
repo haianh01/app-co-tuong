@@ -7,12 +7,13 @@ import { findBestMove } from "./ai";
 import type { PositionEval } from "./analysis";
 import {
   Board, Move, Piece, PieceType, Side,
-  attackersOf, colOf, inCheck, isDefended, opponent, rowOf, sideOf, typeOf, ROWS,
+  attackersOf, colOf, inCheck, isDefended, opponent, rowOf, sideOf, typeOf, ROWS, COLS,
+  findKing, isAttacked, pseudoMoves, sq,
 } from "./engine";
 import { PIECE_NAME, moveNotation } from "./notation";
 import {
   GAIN_TEXT, LOSS_TEXT, PLAN_NAME, PLAN_TEXT, PRINCIPLES, WEIGHTS, choosePlan, comparePrinciples, principleScores,
-  type Plan, type Principle,
+  type OpeningFaultType, type Plan, type Principle, detectOpeningFault,
 } from "./strategy";
 
 /** Điểm thắng tuyệt đối mà AI trả về khi thấy chiếu bí (khớp với MATE trong ai.ts). */
@@ -20,6 +21,8 @@ const MATE = 100_000;
 const isMateScore = (score: number) => score >= MATE - 100;
 /** Số nước (của một bên) đến khi chiếu bí, suy từ điểm AI: MATE − số nửa nước. */
 const mateIn = (score: number) => (MATE - score + 1) >> 1;
+
+const ORTHO = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 
 /** Giá trị quân theo cách đếm quen thuộc (100 = một Tốt chưa qua sông). Tướng chỉ dùng khi xếp thứ tự quân ăn. */
 const VALUE: Record<PieceType, number> = { k: 10_000, a: 200, b: 200, n: 400, r: 900, c: 450, p: 100 };
@@ -124,6 +127,16 @@ export type Fact =
   | { kind: "missedMate"; moves: number; better: string }
   /** Nước `better` chặn được đường chiếu bí mà nước đã đi để lọt. */
   | { kind: "avoidsMate"; better: string }
+  /** Đối phương đáp `reply`, hai quân `checkers` cùng lúc chiếu tướng (chiếu kép). */
+  | { kind: "doubleCheck"; reply: string; checkers: PieceRef[] }
+  /** Đối phương đáp `reply`: `moved` rút đi mở đường cho `checker` chiếu tướng (chiếu rút), đồng thời đe dọa hoặc ăn `target`. */
+  | { kind: "discoveredCheck"; reply: string; moved: PieceRef; checker: PieceRef; target: PieceRef | null }
+  /** Đối phương đáp `reply`: `pinner` ghim `pinned` trước `behind` (không thể di chuyển vì để lộ Tướng/quân lớn). */
+  | { kind: "pin"; reply: string; pinner: PieceRef; pinned: PieceRef; behind: PieceRef; absolute: boolean }
+  /** Quân bị cản chân Mã hoặc đối phương ngáng chân Mã. */
+  | { kind: "horseBlock"; horse: PieceRef; blocker: PieceRef; byOpponent: boolean; reply?: string }
+  /** Quân bị vây khốn/bắt chết, không còn ô an toàn để tháo lui. */
+  | { kind: "trappedPiece"; piece: PieceRef; attacker?: PieceRef; reply?: string }
   /** Đối phương đáp `reply`, dùng `attacker` ăn `victim`; bên đi thiệt `points` (đã tính đổi quân). */
   | {
       kind: "losesPiece"; cause: LossCause; reply: string; victim: PieceRef; attacker: PieceRef;
@@ -135,10 +148,12 @@ export type Fact =
   | { kind: "missedCapture"; better: string; victim: PieceRef; points: number }
   /** Nước tốt hơn `better` đưa `piece` đang bị bắt ra chỗ an toàn. */
   | { kind: "missedEscape"; better: string; piece: PieceRef }
+  /** Lỗi căn bản trong khai cuộc (đi một quân nhiều lần, chậm ra Xe). */
+  | { kind: "openingFault"; fault: OpeningFaultType; piece?: PieceRef; better?: string; opening?: string }
   /** Không có lỗi chiến thuật: theo kế hoạch `plan`, nước `better` hơn ở các nguyên lý `gains`; nước đã đi làm kém `worsened`. */
-  | { kind: "strategy"; plan: Plan; played: string; better: string; gains: Principle[]; worsened: Principle[]; loose: string[] }
+  | { kind: "strategy"; plan: Plan; played: string; better: string; gains: Principle[]; worsened: Principle[]; loose: string[]; opening?: string }
   /** Nhận xét chiến lược cho một nước bất kỳ: theo kế hoạch `plan`, nước đã đi cải thiện `gains`, làm kém `worsened`. */
-  | { kind: "idea"; plan: Plan; played: string; gains: Principle[]; worsened: Principle[]; loose: string[] }
+  | { kind: "idea"; plan: Plan; played: string; gains: Principle[]; worsened: Principle[]; loose: string[]; opening?: string }
   /** Không tìm ra lý do cụ thể: chỉ nói nước đáp mạnh nhất và mức thiệt theo AI. */
   | { kind: "evalDrop"; reply: string | null; check: boolean; points: number };
 
@@ -154,6 +169,10 @@ export interface MoveContext {
   loss: number;
   /** Số nửa nước đã đi trước nước này (để biết giai đoạn ván). */
   ply?: number;
+  /** Tên thế trận khai cuộc nếu nhận diện được (vd: "Pháo đầu (Trung pháo)"). */
+  opening?: string;
+  /** Lịch sử các nước cờ đã đi trước nước này. */
+  historyMoves?: Move[];
 }
 
 const sameMove = (a: Move | null | undefined, b: Move) => !!a && a.from === b.from && a.to === b.to;
@@ -178,17 +197,65 @@ export function explainMove(ctx: MoveContext): Fact[] {
   }
 
   if (reply) {
-    const reason = (after[reply.to] ? lossByCapture(ctx, reply) : null) ?? threatAfter(after, reply, mover);
-    if (reason) facts.push(reason);
+    const checkFact = detectCheckTactics(after, reply, mover);
+    if (checkFact) facts.push(checkFact);
+  }
+  if (facts.length === 0) {
+    const selfBlock = detectHorseBlock(ctx, null);
+    if (selfBlock && selfBlock.kind === "horseBlock" && !selfBlock.byOpponent) facts.push(selfBlock);
+  }
+  if (reply && facts.length === 0) {
+    const captureFact = after[reply.to] ? lossByCapture(ctx, reply) : null;
+    if (captureFact) facts.push(captureFact);
+  }
+  if (reply && facts.length === 0) {
+    const pinFact = detectPin(after, reply, mover);
+    if (pinFact) facts.push(pinFact);
+  }
+  if (facts.length === 0) {
+    const horseFact = detectHorseBlock(ctx, reply);
+    if (horseFact) facts.push(horseFact);
+  }
+  if (facts.length === 0) {
+    const trappedFact = detectTrappedPiece(ctx, reply);
+    if (trappedFact) facts.push(trappedFact);
+  }
+  if (reply && facts.length === 0) {
+    const threat = threatAfter(after, reply, mover);
+    if (threat) facts.push(threat);
   }
   if (better) {
     const missed = missedChance(before, after, move, better, mover);
     if (missed) facts.push(missed);
   }
-  const tactical = facts.some((f) => f.kind === "losesPiece" || f.kind === "missedCapture" || f.kind === "missedEscape");
+  const tactical = facts.some(
+    (f) =>
+      f.kind === "losesPiece" ||
+      f.kind === "missedCapture" ||
+      f.kind === "missedEscape" ||
+      f.kind === "doubleCheck" ||
+      f.kind === "discoveredCheck" ||
+      f.kind === "pin" ||
+      f.kind === "horseBlock" ||
+      f.kind === "trappedPiece",
+  );
   if (better && !tactical) {
-    const plan = strategyFact(ctx, better);
-    if (plan) facts.push(plan);
+    if (ctx.ply !== undefined && ctx.ply <= 16) {
+      const fault = detectOpeningFault(before, move, ctx.ply, mover, ctx.historyMoves);
+      if (fault) {
+        facts.push({
+          kind: "openingFault",
+          fault: fault.fault,
+          piece: ref(before, fault.pieceSquare),
+          better: moveNotation(before, better),
+          opening: ctx.opening,
+        });
+      }
+    }
+    if (facts.length === 0) {
+      const plan = strategyFact(ctx, better);
+      if (plan) facts.push(plan);
+    }
   }
   if (facts.length === 0) {
     const check = !!reply && inCheck(play(after, reply), mover);
@@ -224,6 +291,7 @@ function strategyFact(ctx: MoveContext, better: Move): Fact | null {
     gains: top.map((g) => g.principle),
     worsened: top.filter((g) => g.worsened).map((g) => g.principle).slice(0, 1),
     loose: played.map((_, i) => i).filter((i) => isLoose(played, i) && !isLoose(before, origin(i))).map((i) => ref(played, i).name),
+    opening: ctx.opening,
   };
 }
 
@@ -238,8 +306,28 @@ function newlyLoose(before: Board, move: Move, after: Board, mover: Side): strin
  * Nhận xét chiến lược cho mọi nước (kể cả nước tốt): kế hoạch hiện tại và nước này làm được / làm hỏng gì
  * so với trước khi đi (đã tính nước đáp `reply` của đối phương nếu có).
  */
-export function moveIdea(before: Board, move: Move, reply: Move | null, ply: number): Fact {
+export function moveIdea(
+  before: Board,
+  move: Move,
+  reply: Move | null,
+  ply: number,
+  opening?: string,
+  historyMoves?: Move[],
+  isBest?: boolean,
+): Fact {
   const mover = sideOf(before[move.from]!);
+  if (!isBest && historyMoves) {
+    const fault = detectOpeningFault(before, move, ply, mover, historyMoves);
+    if (fault) {
+      return {
+        kind: "openingFault",
+        fault: fault.fault,
+        piece: ref(before, fault.pieceSquare),
+        opening,
+      };
+    }
+  }
+
   const plan = choosePlan(before, mover, ply);
   const after = settle(before, move, reply);
   const b0 = principleScores(before, mover);
@@ -254,6 +342,7 @@ export function moveIdea(before: Board, move: Move, reply: Move | null, ply: num
     // Riêng quân mất gốc giữ ngưỡng thấp vì nói được đúng tên quân.
     worsened: deltas.filter((x) => x.d <= (x.p === "matGoc" ? -1 : -1.5)).sort((x, y) => x.d - y.d).slice(0, 1).map((x) => x.p),
     loose: newlyLoose(before, move, after, mover),
+    opening,
   };
 }
 
@@ -337,6 +426,236 @@ function missedChance(before: Board, after: Board, move: Move, better: Move, mov
   return null;
 }
 
+function detectCheckTactics(after: Board, reply: Move, mover: Side): Fact | null {
+  const opp = opponent(mover);
+  const next = play(after, reply);
+  const king = findKing(next, mover);
+  if (king < 0 || !isAttacked(next, king, opp)) return null;
+
+  const checkers = attackersOf(next, king, opp);
+  if (checkers.length >= 2) {
+    return {
+      kind: "doubleCheck",
+      reply: moveNotation(after, reply),
+      checkers: checkers.map((sqIdx) => ref(next, sqIdx)),
+    };
+  }
+
+  // Chiếu rút: quân chiếu không phải là quân vừa di chuyển
+  if (checkers.length === 1 && checkers[0] !== reply.to) {
+    const checker = ref(next, checkers[0]);
+    const moved = ref(next, reply.to);
+    const took = after[reply.to] ? ref(after, reply.to) : null;
+    const hanging = hangingPieces(next, mover).filter((s) => s !== king);
+    const target = took ?? (hanging.length ? ref(next, hanging[0]) : null);
+    return {
+      kind: "discoveredCheck",
+      reply: moveNotation(after, reply),
+      moved,
+      checker,
+      target,
+    };
+  }
+
+  return null;
+}
+
+function isPinnedOnLine(board: Board, pSq: number, pinnedSq: number, behindSq: number): boolean {
+  const [pr, pc] = [rowOf(pSq), colOf(pSq)];
+  const [r1, c1] = [rowOf(pinnedSq), colOf(pinnedSq)];
+  const [r2, c2] = [rowOf(behindSq), colOf(behindSq)];
+  if (pr === r1 && r1 === r2) {
+    const minC = Math.min(pc, c2);
+    const maxC = Math.max(pc, c2);
+    return c1 > minC && c1 < maxC;
+  }
+  if (pc === c1 && c1 === c2) {
+    const minR = Math.min(pr, r2);
+    const maxR = Math.max(pr, r2);
+    return r1 > minR && r1 < maxR;
+  }
+  return false;
+}
+
+function detectPin(after: Board, reply: Move, mover: Side): Fact | null {
+  const opp = opponent(mover);
+  const next = play(after, reply);
+  const pSq = reply.to;
+  const pinnerPiece = next[pSq];
+  if (!pinnerPiece || sideOf(pinnerPiece) !== opp || typeOf(pinnerPiece) !== "r") return null;
+
+  const pr = rowOf(pSq);
+  const pc = colOf(pSq);
+
+  for (const [dr, dc] of ORTHO) {
+    let r = pr + dr;
+    let c = pc + dc;
+    const line: number[] = [];
+    while (r >= 0 && r < ROWS && c >= 0 && c < COLS) {
+      const idx = sq(r, c);
+      if (next[idx]) line.push(idx);
+      r += dr;
+      c += dc;
+    }
+    if (line.length >= 2) {
+      const pinnedSq = line[0];
+      const behindSq = line[1];
+      const p1 = next[pinnedSq]!;
+      const p2 = next[behindSq]!;
+      if (sideOf(p1) === mover && sideOf(p2) === mover && typeOf(p1) !== "k") {
+        const isAbsolute = typeOf(p2) === "k";
+        const isRelative = typeOf(p2) === "r" && valueAt(next, pinnedSq) < valueAt(next, behindSq);
+        if (isAbsolute || isRelative) {
+          let wasPinned = false;
+          for (let i = 0; i < after.length; i++) {
+            const p = after[i];
+            if (p && sideOf(p) === opp && typeOf(p) === "r" && isPinnedOnLine(after, i, pinnedSq, behindSq)) {
+              wasPinned = true;
+              break;
+            }
+          }
+          if (!wasPinned) {
+            return {
+              kind: "pin",
+              reply: moveNotation(after, reply),
+              pinner: ref(next, pSq),
+              pinned: ref(next, pinnedSq),
+              behind: ref(next, behindSq),
+              absolute: isAbsolute,
+            };
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+const HORSE_STEPS = [
+  [-2, -1, -1, 0], [-2, 1, -1, 0], [2, -1, 1, 0], [2, 1, 1, 0],
+  [-1, -2, 0, -1], [1, -2, 0, -1], [-1, 2, 0, 1], [1, 2, 0, 1],
+] as const;
+
+function isHorseLeg(horseSq: number, legSq: number): boolean {
+  const hr = rowOf(horseSq);
+  const hc = colOf(horseSq);
+  const lr = rowOf(legSq);
+  const lc = colOf(legSq);
+  for (const [, , dr, dc] of HORSE_STEPS) {
+    if (hr + dr === lr && hc + dc === lc) return true;
+  }
+  return false;
+}
+
+function detectHorseBlock(ctx: MoveContext, reply: Move | null): Fact | null {
+  const { before, move, after } = ctx;
+  const mover = sideOf(before[move.from]!);
+  const opp = opponent(mover);
+
+  // 1. Tự cản chân Mã của mình: move.to cản chân một con Mã của mover
+  for (let i = 0; i < before.length; i++) {
+    const p = before[i];
+    if (p && sideOf(p) === mover && typeOf(p) === "n" && i !== move.from) {
+      if (isHorseLeg(i, move.to)) {
+        const hr = rowOf(i);
+        const hc = colOf(i);
+        const mr = rowOf(move.to);
+        const mc = colOf(move.to);
+        const blockedDests = HORSE_STEPS
+          .filter(([, , dr, dc]) => hr + dr === mr && hc + dc === mc)
+          .map(([stepR, stepC]) => sq(hr + stepR, hc + stepC))
+          .filter((dest) => rowOf(dest) >= 0 && rowOf(dest) < ROWS && colOf(dest) >= 0 && colOf(dest) < COLS);
+
+        const horseHanging = (exchangeGain(after, i, opp) ?? 0) > 0;
+        const lostDefense = blockedDests.some((d) => {
+          const victim = before[d];
+          return (
+            victim &&
+            sideOf(victim) === mover &&
+            isDefended(before, d, mover) &&
+            !isDefended(after, d, mover) &&
+            (exchangeGain(after, d, opp) ?? 0) > 0
+          );
+        });
+
+        if (horseHanging || lostDefense) {
+          return {
+            kind: "horseBlock",
+            horse: ref(after, i),
+            blocker: ref(after, move.to),
+            byOpponent: false,
+          };
+        }
+      }
+    }
+  }
+
+  // 2. Đối phương ngáng chân Mã
+  if (reply) {
+    const next = play(after, reply);
+    for (let i = 0; i < after.length; i++) {
+      const p = after[i];
+      if (p && sideOf(p) === mover && typeOf(p) === "n") {
+        if (isHorseLeg(i, reply.to)) {
+          const horseHanging = (exchangeGain(next, i, opp) ?? 0) > 0;
+          if (horseHanging) {
+            return {
+              kind: "horseBlock",
+              horse: ref(next, i),
+              blocker: ref(next, reply.to),
+              byOpponent: true,
+              reply: moveNotation(after, reply),
+            };
+          }
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function safeEscapeMoves(board: Board, from: number, s: Side): number {
+  const opp = opponent(s);
+  let safe = 0;
+  for (const to of pseudoMoves(board, from)) {
+    const next = play(board, { from, to });
+    if (inCheck(next, s)) continue;
+    const gain = exchangeGain(next, to, opp) ?? 0;
+    if (gain <= 0) safe++;
+  }
+  return safe;
+}
+
+function detectTrappedPiece(ctx: MoveContext, reply: Move | null): Fact | null {
+  const { before, move, after } = ctx;
+  const mover = sideOf(before[move.from]!);
+  const opp = opponent(mover);
+
+  const candidates = [move.to, ...after.map((_, idx) => idx).filter((idx) => idx !== move.to)];
+  for (const i of candidates) {
+    const p = after[i];
+    if (!p || sideOf(p) !== mover || !"rnc".includes(typeOf(p))) continue;
+    const gain = exchangeGain(after, i, opp) ?? 0;
+    if (gain > 0) {
+      const safe = safeEscapeMoves(after, i, mover);
+      if (safe === 0) {
+        const hadSafeBefore = i === move.to ? true : safeEscapeMoves(before, i, mover) > 0;
+        if (hadSafeBefore) {
+          const attackers = attackersOf(after, i, opp);
+          return {
+            kind: "trappedPiece",
+            piece: ref(after, i),
+            attacker: attackers.length ? ref(after, attackers[0]) : undefined,
+            reply: reply ? moveNotation(after, reply) : undefined,
+          };
+        }
+      }
+    }
+  }
+  return null;
+}
+
 // ——— Ghép câu ———
 
 const SIDE_NAME: Record<Side, string> = { r: "Đỏ", b: "Đen" };
@@ -361,6 +680,35 @@ function sentence(f: Fact, mover: Side): string {
         : `Bỏ lỡ đường chiếu bí trong ${f.moves} nước, bắt đầu bằng ${f.better}.`;
     case "avoidsMate":
       return `Nên đi ${f.better} để chặn đường chiếu bí đó.`;
+    case "doubleCheck": {
+      const names = f.checkers.map((c) => `${c.name} ${o}`).join(" và ");
+      return `${O} đáp ${f.reply}, ${names} cùng lúc chiếu tướng (chiếu kép), buộc Tướng phải chạy.`;
+    }
+    case "discoveredCheck": {
+      const moved = `${f.moved.name} ${o}`;
+      const checker = `${f.checker.name} ${o}`;
+      if (f.target) {
+        return `${O} đáp ${f.reply}, rút ${moved} mở đường cho ${checker} chiếu tướng (chiếu rút), đồng thời đe dọa ăn ${f.target.name}.`;
+      }
+      return `${O} đáp ${f.reply}, rút ${moved} mở đường cho ${checker} chiếu tướng (chiếu rút).`;
+    }
+    case "pin": {
+      const pinner = `${f.pinner.name} ${o}`;
+      const target = f.absolute ? "Tướng" : f.behind.name;
+      const guard = f.absolute ? "không thể di chuyển vì để lộ Tướng" : `di chuyển sẽ để mất ${target}`;
+      return `${O} đáp ${f.reply}, ${pinner} ghim chặt ${f.pinned.name} ở trước ${target} (${guard}).`;
+    }
+    case "horseBlock": {
+      if (f.byOpponent) {
+        return `${O} đáp ${f.reply}, ngáng chân ${f.horse.name}, khiến ${f.horse.name} bị bó và không thể hoạt động.`;
+      }
+      return `${f.blocker.name} vừa đi làm cản chân ${f.horse.name}, khiến ${f.horse.name} mất đường cơ động và khả năng phòng thủ.`;
+    }
+    case "trappedPiece": {
+      const att = f.attacker ? ` dưới đòn tấn công của ${f.attacker.name} ${o}` : "";
+      const rep = f.reply ? ` (${f.reply})` : "";
+      return `${f.piece.name} bị vây khốn${att}${rep}, không còn ô an toàn nào để tháo lui.`;
+    }
     case "losesPiece": {
       const victim = f.victim.name;
       const attacker = `${f.attacker.name} ${o}`;
@@ -393,15 +741,24 @@ function sentence(f: Fact, mover: Side): string {
       return `Nên đi ${f.better} ăn ${f.victim.name} ${o}.`;
     case "missedEscape":
       return `Nên đi ${f.better} để đưa ${f.piece.name} khỏi chỗ bị bắt.`;
+    case "openingFault": {
+      const head = f.opening ? `Trong thế trận ${f.opening}: ` : "";
+      const pName = f.piece?.name ?? "Quân này";
+      const betterPart = f.better ? ` Nên đi ${f.better}.` : "";
+      if (f.fault === "repeatPiece") {
+        return `${head}${pName} đã đi nhiều lần trong khai cuộc khi các quân lớn khác chưa ra trận.${betterPart}`;
+      }
+      return `${head}khai cuộc cần sớm xuất Xe chiếm lộ thông (chậm ra Xe sẽ thất thế, "Một Xe mười quân").${betterPart}`;
+    }
     case "strategy": {
-      const intro = PLAN_TEXT[f.plan](O);
+      const intro = PLAN_TEXT[f.plan](O, f.opening);
       const why = f.gains.map((p) => GAIN_TEXT[p]).join(" và ");
       const loss = f.worsened[0] === "matGoc" && f.loose.length ? `để ${f.loose.join(", ")} mất gốc` : LOSS_TEXT[f.worsened[0]];
       const worse = f.worsened.length ? `, còn ${f.played} ${loss}` : "";
       return `${intro ? intro + " " : ""}Nên đi ${f.better}: ${why}${worse}.`;
     }
     case "idea": {
-      const head = `Kế hoạch: ${PLAN_NAME[f.plan]}.`;
+      const head = f.opening && f.plan === "raQuan" ? `Kế hoạch ra quân (${f.opening}):` : `Kế hoạch: ${PLAN_NAME[f.plan]}.`;
       const lossText = (p: Principle) => (p === "matGoc" && f.loose.length ? `để ${f.loose.join(", ")} mất gốc` : LOSS_TEXT[p]);
       const good = f.gains.map((p) => (p === "matGoc" ? "quân có gốc hơn" : GAIN_TEXT[p])).join(" và ");
       if (good && f.worsened.length) return `${head} ${f.played} giúp ${good}, nhưng ${lossText(f.worsened[0])}.`;

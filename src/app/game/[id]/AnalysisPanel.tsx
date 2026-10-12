@@ -120,6 +120,12 @@ export function AnalysisPanel({
                       </span>
                     </button>
                     {m.ply === ply && m.facts.length > 0 && <p className={styles.reviewNote}>{explainText(m.facts, m.side)}</p>}
+                    {m.ply === ply && m.line && m.line.length > 1 && (
+                      <p className={styles.reviewLine}>
+                        <span className="muted">Biến tiếp diễn: </span>
+                        <strong>{m.line.join(" ➔ ")}</strong>
+                      </p>
+                    )}
                   </li>
                 ))}
               </ul>

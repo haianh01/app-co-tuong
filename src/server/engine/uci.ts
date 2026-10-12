@@ -18,6 +18,17 @@ export interface EngineLimits {
   nodes?: number;
   movetime?: number;
   depth?: number;
+  /** Số biến đánh giá song song (mặc định 1, phân tích dùng 3). */
+  multipv?: number;
+}
+
+export interface EngineLine {
+  multipv: number;
+  cp: number | null;
+  mate: number | null;
+  depth: number;
+  bestmove: string | null;
+  pv: string[];
 }
 
 export interface EngineResult {
@@ -30,6 +41,8 @@ export interface EngineResult {
   depth: number;
   /** Chuỗi biến chính (Principal Variation) dạng UCI/ICCS, vd. ["h2e2", "b9c7"]. */
   pv?: string[];
+  /** Danh sách các biến khi chạy MultiPV. */
+  lines?: EngineLine[];
 }
 
 export function defaultEnginePath(): string | null {
@@ -41,11 +54,12 @@ export function defaultEnginePath(): string | null {
 }
 
 /** Phân tích một dòng "info ..." của UCI. */
-export function parseInfo(line: string): { depth?: number; cp?: number; mate?: number; pv?: string[] } {
+export function parseInfo(line: string): { depth?: number; cp?: number; mate?: number; multipv?: number; pv?: string[] } {
   const t = line.split(/\s+/);
-  const out: { depth?: number; cp?: number; mate?: number; pv?: string[] } = {};
+  const out: { depth?: number; cp?: number; mate?: number; multipv?: number; pv?: string[] } = {};
   for (let i = 0; i < t.length; i++) {
     if (t[i] === "depth") out.depth = Number(t[i + 1]);
+    else if (t[i] === "multipv") out.multipv = Number(t[i + 1]);
     else if (t[i] === "score" && t[i + 1] === "cp") out.cp = Number(t[i + 2]);
     else if (t[i] === "score" && t[i + 1] === "mate") out.mate = Number(t[i + 2]);
     else if (t[i] === "pv") {
@@ -61,6 +75,7 @@ class UciProcess {
   private proc: ChildProcessWithoutNullStreams;
   private buffer = "";
   private listeners: ((line: string) => void)[] = [];
+  private currentMultiPv = 1;
   dead = false;
   ready: Promise<void>;
 
@@ -117,6 +132,12 @@ class UciProcess {
 
   async search(fen: string, limits: EngineLimits, searchmoves?: string[]): Promise<EngineResult> {
     await this.ready;
+    const targetMultiPv = limits.multipv ?? 1;
+    if (this.currentMultiPv !== targetMultiPv) {
+      this.send(`setoption name MultiPV value ${targetMultiPv}`);
+      this.currentMultiPv = targetMultiPv;
+    }
+    const linesMap = new Map<number, EngineLine>();
     let last: { depth?: number; cp?: number; mate?: number; pv?: string[] } = {};
     this.send("ucinewgame");
     this.send(`position fen ${fen}`);
@@ -132,17 +153,34 @@ class UciProcess {
       (l) => {
         if (l.startsWith("info") && l.includes(" score ")) {
           const info = parseInfo(l);
-          last = { ...last, ...info };
+          if (info.multipv !== undefined || info.pv !== undefined) {
+            const mpv = info.multipv ?? 1;
+            linesMap.set(mpv, {
+              multipv: mpv,
+              cp: info.mate !== undefined ? null : (info.cp ?? 0),
+              mate: info.mate ?? null,
+              depth: info.depth ?? 0,
+              bestmove: info.pv?.[0] ?? null,
+              pv: info.pv ?? [],
+            });
+            if (mpv === 1) {
+              last = { ...last, ...info };
+            }
+          } else {
+            last = { ...last, ...info };
+          }
         }
       },
     );
     const move = line.split(/\s+/)[1];
+    const lines = [...linesMap.values()].sort((a, b) => a.multipv - b.multipv);
     return {
       bestmove: move && move !== "(none)" ? move : null,
       cp: last.mate !== undefined ? null : (last.cp ?? 0),
       mate: last.mate ?? null,
       depth: last.depth ?? 0,
-      pv: last.pv,
+      pv: last.pv ?? lines[0]?.pv,
+      lines: lines.length > 0 ? lines : undefined,
     };
   }
 

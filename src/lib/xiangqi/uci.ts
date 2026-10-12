@@ -25,8 +25,8 @@ export const toUciFen = (pos: Position) => `${toFen(pos)} - - 0 1`;
  * Đổi điểm của engine (theo bên đang đi) về thang của dự án.
  * Chiếu bí trong n nước: bên đang đi chiếu bí được = MATE − (2n − 1) nửa nước; bị chiếu bí = −(MATE − 2n).
  */
-export function engineScore(cp: number | null, mate: number | null): number {
-  if (mate === null) return cp ?? 0;
+export function engineScore(cp: number | null | undefined, mate: number | null | undefined): number {
+  if (mate == null) return cp ?? 0;
   if (mate > 0) return MATE_SCORE - (2 * mate - 1);
   return -(MATE_SCORE - 2 * Math.abs(mate));
 }

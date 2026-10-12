@@ -48,4 +48,46 @@ describe("AnalysisPanel", () => {
     fireEvent.click(black);
     expect(screen.getByText("Nên đi X1.1 ăn Pháo đỏ.")).toBeTruthy();
   });
+
+  it("nhận kết quả từ stream NDJSON của /api/engine/batch", async () => {
+    const state = replayMoves(
+      [{ from: sq(7, 0), to: sq(5, 0) }, { from: sq(3, 4), to: sq(4, 4) }],
+      "2bakab2/9/9/4p4/r8/9/4P4/C8/9/2BAKAB2 w",
+    );
+
+    const ndjsonLines = [
+      JSON.stringify({ index: 0, total: 3, eval: { score: 0, best: { from: sq(7, 0), to: sq(0, 0) }, depth: 10, pv: [] } }),
+      JSON.stringify({ index: 1, total: 3, eval: { score: 450, best: { from: sq(4, 0), to: sq(5, 0) }, depth: 10, pv: [] } }),
+      JSON.stringify({ index: 2, total: 3, eval: { score: -450, best: null, depth: 10, pv: [] } }),
+    ].join("\n") + "\n";
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/engine/batch")) {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode(ndjsonLines));
+            controller.close();
+          },
+        });
+        return new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "application/x-ndjson" },
+        });
+      }
+      return originalFetch(input);
+    });
+
+    try {
+      render(<Harness state={state} />);
+      fireEvent.click(screen.getByRole("button", { name: "Phân tích ván" }));
+
+      const red = await screen.findByRole("button", { name: /1\. Đỏ P9\.2/ });
+      expect(red).toBeTruthy();
+      expect(globalThis.fetch).toHaveBeenCalledWith("/api/engine/batch", expect.anything());
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });

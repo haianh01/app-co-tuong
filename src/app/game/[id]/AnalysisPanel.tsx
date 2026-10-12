@@ -50,9 +50,10 @@ export function AnalysisPanel({
         localStorage.setItem(quotaKey(), String(used + 1));
       } catch {}
     }
-    const out: (PositionEval | null)[] = [];
     setProgress(0);
-    try {
+
+    const runFallback = async () => {
+      const out: (PositionEval | null)[] = [];
       for (let i = 0; i < state.history.length; i++) {
         const terminal = i === state.history.length - 1 && state.result;
         if (terminal) out.push(null);
@@ -63,6 +64,69 @@ export function AnalysisPanel({
         setProgress((i + 1) / state.history.length);
       }
       setEvals(out);
+    };
+
+    const tryBatch = async (): Promise<boolean> => {
+      try {
+        const fens = state.history.map((p) => toFen(p));
+        const res = await fetch("/api/engine/batch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fens }),
+        });
+        if (!res.ok || !res.body) return false;
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        const out: (PositionEval | null)[] = new Array(state.history.length).fill(null);
+        let count = 0;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            const data = JSON.parse(line);
+            if (data.error) {
+              await reader.cancel().catch(() => {});
+              return false;
+            }
+            if (typeof data.index === "number" && data.index < out.length) {
+              const terminal = data.index === state.history.length - 1 && state.result;
+              if (terminal) {
+                out[data.index] = null;
+              } else if (data.eval) {
+                out[data.index] = {
+                  score: data.eval.score,
+                  best: data.eval.best,
+                  pv: data.eval.pv,
+                  lines: data.eval.lines,
+                };
+              }
+              count++;
+              setProgress(count / state.history.length);
+            }
+          }
+        }
+        if (count === state.history.length) {
+          setEvals(out);
+          return true;
+        }
+        return false;
+      } catch {
+        return false;
+      }
+    };
+
+    try {
+      const ok = await tryBatch();
+      if (!ok) {
+        await runFallback();
+      }
     } catch {
       setError("Không chạy được AI phân tích, vui lòng thử lại.");
     } finally {

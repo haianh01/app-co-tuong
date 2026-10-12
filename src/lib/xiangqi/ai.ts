@@ -139,6 +139,14 @@ function negamax(board: Board, s: Side, depth: number, alpha: number, beta: numb
   return best;
 }
 
+export interface EngineLineResult {
+  move: Move | null;
+  score: number;
+  depth: number;
+  pv?: string[];
+  pvMoves?: Move[];
+}
+
 export interface AiResult {
   move: Move | null;
   score: number;
@@ -148,6 +156,8 @@ export interface AiResult {
   pv?: string[];
   /** Chuỗi nước đi chính dạng Move. */
   pvMoves?: Move[];
+  /** Danh sách các biến khi chạy MultiPV. */
+  lines?: EngineLineResult[];
 }
 
 /** Ghi đè cấu hình của cấp độ (vd. phân tích ván: độ sâu cố định, không nhiễu). */

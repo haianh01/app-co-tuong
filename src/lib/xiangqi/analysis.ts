@@ -8,6 +8,14 @@ import { moveNotation } from "./notation";
 import { openingOf } from "./openings";
 import { formatPvLine } from "./uci";
 
+export interface PositionEvalLine {
+  best: Move | null;
+  score: number;
+  depth?: number;
+  pv?: Move[];
+  line?: string[];
+}
+
 /** Điểm AI của một thế cờ, tính theo phe đang đến lượt (dương = phe đó đang hơn), kèm nước tốt nhất. */
 export interface PositionEval {
   score: number;
@@ -16,6 +24,8 @@ export interface PositionEval {
   pv?: Move[];
   /** Chuỗi biến cờ tướng ký hiệu tiếng Việt có sẵn. */
   line?: string[];
+  /** Danh sách các biến lựa chọn khi chạy MultiPV. */
+  lines?: PositionEvalLine[];
 }
 
 export type MoveClass = "blunder" | "mistake" | "inaccuracy";

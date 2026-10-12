@@ -7,14 +7,16 @@ import { engineScore, moveToUci, toUciFen, uciToMove } from "@/lib/xiangqi/uci";
 import { getEnginePool, type EngineLimits } from "@/server/engine/uci";
 import { RateLimiter } from "@/server/rate-limit";
 
+import { engineCache, makeEngineCacheKey } from "@/server/engine/cache";
+
 /** Sức mạnh theo cấp. Pikafish không có chế độ giảm Elo, nên làm yếu bằng cách giới hạn số thế cờ được tính. */
 const PLAY: Record<number, EngineLimits> = {
   3: { nodes: 2_000 },
   4: { nodes: 30_000 },
   5: { movetime: 1_500 },
 };
-/** Phân tích / huấn luyện: đủ sâu để chính xác (khoảng 12–14 nửa nước) mà vẫn nhanh. */
-const ANALYSIS: EngineLimits = { nodes: 60_000 };
+/** Phân tích / huấn luyện: MultiPV = 3 để đánh giá các phương án lựa chọn, nodes 60k để chính xác. */
+const ANALYSIS: EngineLimits = { nodes: 60_000, multipv: 3 };
 
 // Mỗi IP: 600 lần / 5 phút (phân tích một ván dài ~ 100–200 lần).
 const limiter = new RateLimiter(600, 5 * 60_000);
@@ -51,10 +53,45 @@ export async function POST(request: Request) {
   const allowed = legal.filter((m) => !avoid.some((a) => a?.from === m.from && a?.to === m.to));
   const searchmoves = avoid.length && allowed.length ? allowed.map(moveToUci) : undefined;
 
+  const fenStr = String(body.fen ?? "");
+  const cacheKey = !searchmoves ? makeEngineCacheKey(fenStr, limits) : null;
+  if (cacheKey && engineCache.has(cacheKey)) {
+    const cached = engineCache.get(cacheKey)!;
+    const move = cached.bestmove ? uciToMove(cached.bestmove) : null;
+    const pvMoves = cached.pv ? cached.pv.map(uciToMove).filter((m): m is Move => m !== null) : [];
+    const lines = cached.lines?.map((l) => ({
+      move: l.bestmove ? uciToMove(l.bestmove) : null,
+      score: engineScore(l.cp, l.mate),
+      depth: l.depth,
+      pv: l.pv,
+      pvMoves: l.pv.map(uciToMove).filter((m): m is Move => m !== null),
+    }));
+    return Response.json(
+      {
+        move,
+        score: engineScore(cached.cp, cached.mate),
+        depth: cached.depth,
+        nodes: 0,
+        pv: cached.pv ?? [],
+        pvMoves,
+        lines,
+      },
+      { headers: { ...noStore, "X-Cache": "HIT" } },
+    );
+  }
+
   try {
     const res = await pool.search(toUciFen(pos), limits, searchmoves);
+    if (cacheKey) engineCache.set(cacheKey, res);
     const move = res.bestmove ? uciToMove(res.bestmove) : null;
     const pvMoves = res.pv ? res.pv.map(uciToMove).filter((m): m is Move => m !== null) : [];
+    const lines = res.lines?.map((l) => ({
+      move: l.bestmove ? uciToMove(l.bestmove) : null,
+      score: engineScore(l.cp, l.mate),
+      depth: l.depth,
+      pv: l.pv,
+      pvMoves: l.pv.map(uciToMove).filter((m): m is Move => m !== null),
+    }));
     return Response.json(
       {
         move,
@@ -63,6 +100,7 @@ export async function POST(request: Request) {
         nodes: 0,
         pv: res.pv ?? [],
         pvMoves,
+        lines,
       },
       { headers: noStore },
     );

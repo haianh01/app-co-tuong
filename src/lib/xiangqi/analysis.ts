@@ -58,6 +58,14 @@ export interface MoveReview {
   winAfter?: number;
   /** Mức giảm xác suất thắng (0.0 đến 1.0). */
   winDrop?: number;
+  /** Tọa độ nước đã đi { from, to }. */
+  move?: Move;
+  /** Tọa độ nước tốt hơn do AI đề xuất. */
+  betterMove?: Move | null;
+  /** Tọa độ nước phản đòn mạnh nhất của đối phương. */
+  replyMove?: Move | null;
+  /** Chuỗi nước cờ của biến tiếp diễn để đi thử trên bàn cờ. */
+  pvMoves?: Move[];
 }
 
 export const CLASS_NAME: Record<MoveClass, string> = {
@@ -337,56 +345,132 @@ export function reviewMove(
     }
   }
 
-  const review: MoveReview = {
-    ply: i + 1,
-    side: m.side,
-    notation: m.notation,
-    loss: Math.round(loss),
-    cls,
-    better,
-    facts,
-    line,
-    highlights,
-    winBefore: Math.round(wBefore * 1000) / 1000,
-    winAfter: Math.round(wAfter * 1000) / 1000,
-    winDrop: Math.round(winDrop * 1000) / 1000,
-  };
+    const replyMove = afterEval?.best ?? afterEval?.pv?.[0] ?? null;
+    const betterMove = before.best ?? null;
+    const pvMoves = afterEval?.pv ?? (afterEval?.best ? [afterEval.best] : undefined);
 
-  return { review, scoreLoss: loss, winDrop, accuracy };
-}
+    const review: MoveReview = {
+      ply: i + 1,
+      side: m.side,
+      notation: m.notation,
+      loss: Math.round(loss),
+      cls,
+      better,
+      facts,
+      line,
+      highlights,
+      winBefore: Math.round(wBefore * 1000) / 1000,
+      winAfter: Math.round(wAfter * 1000) / 1000,
+      winDrop: Math.round(winDrop * 1000) / 1000,
+      move: m.move,
+      betterMove: isFault ? betterMove : null,
+      replyMove: isFault ? replyMove : null,
+      pvMoves,
+    };
 
-/**
- * `evals[i]` là điểm của thế cờ thứ i (sau i nửa nước), `null` nếu chưa/không phân tích.
- * Đánh giá toàn bộ ván cờ theo xác suất thắng logistic và tính độ chính xác Lichess.
- */
-export function reviewGame(state: GameState, evals: (PositionEval | null)[]): ReviewResult {
-  const reviews: MoveReview[] = [];
-  const acc: Record<Side, number[]> = { r: [], b: [] };
-  const firstMove = state.moves[0]?.notation;
-  const op = firstMove ? openingOf(firstMove) : null;
-  const opening = op && op.id !== "other" ? op.name : undefined;
-  const allMoves = state.moves.map((x) => x.move);
-  const allNotations = state.moves.map((x) => x.notation);
+    return { review, scoreLoss: loss, winDrop, accuracy };
+  }
 
-  state.moves.forEach((m, i) => {
-    const historyMoves = allMoves.slice(0, i);
-    const playedNotations = allNotations.slice(0, i + 1);
-    const { review, accuracy } = reviewMove(
-      m,
-      i,
-      state,
-      evals[i],
-      evals[i + 1],
-      opening,
-      historyMoves,
-      playedNotations,
-    );
-    reviews.push(review);
-    if (accuracy !== null) {
-      acc[m.side].push(accuracy);
+  /**
+   * `evals[i]` là điểm của thế cờ thứ i (sau i nửa nước), `null` nếu chưa/không phân tích.
+   * Đánh giá toàn bộ ván cờ theo xác suất thắng logistic và tính độ chính xác Lichess.
+   */
+  export function reviewGame(state: GameState, evals: (PositionEval | null)[]): ReviewResult {
+    const reviews: MoveReview[] = [];
+    const acc: Record<Side, number[]> = { r: [], b: [] };
+    const firstMove = state.moves[0]?.notation;
+    const op = firstMove ? openingOf(firstMove) : null;
+    const opening = op && op.id !== "other" ? op.name : undefined;
+    const allMoves = state.moves.map((x) => x.move);
+    const allNotations = state.moves.map((x) => x.notation);
+
+    state.moves.forEach((m, i) => {
+      const historyMoves = allMoves.slice(0, i);
+      const playedNotations = allNotations.slice(0, i + 1);
+      const { review, accuracy } = reviewMove(
+        m,
+        i,
+        state,
+        evals[i],
+        evals[i + 1],
+        opening,
+        historyMoves,
+        playedNotations,
+      );
+      reviews.push(review);
+      if (accuracy !== null) {
+        acc[m.side].push(accuracy);
+      }
+    });
+
+    const avg = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
+    return { moves: reviews, accuracy: { r: avg(acc.r), b: avg(acc.b) }, opening };
+  }
+
+  export interface TurningPoint {
+    ply: number;
+    side: Side;
+    notation: string;
+    cls: MoveClass | null;
+    winDrop: number;
+    description: string;
+  }
+
+  /**
+   * Tóm tắt tối đa `limit` khoảnh khắc bước ngoặt quan trọng nhất của ván cờ,
+   * sắp xếp theo tiến trình thời gian ván cờ (ply tăng dần).
+   */
+  export function findTurningPoints(moves: MoveReview[], limit: number = 3): TurningPoint[] {
+    const candidates: { review: MoveReview; score: number }[] = [];
+
+    for (const m of moves) {
+      const drop = m.winDrop ?? 0;
+      if (drop < 0.05 && m.cls !== "brilliant" && m.cls !== "only") continue;
+
+      let score = drop * 100;
+      if (m.cls === "blunder") score += 15;
+      else if (m.cls === "missedWin") score += 20;
+      else if (m.cls === "brilliant") score += 22;
+      else if (m.cls === "mistake") score += 8;
+
+      // Nếu thế trận đổi bên dẫn trước
+      if (m.winBefore !== undefined && m.winAfter !== undefined) {
+        if ((m.winBefore > 0.55 && m.winAfter < 0.45) || (m.winBefore < 0.45 && m.winAfter > 0.55)) {
+          score += 25;
+        }
+      }
+
+      candidates.push({ review: m, score });
     }
-  });
 
-  const avg = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
-  return { moves: reviews, accuracy: { r: avg(acc.r), b: avg(acc.b) }, opening };
-}
+    // Sắp xếp theo độ biến động giảm dần để chọn các bước ngoặt lớn nhất
+    candidates.sort((a, b) => b.score - a.score);
+    const selected = candidates.slice(0, limit).map((c) => c.review);
+
+    // Sắp xếp lại theo thứ tự thời gian (ply tăng dần)
+    selected.sort((a, b) => a.ply - b.ply);
+
+    return selected.map((m) => {
+      let description = "Bước ngoặt làm thay đổi cục diện ván cờ";
+      const dropPct = Math.round((m.winDrop ?? 0) * 100);
+      if (m.cls === "missedWin") {
+        description = "Bỏ lỡ cơ hội thắng rõ rệt, thế cờ rơi về cân bằng";
+      } else if (m.cls === "blunder") {
+        description = `Nước hớ nghiêm trọng, làm giảm ${dropPct}% xác suất thắng`;
+      } else if (m.cls === "mistake") {
+        description = `Nước kém khiến thế trận bị suy giảm ${dropPct}%`;
+      } else if (m.cls === "brilliant") {
+        description = "Nước cờ xuất thần tạo đột phá chiến lược";
+      } else if (m.cls === "only") {
+        description = "Nước duy nhất giữ vững thế trận";
+      }
+      return {
+        ply: m.ply,
+        side: m.side,
+        notation: m.notation,
+        cls: m.cls,
+        winDrop: m.winDrop ?? 0,
+        description,
+      };
+    });
+  }

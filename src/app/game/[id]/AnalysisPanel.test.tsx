@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { findBestMove, type AiLevel, type SearchOverrides } from "@/lib/xiangqi/ai";
 import { parseFen, sq } from "@/lib/xiangqi/engine";
 import { replayMoves, type GameState } from "@/lib/xiangqi/game";
-import { AnalysisPanel } from "./AnalysisPanel";
+import { AnalysisPanel, type AnalysisUpdateInfo } from "./AnalysisPanel";
 
 vi.mock("@/components/session/SessionProvider", () => ({ useSession: () => ({ user: undefined, setUser: () => {}, refresh: () => {} }) }));
 // Bỏ giới hạn thời gian để kết quả không phụ thuộc tốc độ máy; độ sâu vẫn do màn phân tích quyết định.
@@ -16,9 +16,9 @@ vi.mock("@/hooks/useEngine", () => ({
 }));
 
 /** Giữ nước đang xem như GameReplay: mở ở nước cuối, bấm vào nước bị chấm thì nhảy tới đó. */
-function Harness({ state }: { state: GameState }) {
+function Harness({ state, onUpdate }: { state: GameState; onUpdate?: (info: AnalysisUpdateInfo) => void }) {
   const [ply, setPly] = useState(state.moves.length);
-  return <AnalysisPanel state={state} ply={ply} onSelect={setPly} viewer="r" />;
+  return <AnalysisPanel state={state} ply={ply} onSelect={setPly} viewer="r" onAnalysisUpdate={onUpdate} />;
 }
 
 beforeEach(() => {
@@ -89,5 +89,44 @@ describe("AnalysisPanel", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  it("hỗ trợ biểu đồ điểm, chuyển bước ngoặt và đi thử biến tiếp diễn", async () => {
+    const state = replayMoves(
+      [{ from: sq(7, 0), to: sq(5, 0) }, { from: sq(3, 4), to: sq(4, 4) }],
+      "2bakab2/9/9/4p4/r8/9/4P4/C8/9/2BAKAB2 w",
+    );
+
+    const onUpdate = vi.fn();
+    render(<Harness state={state} onUpdate={onUpdate} />);
+    fireEvent.click(screen.getByRole("button", { name: "Phân tích ván" }));
+
+    const red = await screen.findByRole("button", { name: /1\. Đỏ P9\.2/ });
+    expect(red).toBeTruthy();
+
+    // 1. Biểu đồ điểm cả ván hiện diện
+    const chart = screen.getByRole("img", { name: /Biểu đồ điểm/i });
+    expect(chart).toBeTruthy();
+
+    // 2. Tóm tắt 3 bước ngoặt
+    const tpCard = screen.getByRole("button", { name: /Bước ngoặt #1/i });
+    expect(tpCard).toBeTruthy();
+    fireEvent.click(tpCard);
+    expect(screen.getByText("Pháo đi vào ô bị Xe đen ăn mà không có quân bảo vệ. Đen đáp X1.1 ăn không Pháo.")).toBeTruthy();
+
+    // 3. Đi thử biến tiếp diễn
+    const tryBtn = screen.getByRole("button", { name: /Đi thử biến này/i });
+    fireEvent.click(tryBtn);
+
+    expect(screen.getByText(/Đang đi thử biến tiếp diễn/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Lùi/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Tiến/i })).toBeTruthy();
+
+    // Thoát đi thử
+    fireEvent.click(screen.getByRole("button", { name: /Thoát đi thử/i }));
+    expect(screen.queryByText(/Đang đi thử biến tiếp diễn/i)).toBeNull();
+
+    // 4. Callback onAnalysisUpdate đã được gọi để gửi arrows / preview lên component cha
+    expect(onUpdate).toHaveBeenCalled();
   });
 });

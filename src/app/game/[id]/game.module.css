@@ -268,3 +268,165 @@
   background: rgba(229, 72, 62, 0.2);
   color: var(--red-text);
 }
+
+/* Biểu đồ điểm ScoreChart */
+.scoreChartContainer {
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.24);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.scoreChartHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+
+.scoreChartBadge {
+  font-weight: 700;
+  color: var(--gold-text);
+  font-size: 11px;
+  background: rgba(217, 164, 65, 0.15);
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.scoreChartSvgWrapper {
+  width: 100%;
+  cursor: pointer;
+}
+
+.scoreChartSvg {
+  width: 100%;
+  height: 80px;
+  display: block;
+  overflow: visible;
+}
+
+.scoreChartLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legendDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* 3 bước ngoặt của ván cờ */
+.turningContainer {
+  margin-top: 16px;
+}
+
+.turningTitle {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--gold-text);
+  margin-bottom: 8px;
+}
+
+.turningGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.turningCard {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 150ms ease;
+}
+
+.turningCard:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(217, 164, 65, 0.4);
+}
+
+.turningCard[aria-current="step"] {
+  border-color: var(--gold);
+  background: rgba(217, 164, 65, 0.12);
+}
+
+.turningTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.turningIdx {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gold-text);
+}
+
+.turningMove {
+  font-size: 13px;
+  color: #fff;
+}
+
+.turningDesc {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.3;
+}
+
+/* Khối đi thử biến tiếp diễn (interactive preview) */
+.previewBox {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.previewHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+
+.previewTitle {
+  font-weight: 700;
+  color: #60a5fa;
+}
+
+.previewActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.reviewLineContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}

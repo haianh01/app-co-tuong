@@ -10,7 +10,7 @@ import { Side, findKing, inCheck, opponent } from "@/lib/xiangqi/engine";
 import { describeResult, pieceIds, replayMoves, type EndReason } from "@/lib/xiangqi/game";
 import { isHidden, jieqiGameState, jieqiInCheck, layoutFrom } from "@/lib/xiangqi/jieqi";
 import play from "@/app/play/play.module.css";
-import { AnalysisPanel } from "./AnalysisPanel";
+import { AnalysisPanel, type AnalysisUpdateInfo } from "./AnalysisPanel";
 import { ReportButton } from "./ReportButton";
 import styles from "./game.module.css";
 
@@ -48,6 +48,7 @@ export function GameReplay({ data, viewerId }: { data: ReplayData; viewerId: str
   const [revealAll, setRevealAll] = useState(false);
   const total = full.moves.length;
   const [ply, setPly] = useState(total);
+  const [analysisInfo, setAnalysisInfo] = useState<AnalysisUpdateInfo | null>(null);
   const go = (p: number) => setPly(Math.max(0, Math.min(total, p)));
   const shown = useMemo(() => full.moves.slice(0, ply), [full, ply]);
   useMoveSounds(shown);
@@ -59,6 +60,11 @@ export function GameReplay({ data, viewerId }: { data: ReplayData; viewerId: str
   const checkSquare = (jieqi ? jieqiInCheck(pos.board, pos.turn) : inCheck(pos.board, pos.turn)) ? findKing(pos.board, pos.turn) : null;
   const board = revealAll && layout ? pos.board.map((p, i) => (isHidden(p) ? (layout[i] ?? p) : p)) : pos.board;
   const result = describeResult({ winner: data.winner, reason: data.reason }, mySide);
+
+  const displayBoard = analysisInfo?.previewBoard ?? board;
+  const displayLastMove = analysisInfo?.previewMove ?? lastMove;
+  const displayArrows = analysisInfo?.arrows ?? [];
+  const displayHighlights = analysisInfo?.highlights ?? [];
 
   const card = (s: Side) => {
     const p = s === "r" ? data.red : data.black;
@@ -108,12 +114,14 @@ export function GameReplay({ data, viewerId }: { data: ReplayData; viewerId: str
 
       <section className={play.center} aria-label="Bàn cờ">
         <XiangqiBoard
-          board={board}
-          ids={pieceIds(full, ply)}
+          board={displayBoard}
+          ids={analysisInfo?.previewBoard ? undefined : pieceIds(full, ply)}
           orientation={bottom}
-          lastMove={lastMove}
+          lastMove={displayLastMove}
           checkSquare={checkSquare}
           disabled
+          arrows={displayArrows}
+          highlights={displayHighlights}
         />
       </section>
 
@@ -146,7 +154,15 @@ export function GameReplay({ data, viewerId }: { data: ReplayData; viewerId: str
             {opponentOfViewer && <ReportButton targetId={opponentOfViewer.id} targetName={opponentOfViewer.displayName} gameId={data.id} />}
           </div>
         </div>
-        {!jieqi && <AnalysisPanel state={full} ply={ply} onSelect={go} viewer={mySide} />}
+        {!jieqi && (
+          <AnalysisPanel
+            state={full}
+            ply={ply}
+            onSelect={go}
+            viewer={mySide}
+            onAnalysisUpdate={setAnalysisInfo}
+          />
+        )}
       </div>
     </main>
   );

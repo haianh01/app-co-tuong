@@ -182,6 +182,15 @@
   pointer-events: none;
 }
 
+.overlays {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 5;
+}
+
 @keyframes pulse {
   50% {
     box-shadow: 0 0 0 6px rgba(229, 72, 62, 0.6), 0 0 26px rgba(229, 72, 62, 0.9);

@@ -7,10 +7,12 @@ import {
   classifyWinDrop,
   computeHighlights,
   computeTacticalLine,
+  findTurningPoints,
   moveAccuracy,
   reviewGame,
   reviewMove,
   winChance,
+  type MoveReview,
   type PositionEval,
   WIN_LOSS_THRESHOLDS,
   PIKAFISH_K,
@@ -332,6 +334,63 @@ describe("computeTacticalLine & computeHighlights", () => {
     const line = computeTacticalLine(pos.board, reply, "r", 3);
     expect(line.length).toBeGreaterThanOrEqual(1);
     expect(line[0]).toBe("X1.1");
+  });
+});
+
+describe("findTurningPoints", () => {
+  const dummyMove = (ply: number, side: "r" | "b", notation: string, cls: MoveReview["cls"], winDrop: number, winBefore?: number, winAfter?: number): MoveReview => ({
+    ply,
+    side,
+    notation,
+    loss: Math.round(winDrop * 500),
+    cls,
+    facts: [],
+    better: null,
+    winBefore,
+    winAfter,
+    winDrop,
+  });
+
+  it("trích xuất tối đa 3 bước ngoặt lớn nhất và sắp xếp lại theo thứ tự thời gian ply", () => {
+    const moves: MoveReview[] = [
+      dummyMove(1, "r", "P2.5", null, 0.01),
+      dummyMove(2, "b", "M8.7", "inaccuracy", 0.06), // nhỏ
+      dummyMove(3, "r", "P8.4", "blunder", 0.35, 0.65, 0.30), // rất lớn (đổi bên dẫn trước)
+      dummyMove(4, "b", "X9.1", "mistake", 0.12), // trung bình
+      dummyMove(5, "r", "C2.2", "missedWin", 0.28, 0.80, 0.52), // lớn
+      dummyMove(6, "b", "M2.3", "brilliant", 0.0), // nước hay
+    ];
+
+    const tps = findTurningPoints(moves, 3);
+    expect(tps).toHaveLength(3);
+    // Phải được sắp xếp theo ply tăng dần: ply 3, 5, 6
+    expect(tps.map((t) => t.ply)).toEqual([3, 5, 6]);
+    expect(tps[0].cls).toBe("blunder");
+    expect(tps[1].cls).toBe("missedWin");
+    expect(tps[2].cls).toBe("brilliant");
+  });
+
+  it("tạo mô tả phù hợp cho từng loại bước ngoặt", () => {
+    const moves: MoveReview[] = [
+      dummyMove(1, "r", "P2.5", "blunder", 0.25),
+      dummyMove(2, "b", "M8.7", "missedWin", 0.30),
+      dummyMove(3, "r", "M2.3", "mistake", 0.15),
+      dummyMove(4, "b", "X9.1", "only", 0.0),
+    ];
+
+    const tps = findTurningPoints(moves, 4);
+    expect(tps[0].description).toContain("Nước hớ nghiêm trọng, làm giảm 25% xác suất thắng");
+    expect(tps[1].description).toContain("Bỏ lỡ cơ hội thắng rõ rệt, thế cờ rơi về cân bằng");
+    expect(tps[2].description).toContain("Nước kém khiến thế trận bị suy giảm 15%");
+    expect(tps[3].description).toContain("Nước duy nhất giữ vững thế trận");
+  });
+
+  it("trả về mảng rỗng nếu không có nước cờ nào đủ điều kiện biến động", () => {
+    const moves: MoveReview[] = [
+      dummyMove(1, "r", "P2.5", null, 0.01),
+      dummyMove(2, "b", "M8.7", null, 0.02),
+    ];
+    expect(findTurningPoints(moves)).toEqual([]);
   });
 });
 

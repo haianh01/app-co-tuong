@@ -66,6 +66,14 @@ const MARK_PATH = (() => {
 /** Quân úp của cờ úp: "H" (đỏ) và "h" (đen). */
 const isHidden = (p: string) => p === "H" || p === "h";
 
+export interface BoardArrow {
+  from: number;
+  to: number;
+  kind?: "played" | "better" | "reply" | "custom";
+  color?: string;
+  dashed?: boolean;
+}
+
 export interface XiangqiBoardProps {
   board: Board;
   /** Mã cố định của từng quân (xem pieceIds) để vẽ hiệu ứng quân trượt khi di chuyển. */
@@ -82,6 +90,10 @@ export interface XiangqiBoardProps {
   /** Ép dùng skin cụ thể (xem trước trong cửa hàng); mặc định theo skin người chơi đang dùng. */
   skin?: { board?: string; piece?: string };
   children?: ReactNode;
+  /** Các mũi tên vẽ SVG trên bàn cờ (nước đã đi, nước nên đi, nước đáp). */
+  arrows?: BoardArrow[];
+  /** Các ô cờ cần làm nổi bật (highlights). */
+  highlights?: number[];
 }
 
 export function XiangqiBoard({
@@ -97,6 +109,8 @@ export function XiangqiBoard({
   onSquareClick,
   skin,
   children,
+  arrows = [],
+  highlights = [],
 }: XiangqiBoardProps) {
   const { user } = useSession();
   const boardRef = useRef<HTMLDivElement>(null);
@@ -302,6 +316,96 @@ export function XiangqiBoard({
             <span />
           </button>
         ))}
+
+        {(arrows.length > 0 || highlights.length > 0) && (
+          <svg className={styles.overlays} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
+            <defs>
+              <marker id="arrowhead-better" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#22c55e" />
+              </marker>
+              <marker id="arrowhead-played" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#ef4444" />
+              </marker>
+              <marker id="arrowhead-reply" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#f59e0b" />
+              </marker>
+              <marker id="arrowhead-custom" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#3b82f6" />
+              </marker>
+            </defs>
+
+            {/* Highlights các ô */}
+            {highlights.map((sq) => {
+              const pt = place(sq);
+              return (
+                <g key={`hl-${sq}`}>
+                  <circle
+                    cx={pt.x}
+                    cy={pt.y}
+                    r={24}
+                    fill="rgba(245, 158, 11, 0.22)"
+                    stroke="#f59e0b"
+                    strokeWidth={2.5}
+                    strokeDasharray="5 3"
+                  />
+                </g>
+              );
+            })}
+
+            {/* Mũi tên */}
+            {arrows.map((a, idx) => {
+              const p1 = place(a.from);
+              const p2 = place(a.to);
+              const dx = p2.x - p1.x;
+              const dy = p2.y - p1.y;
+              const dist = Math.hypot(dx, dy);
+              if (dist === 0) return null;
+
+              const ux = dx / dist;
+              const uy = dy / dist;
+              const startX = p1.x + ux * 16;
+              const startY = p1.y + uy * 16;
+              const endX = p2.x - ux * 22;
+              const endY = p2.y - uy * 22;
+
+              const kind = a.kind ?? "played";
+              const strokeColor =
+                a.color ??
+                (kind === "better"
+                  ? "#22c55e"
+                  : kind === "reply"
+                  ? "#f59e0b"
+                  : kind === "custom"
+                  ? "#3b82f6"
+                  : "#ef4444");
+
+              const markerId =
+                kind === "better"
+                  ? "arrowhead-better"
+                  : kind === "reply"
+                  ? "arrowhead-reply"
+                  : kind === "custom"
+                  ? "arrowhead-custom"
+                  : "arrowhead-played";
+
+              return (
+                <line
+                  key={`arrow-${idx}-${a.from}-${a.to}`}
+                  x1={startX}
+                  y1={startY}
+                  x2={endX}
+                  y2={endY}
+                  stroke={strokeColor}
+                  strokeWidth={kind === "reply" ? 3.5 : 4.5}
+                  strokeDasharray={a.dashed || kind === "reply" ? "6 4" : undefined}
+                  strokeLinecap="round"
+                  opacity={0.9}
+                  markerEnd={`url(#${markerId})`}
+                />
+              );
+            })}
+          </svg>
+        )}
 
         {children}
       </div>

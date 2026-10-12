@@ -77,10 +77,12 @@ export function exchangeGain(board: Board, target: number, by: Side): number | n
 /** Các quân (trừ Tướng) của phe `side` mà đối phương ăn được có lời. */
 export function hangingPieces(board: Board, side: Side): number[] {
   const out: number[] = [];
+  const opp = opponent(side);
   for (let i = 0; i < board.length; i++) {
     const p = board[i];
     if (!p || sideOf(p) !== side || typeOf(p) === "k") continue;
-    if ((exchangeGain(board, i, opponent(side)) ?? 0) > 0) out.push(i);
+    if (!isAttacked(board, i, opp)) continue;
+    if ((exchangeGain(board, i, opp) ?? 0) > 0) out.push(i);
   }
   return out;
 }
@@ -275,11 +277,17 @@ function settle(board: Board, m: Move, reply?: Move | null): Board {
 }
 
 function strategyFact(ctx: MoveContext, better: Move): Fact | null {
-  const { before, move, evalAfter } = ctx;
+  const { before, move, evalAfter, evalBefore } = ctx;
   const mover = sideOf(before[move.from]!);
   const plan = choosePlan(before, mover, ctx.ply ?? 40);
   const played = settle(before, move, evalAfter?.best ?? null);
-  const gaps = comparePrinciples(before, played, settle(before, better), mover, plan);
+  const betterReply =
+    evalBefore?.pv !== undefined
+      ? evalBefore.pv[1] ?? null
+      : evalBefore?.lines?.[0]?.pv !== undefined
+        ? evalBefore.lines[0].pv[1] ?? null
+        : undefined;
+  const gaps = comparePrinciples(before, played, settle(before, better, betterReply), mover, plan);
   if (gaps.length === 0) return null;
   const top = gaps.slice(0, 2);
   const isLoose = (b: Board, i: number) => !!b[i] && sideOf(b[i]!) === mover && "rnc".includes(typeOf(b[i]!)) && !isDefended(b, i, mover);
@@ -419,9 +427,10 @@ function missedChance(before: Board, after: Board, move: Move, better: Move, mov
     if (points > 0) return { kind: "missedCapture", better: notation, victim: ref(before, better.to), points };
     return null;
   }
-  // Nước tốt hơn là cứu một quân đang bị bắt mà nước đã đi bỏ mặc.
   if (move.from !== better.from && after[better.from] === before[better.from]
+    && isAttacked(before, better.from, opp)
     && (exchangeGain(before, better.from, opp) ?? 0) > 0
+    && isAttacked(after, better.from, opp)
     && (exchangeGain(after, better.from, opp) ?? 0) > 0) {
     return { kind: "missedEscape", better: notation, piece: ref(before, better.from) };
   }
@@ -568,7 +577,7 @@ function detectHorseBlock(ctx: MoveContext, reply: Move | null): Fact | null {
           .map(([stepR, stepC]) => sq(hr + stepR, hc + stepC))
           .filter((dest) => rowOf(dest) >= 0 && rowOf(dest) < ROWS && colOf(dest) >= 0 && colOf(dest) < COLS);
 
-        const horseHanging = (exchangeGain(after, i, opp) ?? 0) > 0;
+        const horseHanging = isAttacked(after, i, opp) && (exchangeGain(after, i, opp) ?? 0) > 0;
         const lostDefense = blockedDests.some((d) => {
           const victim = before[d];
           return (
@@ -576,6 +585,7 @@ function detectHorseBlock(ctx: MoveContext, reply: Move | null): Fact | null {
             sideOf(victim) === mover &&
             isDefended(before, d, mover) &&
             !isDefended(after, d, mover) &&
+            isAttacked(after, d, opp) &&
             (exchangeGain(after, d, opp) ?? 0) > 0
           );
         });
@@ -599,7 +609,7 @@ function detectHorseBlock(ctx: MoveContext, reply: Move | null): Fact | null {
       const p = after[i];
       if (p && sideOf(p) === mover && typeOf(p) === "n") {
         if (isHorseLeg(i, reply.to)) {
-          const horseHanging = (exchangeGain(next, i, opp) ?? 0) > 0;
+          const horseHanging = isAttacked(next, i, opp) && (exchangeGain(next, i, opp) ?? 0) > 0;
           if (horseHanging) {
             return {
               kind: "horseBlock",
@@ -634,10 +644,10 @@ function detectTrappedPiece(ctx: MoveContext, reply: Move | null): Fact | null {
   const mover = sideOf(before[move.from]!);
   const opp = opponent(mover);
 
-  const candidates = [move.to, ...after.map((_, idx) => idx).filter((idx) => idx !== move.to)];
-  for (const i of candidates) {
+  const checkCandidate = (i: number): Fact | null => {
     const p = after[i];
-    if (!p || sideOf(p) !== mover || !"rnc".includes(typeOf(p))) continue;
+    if (!p || sideOf(p) !== mover || !"rnc".includes(typeOf(p))) return null;
+    if (!isAttacked(after, i, opp)) return null;
     const gain = exchangeGain(after, i, opp) ?? 0;
     if (gain > 0) {
       const safe = safeEscapeMoves(after, i, mover);
@@ -653,6 +663,16 @@ function detectTrappedPiece(ctx: MoveContext, reply: Move | null): Fact | null {
           };
         }
       }
+    }
+    return null;
+  };
+
+  const direct = checkCandidate(move.to);
+  if (direct) return direct;
+  for (let i = 0; i < after.length; i++) {
+    if (i !== move.to) {
+      const fact = checkCandidate(i);
+      if (fact) return fact;
     }
   }
   return null;

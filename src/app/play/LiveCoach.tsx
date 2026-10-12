@@ -5,20 +5,29 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useEngine } from "@/hooks/useEngine";
-import { CLASS_NAME, reviewGame, type PositionEval } from "@/lib/xiangqi/analysis";
+import { CLASS_NAME, reviewMove, type MoveReview, type PositionEval } from "@/lib/xiangqi/analysis";
 import { toFen, type Side } from "@/lib/xiangqi/engine";
 import { explainText, moveIdea } from "@/lib/xiangqi/explain";
 import type { GameState } from "@/lib/xiangqi/game";
+import { openingOf } from "@/lib/xiangqi/openings";
 import game from "@/app/game/[id]/game.module.css";
 import styles from "./play.module.css";
 
 /** Cùng mức với màn phân tích ván: đủ nhanh để chấm kịp trong lúc máy suy nghĩ. */
 const COACH = { depth: 3, timeMs: 300, noise: 0 } as const;
 
+interface CachedCoachItem {
+  review: MoveReview;
+  scoreLoss: number | null;
+  best: boolean;
+  idea: string;
+}
+
 export function LiveCoach({ state, player }: { state: GameState; player: Side }) {
   const think = useEngine();
   const [cache, setCache] = useState<Record<string, PositionEval>>({});
-  const ideaCache = useRef<Map<string, string>>(new Map());
+  // Cache kết quả theo cặp FEN trước - sau để tránh tính lại toàn bộ ván cờ
+  const coachCache = useRef<Map<string, CachedCoachItem>>(new Map());
   const fens = useMemo(() => state.history.map((p) => toFen(p)), [state.history]);
 
   // Thế cần chấm: trước và sau mỗi nước của người chơi, kể cả thế hiện tại khi đến lượt người chơi (chấm sẵn).
@@ -47,48 +56,88 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
     };
   }, [next, think]);
 
-  const evals = useMemo(() => fens.map((f) => cache[f] ?? null), [fens, cache]);
-  const review = useMemo(() => reviewGame(state, evals), [state, evals]);
-  const mine = review.moves
-    .map((r, i) => ({ ...r, ready: !!evals[i] && (!!evals[i + 1] || (i + 1 === state.moves.length && !!state.result)), best: sameMove(evals[i]?.best, state.moves[i].move) }))
-    .filter((r) => r.side === player)
-    .map((r) => {
-      let idea = "";
-      if (r.ready) {
-        const key = `${r.ply}:${state.moves[r.ply - 1].move.from}-${state.moves[r.ply - 1].move.to}:${r.best}`;
-        if (ideaCache.current.has(key)) {
-          idea = ideaCache.current.get(key)!;
-        } else {
-          const historyMoves = state.moves.slice(0, r.ply - 1).map((m) => m.move);
-          idea = explainText(
-            [
-              moveIdea(
-                state.history[r.ply - 1].board,
-                state.moves[r.ply - 1].move,
-                evals[r.ply]?.best ?? null,
-                r.ply - 1,
-                review.opening,
-                historyMoves,
-                r.best,
-              ),
-            ],
-            r.side,
-          );
-          ideaCache.current.set(key, idea);
-        }
+  const opening = useMemo(() => {
+    const firstMove = state.moves[0]?.notation;
+    const op = firstMove ? openingOf(firstMove) : null;
+    return op && op.id !== "other" ? op.name : undefined;
+  }, [state.moves]);
+
+  const { mine, accuracy } = useMemo(() => {
+    const items: (MoveReview & { ready: boolean; best: boolean; idea: string })[] = [];
+    const accScores: number[] = [];
+
+    state.moves.forEach((m, i) => {
+      if (m.side !== player) return;
+
+      const beforeEval = cache[fens[i]] ?? null;
+      const afterEval = cache[fens[i + 1]] ?? null;
+      const isTerminal = i + 1 === state.moves.length && !!state.result;
+      const ready = !!beforeEval && (!!afterEval || isTerminal);
+
+      if (!ready) {
+        items.push({
+          ply: i + 1,
+          side: player,
+          notation: m.notation,
+          loss: 0,
+          cls: null,
+          better: null,
+          facts: [],
+          ready: false,
+          best: false,
+          idea: "",
+        });
+        return;
       }
-      return {
-        ...r,
-        idea,
-      };
-    })
-    .reverse();
+
+      // Khóa cache theo cặp FEN trước và sau nước đi
+      const fenPairKey = `${fens[i]}->${fens[i + 1]}`;
+      let cached = coachCache.current.get(fenPairKey);
+
+      if (!cached) {
+        // Chỉ tính nước mới chưa có trong cache
+        const { review, scoreLoss } = reviewMove(m, i, state, beforeEval, afterEval, opening);
+        const best = sameMove(beforeEval?.best, m.move);
+        const historyMoves = state.moves.slice(0, i).map((x) => x.move);
+        const idea = explainText(
+          [
+            moveIdea(
+              state.history[i].board,
+              m.move,
+              afterEval?.best ?? null,
+              i,
+              opening,
+              historyMoves,
+              best,
+            ),
+          ],
+          m.side,
+        );
+        cached = { review, scoreLoss, best, idea };
+        coachCache.current.set(fenPairKey, cached);
+      }
+
+      items.push({
+        ...cached.review,
+        ready: true,
+        best: cached.best,
+        idea: cached.idea,
+      });
+
+      if (cached.scoreLoss !== null) {
+        accScores.push(Math.max(0, 100 - cached.scoreLoss / 3));
+      }
+    });
+
+    const avg = accScores.length ? Math.round(accScores.reduce((a, b) => a + b, 0) / accScores.length) : null;
+    return { mine: items.reverse(), accuracy: avg };
+  }, [state, player, fens, cache, opening]);
 
   return (
     <div className={`card ${styles.panel}`} aria-live="polite">
       <div className={styles.panelHead}>
         <h2 className={styles.panelTitle}>Huấn luyện</h2>
-        {review.accuracy[player] !== null && <span className="muted">Độ chính xác {review.accuracy[player]}%</span>}
+        {accuracy !== null && <span className="muted">Độ chính xác {accuracy}%</span>}
       </div>
       {mine.length === 0 ? (
         <p className="muted">Mỗi nước bạn đi sẽ được AI chấm và giải thích ngay tại đây.</p>

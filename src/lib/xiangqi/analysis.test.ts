@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { findBestMove } from "./ai";
-import { parseFen, sq } from "./engine";
+import { applyMove, legalMoves, parseFen, sq } from "./engine";
 import { replayMoves } from "./game";
 import { classify, computeHighlights, computeTacticalLine, reviewGame, type PositionEval } from "./analysis";
 
@@ -114,6 +114,50 @@ describe("reviewGame", () => {
     const { moves } = reviewGame(state, evals);
     expect(moves[0].cls).toBe("blunder");
     expect(moves[0].line).toEqual(["X1.1", "Tg6.1"]);
+  });
+
+  it("hiệu năng: reviewGame cho ván 80 nửa nước đã có PV phải chạy dưới 50ms", () => {
+    // Sinh ván cờ 80 nửa nước từ thế ban đầu
+    const moves: { from: number; to: number }[] = [];
+    let curr = parseFen("rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w");
+    for (let i = 0; i < 80; i++) {
+      const legals = legalMoves(curr);
+      if (legals.length === 0) break;
+      // Chọn nước đi tuần tự để tạo thế cờ hợp lệ
+      const m = legals[i % legals.length];
+      moves.push(m);
+      curr = applyMove(curr, m);
+    }
+    expect(moves).toHaveLength(80);
+
+    const state = replayMoves(moves);
+    const evals: PositionEval[] = state.history.map((pos, i) => {
+      const legals = legalMoves(pos);
+      const m1 = legals[0] ?? null;
+      let m2: { from: number; to: number } | null = null;
+      if (m1) {
+        const nextPos = applyMove(pos, m1);
+        m2 = legalMoves(nextPos)[0] ?? null;
+      }
+      const pv = m1 && m2 ? [m1, m2] : m1 ? [m1] : [];
+      return {
+        // Đan xen điểm để có cả nước tốt và nước hớ/kém
+        score: i % 4 === 0 ? 350 : 20,
+        best: m1,
+        pv,
+      };
+    });
+
+    let bestDuration = Infinity;
+    for (let r = 0; r < 4; r++) {
+      const start = performance.now();
+      const result = reviewGame(state, evals);
+      const duration = performance.now() - start;
+      if (duration < bestDuration) bestDuration = duration;
+      expect(result.moves).toHaveLength(80);
+    }
+
+    expect(bestDuration).toBeLessThan(50);
   });
 });
 

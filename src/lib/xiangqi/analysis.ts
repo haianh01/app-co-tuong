@@ -114,69 +114,104 @@ export function classify(loss: number): MoveClass | null {
   return null;
 }
 
+export interface ReviewResult {
+  moves: MoveReview[];
+  accuracy: Record<Side, number | null>;
+  opening?: string;
+}
+
+/**
+ * Đánh giá riêng 1 nước đi trong ván cờ.
+ * Giúp LiveCoach chỉ cần tính nước mới mà không phải duyệt lại toàn bộ các nước cũ.
+ */
+export function reviewMove(
+  m: { move: Move; side: Side; notation: string },
+  i: number,
+  state: GameState,
+  before: PositionEval | null,
+  afterEval: PositionEval | null,
+  opening?: string,
+  historyMovesOverride?: Move[],
+): { review: MoveReview; scoreLoss: number | null } {
+  const isLast = i === state.moves.length - 1;
+  let after: number | null = null;
+  if (isLast && state.result?.winner === m.side && (state.result.reason === "checkmate" || state.result.reason === "stalemate")) {
+    after = CAP;
+  } else if (afterEval) {
+    after = -clamp(afterEval.score);
+  }
+
+  if (!before || after === null) {
+    return {
+      review: { ply: i + 1, side: m.side, notation: m.notation, loss: 0, cls: null, better: null, facts: [] },
+      scoreLoss: null,
+    };
+  }
+
+  const playedBest = before.best?.from === m.move.from && before.best?.to === m.move.to;
+  const loss = playedBest ? 0 : Math.max(0, clamp(before.score) - after);
+  const cls = classify(loss);
+  const historyMoves = historyMovesOverride ?? state.moves.slice(0, i).map((x) => x.move);
+  let line: string[] | undefined;
+  if (cls) {
+    if (afterEval?.pv && afterEval.pv.length > 0) {
+      line = formatPvLine(state.history[i + 1].board, afterEval.pv, 3);
+    } else if (afterEval?.line && afterEval.line.length > 0) {
+      line = afterEval.line.slice(0, 3);
+    } else if (afterEval?.best) {
+      line = computeTacticalLine(state.history[i + 1].board, afterEval.best, m.side, 3);
+    }
+  }
+  const highlights = cls ? computeHighlights(m.move, afterEval?.best ?? null, before.best ?? null) : undefined;
+
+  const review: MoveReview = {
+    ply: i + 1,
+    side: m.side,
+    notation: m.notation,
+    loss: Math.round(loss),
+    cls,
+    better: cls && before.best ? moveNotation(state.history[i].board, before.best) : null,
+    facts: cls
+      ? explainMove({
+        before: state.history[i].board,
+        move: m.move,
+        after: state.history[i + 1].board,
+        evalBefore: before,
+        evalAfter: afterEval,
+        loss,
+        ply: i,
+        opening,
+        historyMoves,
+      })
+      : [],
+    line,
+    highlights,
+  };
+
+  return { review, scoreLoss: loss };
+}
+
 /**
  * `evals[i]` là điểm của thế cờ thứ i (sau i nửa nước), `null` nếu chưa/không phân tích.
  * Một nước mất điểm = điểm trước nước (theo người đi) − điểm sau nước (vẫn theo người đi).
  */
-export function reviewGame(state: GameState, evals: (PositionEval | null)[]): { moves: MoveReview[]; accuracy: Record<Side, number | null>; opening?: string } {
+export function reviewGame(state: GameState, evals: (PositionEval | null)[]): ReviewResult {
   const reviews: MoveReview[] = [];
   const acc: Record<Side, number[]> = { r: [], b: [] };
   const firstMove = state.moves[0]?.notation;
   const op = firstMove ? openingOf(firstMove) : null;
   const opening = op && op.id !== "other" ? op.name : undefined;
+  const allMoves = state.moves.map((x) => x.move);
 
   state.moves.forEach((m, i) => {
-    const before = evals[i];
-    const afterEval = evals[i + 1];
-    const isLast = i === state.moves.length - 1;
-    let after: number | null = null;
-    if (isLast && state.result?.winner === m.side && (state.result.reason === "checkmate" || state.result.reason === "stalemate")) after = CAP;
-    else if (afterEval) after = -clamp(afterEval.score);
-    if (!before || after === null) {
-      reviews.push({ ply: i + 1, side: m.side, notation: m.notation, loss: 0, cls: null, better: null, facts: [] });
-      return;
+    const historyMoves = allMoves.slice(0, i);
+    const { review, scoreLoss } = reviewMove(m, i, state, evals[i], evals[i + 1], opening, historyMoves);
+    reviews.push(review);
+    if (scoreLoss !== null) {
+      acc[m.side].push(Math.max(0, 100 - scoreLoss / 3));
     }
-    const playedBest = before.best?.from === m.move.from && before.best?.to === m.move.to;
-    const loss = playedBest ? 0 : Math.max(0, clamp(before.score) - after);
-    acc[m.side].push(Math.max(0, 100 - loss / 3));
-    const cls = classify(loss);
-    const historyMoves = state.moves.slice(0, i).map((x) => x.move);
-    let line: string[] | undefined;
-    if (cls) {
-      if (afterEval?.pv && afterEval.pv.length > 0) {
-        line = formatPvLine(state.history[i + 1].board, afterEval.pv, 3);
-      } else if (afterEval?.line && afterEval.line.length > 0) {
-        line = afterEval.line.slice(0, 3);
-      } else if (afterEval?.best) {
-        line = computeTacticalLine(state.history[i + 1].board, afterEval.best, m.side, 3);
-      }
-    }
-    const highlights = cls ? computeHighlights(m.move, afterEval?.best ?? null, before.best ?? null) : undefined;
-
-    reviews.push({
-      ply: i + 1,
-      side: m.side,
-      notation: m.notation,
-      loss: Math.round(loss),
-      cls,
-      better: cls && before.best ? moveNotation(state.history[i].board, before.best) : null,
-      facts: cls
-        ? explainMove({
-          before: state.history[i].board,
-          move: m.move,
-          after: state.history[i + 1].board,
-          evalBefore: before,
-          evalAfter: afterEval,
-          loss,
-          ply: i,
-          opening,
-          historyMoves,
-        })
-        : [],
-      line,
-      highlights,
-    });
   });
+
   const avg = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
   return { moves: reviews, accuracy: { r: avg(acc.r), b: avg(acc.b) }, opening };
 }

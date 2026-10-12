@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSession } from "@/components/session/SessionProvider";
+import { useAnalysisWorker } from "@/hooks/useAnalysisWorker";
 import { useEngine } from "@/hooks/useEngine";
-import { CLASS_NAME, reviewGame, type PositionEval } from "@/lib/xiangqi/analysis";
+import { CLASS_NAME, type PositionEval, type ReviewResult } from "@/lib/xiangqi/analysis";
 import { toFen, type Side } from "@/lib/xiangqi/engine";
 import { explainText } from "@/lib/xiangqi/explain";
 import type { GameState } from "@/lib/xiangqi/game";
@@ -36,7 +37,22 @@ export function AnalysisPanel({
   const [error, setError] = useState<string | null>(null);
   const vip = !!user?.vipUntil;
 
-  const review = useMemo(() => (evals ? reviewGame(state, evals) : null), [state, evals]);
+  const runReview = useAnalysisWorker();
+  const [review, setReview] = useState<ReviewResult | null>(null);
+
+  useEffect(() => {
+    if (!evals) {
+      setReview(null);
+      return;
+    }
+    let cancelled = false;
+    runReview(state, evals).then((res) => {
+      if (!cancelled) setReview(res);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [state, evals, runReview]);
 
   const run = async () => {
     setError(null);

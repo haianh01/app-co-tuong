@@ -38,4 +38,22 @@ describe("LiveCoach", () => {
     // Nước tốt vẫn có nhận xét chiến lược.
     expect(screen.getByText(/^Kế hoạch: .+X9\.2/)).toBeTruthy();
   });
+
+  it("cache kết quả theo cặp FEN: giữ nguyên kết quả nước cũ khi đi thêm nước mới", async () => {
+    const m1 = { from: sq(7, 0), to: sq(5, 0) };
+    const m2 = { from: sq(3, 4), to: sq(4, 4) };
+    const state1 = replayMoves([m1, m2], FEN);
+    const { rerender } = render(<LiveCoach state={state1} player="r" />);
+
+    expect(await screen.findByText("Nước hớ", {}, { timeout: 10_000 })).toBeTruthy();
+    expect(screen.getByText(/Pháo đi vào ô bị Xe đen ăn/)).toBeTruthy();
+
+    // Đi thêm nước thứ 3 (Đỏ đi)
+    const m3 = { from: sq(5, 0), to: sq(5, 1) };
+    const state2 = replayMoves([m1, m2, m3], FEN);
+    rerender(<LiveCoach state={state2} player="r" />);
+
+    // Nước cũ vẫn hiển thị đúng từ cache
+    expect(screen.getByText(/Pháo đi vào ô bị Xe đen ăn/)).toBeTruthy();
+  });
 });

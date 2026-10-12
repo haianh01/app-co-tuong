@@ -151,3 +151,5 @@ location / {
 - **Luật đuổi bắt mãi** được đơn giản hóa (chưa phân biệt mọi trường hợp như luật thi đấu chính thức).
 - **Cờ úp:** quân úp bị ăn khi chưa lật thì không bên nào biết là quân gì (khác với một số luật cho bên ăn được biết). AI cờ úp nông hơn AI cờ tướng.
 - **Gợi ý cờ thế** được tính phí ở máy chủ, nhưng dữ liệu lời giải nằm trong mã trang (người rành kỹ thuật có thể đọc). Phần thưởng xu thì luôn được máy chủ kiểm lời giải.
+#   a p p - c o - t u o n g  
+ 

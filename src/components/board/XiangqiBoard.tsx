@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
 import { useSession } from "@/components/session/SessionProvider";
 import { boardSkin, pieceSkin } from "@/lib/skins";
 import { Board, Move, Side, colOf, rowOf, sideOf, typeOf } from "@/lib/xiangqi/engine";
@@ -115,50 +115,103 @@ export function XiangqiBoard({
     return { left: pctX(x), top: pctY(y) };
   };
   const targetSet = new Set(targets);
-  const select = (i: number) => {
-    if (!disabled) onSquareClick?.(i);
-  };
+  const select = useCallback(
+    (i: number) => {
+      if (!disabled) onSquareClick?.(i);
+    },
+    [disabled, onSquareClick],
+  );
 
   /** Ô gần nhất dưới con trỏ (tọa độ màn hình). */
-  const squareAt = (clientX: number, clientY: number): number | null => {
-    const rect = boardRef.current?.getBoundingClientRect();
-    if (!rect) return null;
-    const dc = Math.round((((clientX - rect.left) / rect.width) * W - PAD_X) / CELL);
-    const dr = Math.round((((clientY - rect.top) / rect.height) * H - PAD_Y) / CELL);
-    if (dc < 0 || dc > 8 || dr < 0 || dr > 9) return null;
-    return (flip ? 9 - dr : dr) * 9 + (flip ? 8 - dc : dc);
-  };
+  const squareAt = useCallback(
+    (clientX: number, clientY: number): number | null => {
+      const rect = boardRef.current?.getBoundingClientRect();
+      if (!rect) return null;
+      const dc = Math.round((((clientX - rect.left) / rect.width) * W - PAD_X) / CELL);
+      const dr = Math.round((((clientY - rect.top) / rect.height) * H - PAD_Y) / CELL);
+      if (dc < 0 || dc > 8 || dr < 0 || dr > 9) return null;
+      return (flip ? 9 - dr : dr) * 9 + (flip ? 8 - dc : dc);
+    },
+    [flip],
+  );
+
+  // Khi bàn cờ thay đổi (nước đi vừa hoàn thành) hoặc bị vô hiệu hóa, dọn sạch hoàn toàn trạng thái kéo
+  useEffect(() => {
+    pointer.current = null;
+    setDrag(null);
+  }, [board, disabled]);
+
+  // Lắng nghe di chuyển và nhả chuột toàn cục trên window để đảm bảo dọn sạch kéo thả
+  // ngay cả khi con trỏ di chuyển ra ngoài quân cờ hay quân cờ bị gỡ khỏi DOM (khi ăn quân).
+  useEffect(() => {
+    const onWindowPointerMove = (e: globalThis.PointerEvent) => {
+      const p = pointer.current;
+      if (!p || e.pointerId !== p.id) return;
+
+      // Chuột không còn nút nào được nhấn (e.buttons === 0) -> hủy kéo ngay lập tức
+      if (e.buttons === 0) {
+        pointer.current = null;
+        setDrag(null);
+        return;
+      }
+
+      const dx = e.clientX - p.x;
+      const dy = e.clientY - p.y;
+      if (drag || Math.hypot(dx, dy) >= DRAG_THRESHOLD) {
+        setDrag({ square: p.square, dx, dy });
+      }
+    };
+
+    const onWindowPointerUp = (e: globalThis.PointerEvent) => {
+      const p = pointer.current;
+      if (!p || e.pointerId !== p.id) return;
+      pointer.current = null;
+      setDrag(null);
+
+      // Thả chuột sau khi đã kéo quá khoảng ngưỡng
+      if (Math.hypot(e.clientX - p.x, e.clientY - p.y) >= DRAG_THRESHOLD) {
+        const target = squareAt(e.clientX, e.clientY);
+        if (target !== null && target !== p.square) {
+          select(target);
+        }
+      }
+    };
+
+    const onWindowPointerCancel = (e: globalThis.PointerEvent) => {
+      if (pointer.current && e.pointerId === pointer.current.id) {
+        pointer.current = null;
+        setDrag(null);
+      }
+    };
+
+    window.addEventListener("pointermove", onWindowPointerMove);
+    window.addEventListener("pointerup", onWindowPointerUp);
+    window.addEventListener("pointercancel", onWindowPointerCancel);
+    return () => {
+      window.removeEventListener("pointermove", onWindowPointerMove);
+      window.removeEventListener("pointerup", onWindowPointerUp);
+      window.removeEventListener("pointercancel", onWindowPointerCancel);
+    };
+  }, [drag, squareAt, select]);
 
   // Kéo thả chỉ dành cho chuột/bút. Trên màn hình cảm ứng dùng chạm-chọn rồi chạm ô đích
   // (như các app cờ phổ biến) để không chặn thao tác cuộn trang.
   const onPointerDown = (i: number) => (e: PointerEvent<HTMLButtonElement>) => {
     if (disabled || e.pointerType === "touch" || e.button !== 0) return;
+
+    // Nếu ô này là mục tiêu ăn quân (đối phương), không bắt đầu kéo quân đối phương!
+    // Việc ăn quân sẽ được xử lý khi click/thả chuột lên ô này.
+    if (targetSet.has(i)) {
+      return;
+    }
+
     handledByPointer.current = true;
     pointer.current = { square: i, x: e.clientX, y: e.clientY, id: e.pointerId };
-    try {
-      e.currentTarget.setPointerCapture?.(e.pointerId);
-    } catch {
-      // Trình duyệt / môi trường không hỗ trợ: vẫn chọn quân bình thường.
-    }
     select(i);
   };
-  const onPointerMove = (e: PointerEvent<HTMLButtonElement>) => {
-    const p = pointer.current;
-    if (!p || e.pointerId !== p.id) return;
-    const dx = e.clientX - p.x;
-    const dy = e.clientY - p.y;
-    if (drag || Math.hypot(dx, dy) >= DRAG_THRESHOLD) setDrag({ square: p.square, dx, dy });
-  };
-  const onPointerUp = (e: PointerEvent<HTMLButtonElement>) => {
-    const p = pointer.current;
-    pointer.current = null;
-    setDrag(null);
-    if (!p || Math.hypot(e.clientX - p.x, e.clientY - p.y) < DRAG_THRESHOLD) return;
-    const target = squareAt(e.clientX, e.clientY);
-    if (target !== null && target !== p.square) select(target);
-  };
+
   const onPieceClick = (i: number) => () => {
-    // Chuột đã xử lý ở pointerdown; còn lại là chạm (cảm ứng) hoặc bàn phím.
+    // Chuột đã xử lý ở pointerdown; còn lại là chạm (cảm ứng) hoặc bàn phím, hoặc ăn quân.
     if (handledByPointer.current) {
       handledByPointer.current = false;
       return;
@@ -225,9 +278,7 @@ export function XiangqiBoard({
               style={style}
               onClick={onPieceClick(i)}
               onPointerDown={onPointerDown(i)}
-              onPointerMove={onPointerMove}
-              onPointerUp={onPointerUp}
-              onPointerCancel={onPointerUp}
+              onDragStart={(e) => e.preventDefault()}
               data-square={i}
               aria-label={hidden ? `Quân úp ${red ? "đỏ" : "đen"}` : `${PIECE_NAME[typeOf(p)]} ${red ? "đỏ" : "đen"}`}
               aria-pressed={i === selected}
@@ -244,6 +295,7 @@ export function XiangqiBoard({
             className={styles.target}
             style={at(t)}
             onClick={() => select(t)}
+            onDragStart={(e) => e.preventDefault()}
             data-square={t}
             aria-label="Đi tới ô này"
           >

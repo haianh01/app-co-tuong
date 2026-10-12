@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { computeBadges, type BadgeStats } from "@/lib/badges";
 import { applyMove, initialPosition, legalMoves } from "./engine";
 import { moveNotation } from "./notation";
-import { isBookMove, openingOf, tallyOpenings } from "./openings";
+import { isBookMove, openingOf, tallyOpenings, detectOpeningFromMoves } from "./openings";
 
 const start = initialPosition();
 const red = (n: string) => openingOf(n).name;
@@ -63,6 +63,26 @@ describe("nhận diện khai cuộc", () => {
     expect(isBookMove(["P2-5", "M8.7", "M2.3", "X9-8", "X1-2", "M2.3"])).toBe(true);
     // Nước lệch khỏi sách
     expect(isBookMove(["P2-5", "M8.7", "Tg5.1"])).toBe(false);
+  });
+
+  it("detectOpeningFromMoves nhận diện chính xác tên thế trận theo chuỗi nước", () => {
+    // 1 nước: fallback về nước đầu
+    expect(detectOpeningFromMoves(["P2-5"])).toBe("Pháo đầu (Trung pháo)");
+
+    // Chuỗi Thuận Pháo
+    expect(detectOpeningFromMoves(["P2-5", "P8-5", "M2.3", "M8.7"])).toContain("Thuận Pháo");
+
+    // Chuỗi Nghịch Pháo
+    expect(detectOpeningFromMoves(["P2-5", "P2-5"])).toContain("Nghịch Pháo");
+
+    // Chuỗi Bình Phong Mã
+    expect(detectOpeningFromMoves(["P2-5", "M8.7", "M2.3", "X9-8", "X1-2", "M2.3"])).toContain("Pháo đầu đối Bình Phong Mã");
+
+    // Chuỗi Phản Cung Mã
+    expect(detectOpeningFromMoves(["P2-5", "M2.3", "M2.3", "P8-6"])).toContain("Pháo đầu đối Phản Cung Mã");
+
+    // Nước lạ
+    expect(detectOpeningFromMoves([])).toBeUndefined();
   });
 });
 

@@ -15,6 +15,8 @@ import {
   GAIN_TEXT, LOSS_TEXT, PLAN_NAME, PLAN_TEXT, PRINCIPLES, WEIGHTS, choosePlan, comparePrinciples, principleScores,
   type OpeningFaultType, type Plan, type Principle, detectOpeningFault,
 } from "./strategy";
+import { detectTheoreticalEndgame, type TheoreticalEndgame } from "./endgame";
+import { buildLlmCommentaryPrompt, generateLlmCommentary, type LlmCommentaryOptions, type LlmPrompt } from "./llm-commentary";
 
 /** Điểm thắng tuyệt đối mà AI trả về khi thấy chiếu bí (khớp với MATE trong ai.ts). */
 const MATE = 100_000;
@@ -159,7 +161,9 @@ export type Fact =
   /** Không tìm ra lý do cụ thể: chỉ nói nước đáp mạnh nhất và mức thiệt theo AI. */
   | { kind: "evalDrop"; reply: string | null; check: boolean; points: number }
   /** Đang có ưu thế thắng rõ rệt nhưng để rớt về thế cân bằng. */
-  | { kind: "missedWin"; better?: string; points?: number };
+  | { kind: "missedWin"; better?: string; points?: number }
+  /** Nhận diện tàn cuộc lý thuyết thắng hoặc hòa. */
+  | { kind: "endgame"; endgame: TheoreticalEndgame };
 
 export interface MoveContext {
   before: Board;
@@ -257,8 +261,13 @@ export function explainMove(ctx: MoveContext): Fact[] {
       }
     }
     if (facts.length === 0) {
-      const plan = strategyFact(ctx, better);
-      if (plan) facts.push(plan);
+      const eg = detectTheoreticalEndgame(after);
+      if (eg) {
+        facts.push({ kind: "endgame", endgame: eg });
+      } else {
+        const plan = strategyFact(ctx, better);
+        if (plan) facts.push(plan);
+      }
     }
   }
   if (facts.length === 0) {
@@ -799,6 +808,9 @@ function sentence(f: Fact, mover: Side): string {
       const betterPart = f.better ? ` (nên đi ${f.better})` : "";
       return `Bỏ lỡ cơ hội thắng rõ rệt: thế cờ đang áp đảo nhưng để rớt về thế cân bằng${betterPart}.`;
     }
+    case "endgame": {
+      return `Thế cờ tàn cuộc lý thuyết: ${f.endgame.name}. ${f.endgame.description}`;
+    }
   }
 }
 
@@ -806,3 +818,12 @@ function sentence(f: Fact, mover: Side): string {
 export function explainText(facts: Fact[], mover: Side): string {
   return facts.map((f) => sentence(f, mover)).join(" ");
 }
+
+export {
+  buildLlmCommentaryPrompt,
+  generateLlmCommentary,
+  detectTheoreticalEndgame,
+  type LlmCommentaryOptions,
+  type LlmPrompt,
+  type TheoreticalEndgame,
+};

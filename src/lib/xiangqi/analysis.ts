@@ -3,7 +3,7 @@ import { inCheck, legalMoves, opponent, type Board, type Move, type Side } from 
 import { explainMove, type Fact } from "./explain";
 import type { GameState } from "./game";
 import { moveNotation } from "./notation";
-import { isBookMove, openingOf } from "./openings";
+import { isBookMove, openingOf, detectOpeningFromMoves } from "./openings";
 import { formatPvLine } from "./uci";
 
 export interface PositionEvalLine {
@@ -380,11 +380,9 @@ export function reviewMove(
   export function reviewGame(state: GameState, evals: (PositionEval | null)[]): ReviewResult {
     const reviews: MoveReview[] = [];
     const acc: Record<Side, number[]> = { r: [], b: [] };
-    const firstMove = state.moves[0]?.notation;
-    const op = firstMove ? openingOf(firstMove) : null;
-    const opening = op && op.id !== "other" ? op.name : undefined;
-    const allMoves = state.moves.map((x) => x.move);
     const allNotations = state.moves.map((x) => x.notation);
+    const opening = detectOpeningFromMoves(allNotations);
+    const allMoves = state.moves.map((x) => x.move);
 
     state.moves.forEach((m, i) => {
       const historyMoves = allMoves.slice(0, i);

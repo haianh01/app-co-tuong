@@ -422,5 +422,24 @@ describe("tri thức khai cuộc & định thức tàn cuộc (Phase 3)", () => 
     const ideaBest = moveIdea(beforePos.board, move, null, 2, undefined, history, true);
     expect(ideaBest.kind).toBe("idea");
   });
+
+  it("explainText định dạng câu tàn cuộc lý thuyết tự nhiên và chuẩn xác", () => {
+    const text = explainText(
+      [
+        {
+          kind: "endgame",
+          endgame: {
+            id: "draw_bare_kings",
+            name: "Cạn quân tấn công",
+            outcome: "draw",
+            description: "Cả hai bên chỉ còn Tướng và Sĩ Tượng, không còn quân có thể tấn công chiếu bí.",
+          },
+        },
+      ],
+      "r"
+    );
+    expect(text).toContain("Thế cờ tàn cuộc lý thuyết: Cạn quân tấn công");
+    expect(text).toContain("không còn quân có thể tấn công chiếu bí");
+  });
 });
 

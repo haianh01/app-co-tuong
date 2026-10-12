@@ -1,11 +1,9 @@
-// Đánh giá các nước đã đi dựa trên điểm AI cho từng thế cờ: nước hớ, nước kém, thiếu chính xác, độ chính xác.
-
 import { findBestMove } from "./ai";
 import { inCheck, legalMoves, opponent, type Board, type Move, type Side } from "./engine";
 import { explainMove, type Fact } from "./explain";
 import type { GameState } from "./game";
 import { moveNotation } from "./notation";
-import { openingOf } from "./openings";
+import { isBookMove, openingOf } from "./openings";
 import { formatPvLine } from "./uci";
 
 export interface PositionEvalLine {
@@ -28,7 +26,15 @@ export interface PositionEval {
   lines?: PositionEvalLine[];
 }
 
-export type MoveClass = "blunder" | "mistake" | "inaccuracy";
+export type MoveClass =
+  | "brilliant"
+  | "only"
+  | "best"
+  | "book"
+  | "missedWin"
+  | "inaccuracy"
+  | "mistake"
+  | "blunder";
 
 export interface MoveReview {
   /** Vị trí sau nước đi (dùng để nhảy tới trong biên bản). */
@@ -46,17 +52,85 @@ export interface MoveReview {
   line?: string[];
   /** Các ô cờ then chốt liên quan đến sai lầm để hiển thị highlight. */
   highlights?: number[];
+  /** Xác suất thắng trước nước đi (0.0 đến 1.0). */
+  winBefore?: number;
+  /** Xác suất thắng sau nước đi theo người đi (0.0 đến 1.0). */
+  winAfter?: number;
+  /** Mức giảm xác suất thắng (0.0 đến 1.0). */
+  winDrop?: number;
 }
 
 export const CLASS_NAME: Record<MoveClass, string> = {
-  blunder: "Nước hớ",
-  mistake: "Nước kém",
+  brilliant: "Nước hay",
+  only: "Nước duy nhất",
+  best: "Nước tốt nhất",
+  book: "Khai cuộc",
+  missedWin: "Bỏ lỡ thắng",
   inaccuracy: "Thiếu chính xác",
+  mistake: "Nước kém",
+  blunder: "Nước hớ",
 };
 
 /** Giới hạn điểm khi so sánh để thế thắng/thua tuyệt đối (chiếu bí) không làm méo số liệu. */
 const CAP = 1500;
 const clamp = (v: number) => Math.max(-CAP, Math.min(CAP, v));
+
+/** Điểm tương đương chiếu bí. */
+const MATE_THRESHOLD = 90_000;
+
+/** Hệ số logistic sigmoid hiệu chỉnh theo thang điểm Pikafish / Xiangqi (~250 cp ứng với ưu thế rõ). */
+export const PIKAFISH_K = 0.004;
+
+export interface WinLossThresholds {
+  inaccuracy: number;
+  mistake: number;
+  blunder: number;
+}
+
+/** Ngưỡng khởi điểm giảm xác suất thắng để xếp loại nước đi (chỉnh được). */
+export const WIN_LOSS_THRESHOLDS: WinLossThresholds = {
+  inaccuracy: 0.05, // 5%
+  mistake: 0.10,    // 10%
+  blunder: 0.20,    // 20%
+};
+
+/**
+ * Đổi điểm centipawn sang xác suất thắng (0.0 đến 1.0) theo hàm logistic sigmoid:
+ * W(s) = 1 / (1 + e^(-k * s))
+ */
+export function winChance(score: number, k: number = PIKAFISH_K): number {
+  if (score >= MATE_THRESHOLD) return 1;
+  if (score <= -MATE_THRESHOLD) return 0;
+  const clamped = Math.max(-10000, Math.min(10000, score));
+  return 1 / (1 + Math.exp(-k * clamped));
+}
+
+/**
+ * Tính độ chính xác của một nước đi theo công thức Lichess dựa trên mức giảm xác suất thắng:
+ * acc = 103.1668 * e^(-0.04354 * d) - 3.1669, với d = winDrop * 100.
+ */
+export function moveAccuracy(winDrop: number): number {
+  const d = Math.max(0, winDrop) * 100;
+  const raw = 103.1668 * Math.exp(-0.04354 * d) - 3.1669;
+  return Math.max(0, Math.min(100, Math.round(raw * 10) / 10));
+}
+
+export function classifyWinDrop(
+  winDrop: number,
+  thresholds: WinLossThresholds = WIN_LOSS_THRESHOLDS,
+  loss?: number,
+): "blunder" | "mistake" | "inaccuracy" | null {
+  if (winDrop >= thresholds.blunder || (loss !== undefined && loss >= 300 && winDrop >= 0.05)) {
+    return "blunder";
+  }
+  if (winDrop >= thresholds.mistake || (loss !== undefined && loss >= 150 && winDrop >= 0.03)) {
+    return "mistake";
+  }
+  if (winDrop >= thresholds.inaccuracy || (loss !== undefined && loss >= 70 && winDrop >= 0.02)) {
+    return "inaccuracy";
+  }
+  return null;
+}
 
 function play(board: Board, m: Move): Board {
   const next = board.slice();
@@ -107,10 +181,17 @@ export function computeHighlights(move: Move, reply: Move | null, better: Move |
   return [...set];
 }
 
-export function classify(loss: number): MoveClass | null {
-  if (loss >= 300) return "blunder";
-  if (loss >= 150) return "mistake";
-  if (loss >= 70) return "inaccuracy";
+export function classify(
+  lossOrWinDrop: number,
+  isWinDrop: boolean = false,
+  thresholds: WinLossThresholds = WIN_LOSS_THRESHOLDS,
+): MoveClass | null {
+  if (isWinDrop || (lossOrWinDrop >= 0 && lossOrWinDrop <= 1.0)) {
+    return classifyWinDrop(lossOrWinDrop, thresholds);
+  }
+  if (lossOrWinDrop >= 300) return "blunder";
+  if (lossOrWinDrop >= 150) return "mistake";
+  if (lossOrWinDrop >= 70) return "inaccuracy";
   return null;
 }
 
@@ -132,7 +213,14 @@ export function reviewMove(
   afterEval: PositionEval | null,
   opening?: string,
   historyMovesOverride?: Move[],
-): { review: MoveReview; scoreLoss: number | null } {
+  playedNotationsOverride?: string[],
+  thresholds: WinLossThresholds = WIN_LOSS_THRESHOLDS,
+): {
+  review: MoveReview;
+  scoreLoss: number | null;
+  winDrop: number | null;
+  accuracy: number | null;
+} {
   const isLast = i === state.moves.length - 1;
   let after: number | null = null;
   if (isLast && state.result?.winner === m.side && (state.result.reason === "checkmate" || state.result.reason === "stalemate")) {
@@ -145,24 +233,109 @@ export function reviewMove(
     return {
       review: { ply: i + 1, side: m.side, notation: m.notation, loss: 0, cls: null, better: null, facts: [] },
       scoreLoss: null,
+      winDrop: null,
+      accuracy: null,
     };
   }
 
+  const beforeScore = clamp(before.score);
+  const afterScore = after;
+  const wBefore = winChance(beforeScore);
+  const wAfter = winChance(afterScore);
+
   const playedBest = before.best?.from === m.move.from && before.best?.to === m.move.to;
-  const loss = playedBest ? 0 : Math.max(0, clamp(before.score) - after);
-  const cls = classify(loss);
+  const loss = playedBest ? 0 : Math.max(0, beforeScore - afterScore);
+  const winDrop = playedBest ? 0 : Math.max(0, wBefore - wAfter);
+  const accuracy = moveAccuracy(winDrop);
+
+  const notations = playedNotationsOverride ?? state.moves.slice(0, i + 1).map((x) => x.notation);
+
+  let cls: MoveClass | null = null;
+  if (playedBest) {
+    // Xét MultiPV nếu có ít nhất 2 biến
+    if (before.lines && before.lines.length >= 2) {
+      const line1Score = before.lines[0]?.score ?? before.score;
+      const line2Score = before.lines[1]?.score ?? -CAP;
+      const wLine1 = winChance(line1Score);
+      const wLine2 = winChance(line2Score);
+      const deltaW12 = wLine1 - wLine2;
+
+      // Nước duy nhất (only): nước 1 giữ được thế cờ trong khi nước 2 thua thảm bại
+      if (
+        wLine1 >= 0.35 &&
+        (wLine2 <= 0.20 || deltaW12 >= 0.25 || line2Score <= -MATE_THRESHOLD)
+      ) {
+        cls = "only";
+      } else if (wLine1 >= 0.50 && deltaW12 >= 0.15) {
+        // Nước hay (brilliant): nước thứ hai kém hơn nhiều
+        cls = "brilliant";
+      }
+    }
+
+    if (!cls && i < 16 && isBookMove(notations)) {
+      cls = "book";
+    }
+  } else {
+    // Không phải nước tốt nhất
+    if (i < 16 && winDrop < thresholds.inaccuracy && isBookMove(notations)) {
+      cls = "book";
+    } else {
+      cls = classifyWinDrop(winDrop, thresholds, loss);
+    }
+  }
+
+  const isFault = cls === "blunder" || cls === "mistake" || cls === "inaccuracy";
   const historyMoves = historyMovesOverride ?? state.moves.slice(0, i).map((x) => x.move);
+
   let line: string[] | undefined;
   if (cls) {
     if (afterEval?.pv && afterEval.pv.length > 0) {
       line = formatPvLine(state.history[i + 1].board, afterEval.pv, 3);
     } else if (afterEval?.line && afterEval.line.length > 0) {
       line = afterEval.line.slice(0, 3);
-    } else if (afterEval?.best) {
+    } else if (afterEval?.best && isFault) {
       line = computeTacticalLine(state.history[i + 1].board, afterEval.best, m.side, 3);
     }
   }
-  const highlights = cls ? computeHighlights(m.move, afterEval?.best ?? null, before.best ?? null) : undefined;
+
+  const highlights = cls ? computeHighlights(m.move, afterEval?.best ?? null, isFault ? (before.best ?? null) : null) : undefined;
+  let better = isFault && before.best ? moveNotation(state.history[i].board, before.best) : null;
+
+  let facts: Fact[] = [];
+  if (isFault) {
+    facts = explainMove({
+      before: state.history[i].board,
+      move: m.move,
+      after: state.history[i + 1].board,
+      evalBefore: before,
+      evalAfter: afterEval,
+      loss,
+      ply: i,
+      opening,
+      historyMoves,
+    });
+
+    // Bỏ lỡ cơ hội thắng: đang thắng (W >= 75%) mà về thế cân bằng (W <= 55%)
+    // Và không phải do tự nướng quân trực tiếp (losesPiece với cause moved/ignored/screen/opened/unguarded)
+    const hasDirectPieceLoss = facts.some(
+      (f) =>
+        f.kind === "losesPiece" &&
+        (f.cause === "moved" ||
+          f.cause === "ignored" ||
+          f.cause === "screen" ||
+          f.cause === "opened" ||
+          f.cause === "unguarded")
+    );
+    if (wBefore >= 0.75 && wAfter <= 0.55 && winDrop >= thresholds.blunder && !hasDirectPieceLoss) {
+      cls = "missedWin";
+      better = before.best ? moveNotation(state.history[i].board, before.best) : null;
+      facts.push({
+        kind: "missedWin",
+        better: better ?? undefined,
+        points: Math.round(loss),
+      });
+    }
+  }
 
   const review: MoveReview = {
     ply: i + 1,
@@ -170,30 +343,21 @@ export function reviewMove(
     notation: m.notation,
     loss: Math.round(loss),
     cls,
-    better: cls && before.best ? moveNotation(state.history[i].board, before.best) : null,
-    facts: cls
-      ? explainMove({
-        before: state.history[i].board,
-        move: m.move,
-        after: state.history[i + 1].board,
-        evalBefore: before,
-        evalAfter: afterEval,
-        loss,
-        ply: i,
-        opening,
-        historyMoves,
-      })
-      : [],
+    better,
+    facts,
     line,
     highlights,
+    winBefore: Math.round(wBefore * 1000) / 1000,
+    winAfter: Math.round(wAfter * 1000) / 1000,
+    winDrop: Math.round(winDrop * 1000) / 1000,
   };
 
-  return { review, scoreLoss: loss };
+  return { review, scoreLoss: loss, winDrop, accuracy };
 }
 
 /**
  * `evals[i]` là điểm của thế cờ thứ i (sau i nửa nước), `null` nếu chưa/không phân tích.
- * Một nước mất điểm = điểm trước nước (theo người đi) − điểm sau nước (vẫn theo người đi).
+ * Đánh giá toàn bộ ván cờ theo xác suất thắng logistic và tính độ chính xác Lichess.
  */
 export function reviewGame(state: GameState, evals: (PositionEval | null)[]): ReviewResult {
   const reviews: MoveReview[] = [];
@@ -202,13 +366,24 @@ export function reviewGame(state: GameState, evals: (PositionEval | null)[]): Re
   const op = firstMove ? openingOf(firstMove) : null;
   const opening = op && op.id !== "other" ? op.name : undefined;
   const allMoves = state.moves.map((x) => x.move);
+  const allNotations = state.moves.map((x) => x.notation);
 
   state.moves.forEach((m, i) => {
     const historyMoves = allMoves.slice(0, i);
-    const { review, scoreLoss } = reviewMove(m, i, state, evals[i], evals[i + 1], opening, historyMoves);
+    const playedNotations = allNotations.slice(0, i + 1);
+    const { review, accuracy } = reviewMove(
+      m,
+      i,
+      state,
+      evals[i],
+      evals[i + 1],
+      opening,
+      historyMoves,
+      playedNotations,
+    );
     reviews.push(review);
-    if (scoreLoss !== null) {
-      acc[m.side].push(Math.max(0, 100 - scoreLoss / 3));
+    if (accuracy !== null) {
+      acc[m.side].push(accuracy);
     }
   });
 

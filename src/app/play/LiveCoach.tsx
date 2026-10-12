@@ -19,6 +19,7 @@ const COACH = { depth: 3, timeMs: 300, noise: 0 } as const;
 interface CachedCoachItem {
   review: MoveReview;
   scoreLoss: number | null;
+  accuracy?: number | null;
   best: boolean;
   idea: string;
 }
@@ -96,7 +97,7 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
 
       if (!cached) {
         // Chỉ tính nước mới chưa có trong cache
-        const { review, scoreLoss } = reviewMove(m, i, state, beforeEval, afterEval, opening);
+        const { review, scoreLoss, accuracy: moveAcc } = reviewMove(m, i, state, beforeEval, afterEval, opening);
         const best = sameMove(beforeEval?.best, m.move);
         const historyMoves = state.moves.slice(0, i).map((x) => x.move);
         const idea = explainText(
@@ -113,7 +114,7 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
           ],
           m.side,
         );
-        cached = { review, scoreLoss, best, idea };
+        cached = { review, scoreLoss, accuracy: moveAcc, best, idea };
         coachCache.current.set(fenPairKey, cached);
       }
 
@@ -124,7 +125,9 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
         idea: cached.idea,
       });
 
-      if (cached.scoreLoss !== null) {
+      if (cached.accuracy !== null && cached.accuracy !== undefined) {
+        accScores.push(cached.accuracy);
+      } else if (cached.scoreLoss !== null) {
         accScores.push(Math.max(0, 100 - cached.scoreLoss / 3));
       }
     });

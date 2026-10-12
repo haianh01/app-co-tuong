@@ -185,7 +185,7 @@ export function AnalysisPanel({
             ))}
           </div>
           {review.moves.every((m) => !m.cls) ? (
-            <p className="muted">Không có nước hớ nào đáng kể.</p>
+            <p className="muted">Không có nước nào đáng chú ý.</p>
           ) : (
             <>
               <p className="muted">Bấm vào từng nước để xem vì sao.</p>

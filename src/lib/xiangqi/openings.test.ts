@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { computeBadges, type BadgeStats } from "@/lib/badges";
 import { applyMove, initialPosition, legalMoves } from "./engine";
 import { moveNotation } from "./notation";
-import { openingOf, tallyOpenings } from "./openings";
+import { isBookMove, openingOf, tallyOpenings } from "./openings";
 
 const start = initialPosition();
 const red = (n: string) => openingOf(n).name;
@@ -50,6 +50,19 @@ describe("nhận diện khai cuộc", () => {
     ]);
     expect(stats[0]).toMatchObject({ id: "center", games: 3, wins: 1, draws: 1, losses: 1 });
     expect(stats[1]).toMatchObject({ id: "horse", games: 1, wins: 1 });
+  });
+
+  it("nhận diện các nước trong cây khai cuộc chuẩn", () => {
+    // Nước đầu tiên
+    expect(isBookMove(["P2-5"])).toBe(true);
+    expect(isBookMove(["M8.7"])).toBe(true);
+    expect(isBookMove(["X1.1"])).toBe(false);
+
+    // Chuỗi Pháo đầu đối Bình Phong Mã
+    expect(isBookMove(["P2-5", "M8.7"])).toBe(true);
+    expect(isBookMove(["P2-5", "M8.7", "M2.3", "X9-8", "X1-2", "M2.3"])).toBe(true);
+    // Nước lệch khỏi sách
+    expect(isBookMove(["P2-5", "M8.7", "Tg5.1"])).toBe(false);
   });
 });
 

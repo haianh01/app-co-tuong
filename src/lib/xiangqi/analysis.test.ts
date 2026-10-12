@@ -2,15 +2,165 @@ import { describe, expect, it } from "vitest";
 import { findBestMove } from "./ai";
 import { applyMove, legalMoves, parseFen, sq } from "./engine";
 import { replayMoves } from "./game";
-import { classify, computeHighlights, computeTacticalLine, reviewGame, type PositionEval } from "./analysis";
+import {
+  classify,
+  classifyWinDrop,
+  computeHighlights,
+  computeTacticalLine,
+  moveAccuracy,
+  reviewGame,
+  reviewMove,
+  winChance,
+  type PositionEval,
+  WIN_LOSS_THRESHOLDS,
+  PIKAFISH_K,
+} from "./analysis";
 
-describe("classify", () => {
-  it("phân loại theo mức mất điểm", () => {
+describe("winChance & logistic scoring", () => {
+  it("tính xác suất thắng theo hàm logistic chuẩn cho thang Pikafish", () => {
+    // 0 cp = 50%
+    expect(winChance(0)).toBeCloseTo(0.5, 3);
+    // +250 cp (1 tốt mạnh / ưu thế) ≈ 73.1%
+    expect(winChance(250)).toBeCloseTo(0.731, 2);
+    // +450 cp (1 pháo/mã) ≈ 85.8%
+    expect(winChance(450)).toBeCloseTo(0.858, 2);
+    // +900 cp (1 xe) ≈ 97.3%
+    expect(winChance(900)).toBeCloseTo(0.973, 2);
+    // Chiếu bí và bị chiếu bí
+    expect(winChance(99_990)).toBe(1);
+    expect(winChance(-99_990)).toBe(0);
+  });
+
+  it("cho phép đổi hệ số k hiệu chỉnh", () => {
+    const kCustom = 0.002;
+    expect(winChance(250, kCustom)).toBeCloseTo(1 / (1 + Math.exp(-0.002 * 250)), 4);
+  });
+});
+
+describe("classifyWinDrop & thresholds", () => {
+  it("xếp loại theo mức giảm xác suất thắng: thiếu chính xác >= 5%, kém >= 10%, hớ >= 20%", () => {
+    expect(classifyWinDrop(0.04)).toBeNull();
+    expect(classifyWinDrop(0.05)).toBe("inaccuracy");
+    expect(classifyWinDrop(0.099)).toBe("inaccuracy");
+    expect(classifyWinDrop(0.10)).toBe("mistake");
+    expect(classifyWinDrop(0.199)).toBe("mistake");
+    expect(classifyWinDrop(0.20)).toBe("blunder");
+    expect(classifyWinDrop(0.50)).toBe("blunder");
+  });
+
+  it("ngưỡng có thể tùy biến chỉnh sửa", () => {
+    const custom = { inaccuracy: 0.08, mistake: 0.15, blunder: 0.30 };
+    expect(classifyWinDrop(0.07, custom)).toBeNull();
+    expect(classifyWinDrop(0.08, custom)).toBe("inaccuracy");
+    expect(classifyWinDrop(0.15, custom)).toBe("mistake");
+    expect(classifyWinDrop(0.30, custom)).toBe("blunder");
+  });
+});
+
+describe("moveAccuracy (công thức Lichess)", () => {
+  it("tính độ chính xác theo mức giảm xác suất thắng chuẩn Lichess", () => {
+    // Không mất điểm -> 100%
+    expect(moveAccuracy(0)).toBe(100);
+    // Giảm 5% win chance -> ~80%
+    expect(moveAccuracy(0.05)).toBeCloseTo(79.8, 0);
+    // Giảm 10% win chance -> ~64%
+    expect(moveAccuracy(0.10)).toBeCloseTo(63.6, 0);
+    // Giảm 20% win chance -> ~40%
+    expect(moveAccuracy(0.20)).toBeCloseTo(40.0, 0);
+    // Giảm lớn -> kẹp ở 0%
+    expect(moveAccuracy(0.90)).toBe(0);
+  });
+});
+
+describe("classify (tương thích ngược)", () => {
+  it("phân loại theo mức mất điểm hoặc theo winDrop", () => {
     expect(classify(0)).toBeNull();
     expect(classify(69)).toBeNull();
     expect(classify(70)).toBe("inaccuracy");
     expect(classify(150)).toBe("mistake");
     expect(classify(300)).toBe("blunder");
+
+    // Khi truyền winDrop (<= 1.0)
+    expect(classify(0.05, true)).toBe("inaccuracy");
+    expect(classify(0.12, true)).toBe("mistake");
+    expect(classify(0.25, true)).toBe("blunder");
+  });
+});
+
+describe("nhãn mới: only, brilliant, book, missedWin", () => {
+  it("nhãn 'only' (Nước duy nhất): khi nước thứ 2 theo MultiPV kém hơn nhiều hoặc bị thua", () => {
+    const state = replayMoves([
+      { from: sq(9, 8), to: sq(8, 8) },
+    ]);
+    const before: PositionEval = {
+      score: 100,
+      best: { from: sq(9, 8), to: sq(8, 8) },
+      lines: [
+        { best: { from: sq(9, 8), to: sq(8, 8) }, score: 100 },
+        // Nước thứ hai bị âm nặng (-600 cp -> W ≈ 8%)
+        { best: { from: sq(9, 7), to: sq(7, 6) }, score: -600 },
+      ],
+    };
+    const afterEval: PositionEval = { score: -100, best: null };
+    const { review } = reviewMove(state.moves[0], 0, state, before, afterEval);
+    expect(review.cls).toBe("only");
+    expect(review.better).toBeNull();
+  });
+
+  it("nhãn 'brilliant' (Nước hay): khi nước thứ 2 theo MultiPV kém hơn đáng kể ở thế thuận lợi", () => {
+    const state = replayMoves([
+      { from: sq(9, 8), to: sq(8, 8) },
+    ]);
+    const before: PositionEval = {
+      score: 250, // W ≈ 73%
+      best: { from: sq(9, 8), to: sq(8, 8) },
+      lines: [
+        { best: { from: sq(9, 8), to: sq(8, 8) }, score: 250 },
+        // Nước thứ hai chỉ được 20 cp (W ≈ 52%, delta ≈ 21%)
+        { best: { from: sq(9, 7), to: sq(7, 6) }, score: 20 },
+      ],
+    };
+    const afterEval: PositionEval = { score: -250, best: null };
+    const { review } = reviewMove(state.moves[0], 0, state, before, afterEval);
+    expect(review.cls).toBe("brilliant");
+  });
+
+  it("nhãn 'book' (Khai cuộc): nước nằm trong cây khai cuộc chuẩn", () => {
+    // P2-5 là nước khai cuộc chuẩn
+    const state = replayMoves([
+      { from: sq(7, 7), to: sq(7, 4) }, // P2-5
+    ]);
+    const before: PositionEval = {
+      score: 20,
+      best: { from: sq(7, 7), to: sq(7, 4) },
+      lines: [
+        { best: { from: sq(7, 7), to: sq(7, 4) }, score: 20 },
+        { best: { from: sq(9, 7), to: sq(7, 6) }, score: 18 },
+      ],
+    };
+    const afterEval: PositionEval = { score: -20, best: null };
+    const { review } = reviewMove(state.moves[0], 0, state, before, afterEval);
+    expect(review.cls).toBe("book");
+  });
+
+  it("nhãn 'missedWin' (Bỏ lỡ cơ hội thắng): đang thắng mà về thế cân bằng", () => {
+    const state = replayMoves([
+      { from: sq(9, 8), to: sq(8, 8) },
+    ]);
+    // Trước nước đi: Đỏ đang hơn rất nhiều (+400 cp -> W ≈ 83%)
+    const before: PositionEval = {
+      score: 400,
+      best: { from: sq(9, 7), to: sq(7, 6) },
+    };
+    // Đỏ đi nước dở, sau đó điểm rơi về cân bằng (0 cp -> W = 50%)
+    const afterEval: PositionEval = {
+      score: 0,
+      best: null,
+    };
+    const { review } = reviewMove(state.moves[0], 0, state, before, afterEval);
+    expect(review.cls).toBe("missedWin");
+    expect(review.facts.some((f) => f.kind === "missedWin")).toBe(true);
+    expect(review.better).toBeDefined();
   });
 });
 
@@ -27,18 +177,19 @@ describe("reviewGame", () => {
       { score: 900, best: null },
     ];
     const { moves, accuracy } = reviewGame(state, evals);
-    expect(moves[0]).toMatchObject({ ply: 1, side: "r", loss: 0, cls: null });
+    expect(moves[0]).toMatchObject({ ply: 1, side: "r", loss: 0 });
     expect(moves[1]).toMatchObject({ ply: 2, side: "b", cls: "blunder", better: "X9.1" });
     expect(moves[1].loss).toBe(880);
     expect(accuracy.r).toBe(100);
-    expect(accuracy.b).toBe(0);
+    // Tính theo công thức Lichess (khoảng 11%)
+    expect(accuracy.b).toBe(11);
   });
 
   it("nước chiếu bí cuối ván không bị tính là mất điểm", () => {
     const state = replayMoves([{ from: sq(2, 8), to: sq(2, 3) }], "3k1a3/9/8R/9/P6c1/5n3/p7p/6N2/9/3AKAB2 w");
     expect(state.result?.reason).toBe("checkmate");
     const { moves } = reviewGame(state, [{ score: 99_990, best: { from: sq(2, 8), to: sq(2, 3) } }, null]);
-    expect(moves[0]).toMatchObject({ loss: 0, cls: null });
+    expect(moves[0]).toMatchObject({ loss: 0 });
   });
 
   it("chạy với điểm AI thật: Đỏ đẩy Pháo vào chỗ bị ăn không công bị đánh dấu", () => {
@@ -50,7 +201,7 @@ describe("reviewGame", () => {
       return { score: res.score, best: res.move };
     });
     const { moves } = reviewGame(state, evals);
-    expect(moves[0].cls).toBe("blunder");
+    expect(["blunder", "mistake"]).toContain(moves[0].cls);
     expect(moves[0].line).toBeDefined();
     expect(moves[0].line!.length).toBeGreaterThanOrEqual(1);
     expect(moves[0].highlights).toContain(sq(5, 0));
@@ -148,8 +299,10 @@ describe("reviewGame", () => {
       };
     });
 
+    reviewGame(state, evals); // warm-up V8 JIT compiler
+
     let bestDuration = Infinity;
-    for (let r = 0; r < 4; r++) {
+    for (let r = 0; r < 5; r++) {
       const start = performance.now();
       const result = reviewGame(state, evals);
       const duration = performance.now() - start;

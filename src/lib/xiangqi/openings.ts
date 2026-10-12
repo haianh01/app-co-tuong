@@ -62,3 +62,67 @@ export function tallyOpenings(rows: { notation: string; result: "win" | "draw" |
   }
   return [...map.values()].sort((a, b) => b.games - a.games || b.wins - a.wins);
 }
+
+export interface OpeningBookLine {
+  name: string;
+  moves: string[];
+}
+
+/** Cây khai cuộc các biến kinh điển chuẩn của Cờ Tướng. */
+export const OPENING_BOOK_LINES: OpeningBookLine[] = [
+  // Trung pháo đối Bình Phong Mã
+  { name: "Pháo đầu đối Bình Phong Mã (Trực xa tiến chốt 7)", moves: ["P2-5", "M8.7", "M2.3", "X9-8", "X1-2", "M2.3", "B7.1", "B7.1", "X2.6", "P8-9"] },
+  { name: "Pháo đầu đối Bình Phong Mã (Tuần hà xa)", moves: ["P2-5", "M8.7", "M2.3", "X9-8", "X1-2", "M2.3", "B7.1", "B7.1", "X2.4", "S4.5"] },
+  { name: "Pháo đầu đối Bình Phong Mã (Tiến chốt 3)", moves: ["P2-5", "M8.7", "M2.3", "X9-8", "X1-2", "M2.3", "B3.1", "B3.1", "M8.7", "P8-9"] },
+  { name: "Pháo đầu đối Bình Phong Mã (Tả mã bàn hà)", moves: ["P2-5", "M8.7", "M2.3", "X9-8", "X1-2", "M2.3", "B7.1", "M7.6"] },
+  { name: "Pháo đầu đối Bình Phong Mã (Ngũ thất pháo)", moves: ["P2-5", "M8.7", "M2.3", "M2.3", "X1-2", "X9-8", "P8-7", "B7.1"] },
+  { name: "Pháo đầu đối Bình Phong Mã (Hoành xa)", moves: ["P2-5", "M8.7", "M2.3", "X9-8", "X1.1", "M2.3", "X1-6", "B7.1"] },
+  { name: "Pháo đầu đối Bình Phong Mã (Bình phong mã hiện đại)", moves: ["P2-5", "M8.7", "M2.3", "X9-8", "X1-2", "M2.3"] },
+  // Trung pháo đối Thuận Pháo
+  { name: "Thuận Pháo (Trực xa đối Hoành xa)", moves: ["P2-5", "P8-5", "M2.3", "M8.7", "X1-2", "X9.1", "X2.6", "M2.3"] },
+  { name: "Thuận Pháo (Trực xa đối Trực xa)", moves: ["P2-5", "P8-5", "M2.3", "M8.7", "X1-2", "X9-8", "X2.6", "M2.3"] },
+  { name: "Thuận Pháo (Hoành xa đối Trực xa)", moves: ["P2-5", "P8-5", "M2.3", "M8.7", "X1.1", "M2.3", "X1-6", "X9-8"] },
+  // Trung pháo đối Nghịch Pháo
+  { name: "Nghịch Pháo", moves: ["P2-5", "P2-5", "M2.3", "M8.7", "X1-2", "X9-8", "B7.1", "M2.3"] },
+  // Trung pháo đối Đơn Đề Mã
+  { name: "Pháo đầu đối Đơn Đề Mã", moves: ["P2-5", "M8.7", "M2.3", "M2.1", "X1-2", "X9-8"] },
+  { name: "Pháo đầu đối Đơn Đề Mã", moves: ["P2-5", "M8.7", "M2.3", "M2.1", "B7.1", "P2-5"] },
+  // Trung pháo đối Phản Cung Mã
+  { name: "Pháo đầu đối Phản Cung Mã", moves: ["P2-5", "M2.3", "M2.3", "P8-6", "X1-2", "M8.7", "B7.1", "S4.5"] },
+  // Tiên Nhân Chỉ Lộ
+  { name: "Tiên Nhân Chỉ Lộ đối Tốt Đáy", moves: ["B7.1", "B3.1", "M2.3", "M8.7", "P2-5", "P8-5"] },
+  { name: "Tiên Nhân Chỉ Lộ đối Đối Binh", moves: ["B3.1", "B7.1", "M8.7", "M2.3", "P8-5", "P2-5"] },
+  { name: "Tiên Nhân Chỉ Lộ chuyển Pháo đầu", moves: ["B7.1", "P2-5", "P2-5", "M8.7", "M2.3", "X9-8"] },
+  { name: "Tiên Nhân Chỉ Lộ đối Khởi Mã", moves: ["B7.1", "M8.7", "P2-5", "P2-5", "M2.3", "M2.3"] },
+  // Phi Tượng Cuộc
+  { name: "Phi Tượng đối Tả sĩ giác pháo", moves: ["T7.5", "M8.7", "M2.3", "P2-5", "P2-4", "X9-8"] },
+  { name: "Phi Tượng đối Trung pháo", moves: ["T7.5", "P2-5", "M2.3", "M8.7", "B7.1", "X9-8"] },
+  { name: "Phi Tượng đối Khởi Mã", moves: ["T3.5", "M2.3", "M8.7", "P8-5", "P8-6", "X1-2"] },
+  // Khởi Mã Cuộc
+  { name: "Khởi Mã đối Trung pháo", moves: ["M2.3", "P2-5", "M8.7", "M8.7", "B7.1", "B7.1"] },
+  { name: "Khởi Mã đối Khởi Mã", moves: ["M2.3", "M8.7", "P2-5", "P2-5", "X1-2", "X9-8"] },
+  { name: "Khởi Mã đối Tiến Tốt", moves: ["M8.7", "B7.1", "P8-5", "M8.7", "M2.3", "X9-8"] },
+  // Sĩ Giác Pháo & Quá Cung Pháo
+  { name: "Sĩ Giác Pháo", moves: ["P2-4", "M8.7", "M2.3", "X9-8", "X1-2", "M2.3"] },
+  { name: "Quá Cung Pháo", moves: ["P2-6", "M8.7", "M2.3", "X9-8", "X1-2", "M2.3"] },
+];
+
+/**
+ * Kiểm tra xem chuỗi nước đi có khớp với một nhánh trong cây khai cuộc chuẩn không.
+ * - Nước đầu tiên: mọi nước mở màn chính quy (khác 'other').
+ * - Các nước tiếp theo: phải là tiền tố của một biến trong OPENING_BOOK_LINES.
+ */
+export function isBookMove(playedNotations: string[]): boolean {
+  if (playedNotations.length === 0 || playedNotations.length > 20) return false;
+  if (playedNotations.length === 1) {
+    const o = openingOf(playedNotations[0]);
+    return o.id !== "other";
+  }
+  return OPENING_BOOK_LINES.some((line) => {
+    if (line.moves.length < playedNotations.length) return false;
+    for (let i = 0; i < playedNotations.length; i++) {
+      if (line.moves[i] !== playedNotations[i]) return false;
+    }
+    return true;
+  });
+}

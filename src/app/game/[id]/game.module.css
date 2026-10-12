@@ -228,9 +228,40 @@
   color: var(--gold-text);
 }
 
-.reviewTag[data-cls="good"] {
+.reviewTag[data-cls="good"],
+.reviewTag[data-cls="best"] {
   background: rgba(46, 125, 90, 0.22);
   color: var(--green);
+}
+
+.reviewTag[data-cls="brilliant"] {
+  background: rgba(20, 184, 166, 0.22);
+  color: #14b8a6;
+}
+
+.reviewTag[data-cls="only"] {
+  background: rgba(168, 85, 247, 0.22);
+  color: #c084fc;
+}
+
+.reviewTag[data-cls="book"] {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+.reviewTag[data-cls="missedWin"] {
+  background: rgba(249, 115, 22, 0.22);
+  color: #fb923c;
+}
+
+.reviewTag[data-cls="mistake"] {
+  background: rgba(234, 179, 8, 0.22);
+  color: #eab308;
+}
+
+.reviewTag[data-cls="inaccuracy"] {
+  background: rgba(217, 164, 65, 0.2);
+  color: var(--gold-text);
 }
 
 .reviewTag[data-cls="blunder"] {

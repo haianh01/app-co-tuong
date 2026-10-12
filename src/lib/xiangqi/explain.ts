@@ -157,7 +157,9 @@ export type Fact =
   /** Nhận xét chiến lược cho một nước bất kỳ: theo kế hoạch `plan`, nước đã đi cải thiện `gains`, làm kém `worsened`. */
   | { kind: "idea"; plan: Plan; played: string; gains: Principle[]; worsened: Principle[]; loose: string[]; opening?: string }
   /** Không tìm ra lý do cụ thể: chỉ nói nước đáp mạnh nhất và mức thiệt theo AI. */
-  | { kind: "evalDrop"; reply: string | null; check: boolean; points: number };
+  | { kind: "evalDrop"; reply: string | null; check: boolean; points: number }
+  /** Đang có ưu thế thắng rõ rệt nhưng để rớt về thế cân bằng. */
+  | { kind: "missedWin"; better?: string; points?: number };
 
 export interface MoveContext {
   before: Board;
@@ -792,6 +794,10 @@ function sentence(f: Fact, mover: Side): string {
       const lost = `${SIDE_NAME[mover]} thiệt khoảng ${formatPoints(f.points)} điểm`;
       if (!f.reply) return `Theo AI, ${lost} so với nước tốt nhất.`;
       return `Nước đáp mạnh nhất của ${O} là ${f.reply}${f.check ? " (chiếu tướng)" : ""}; theo AI, ${lost}.`;
+    }
+    case "missedWin": {
+      const betterPart = f.better ? ` (nên đi ${f.better})` : "";
+      return `Bỏ lỡ cơ hội thắng rõ rệt: thế cờ đang áp đảo nhưng để rớt về thế cân bằng${betterPart}.`;
     }
   }
 }

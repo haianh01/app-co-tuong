@@ -22,20 +22,8 @@ import play from "@/app/play/play.module.css";
 import { ScoreChart } from "./ScoreChart";
 import styles from "./game.module.css";
 
-/** Người không phải VIP được phân tích bấy nhiêu ván mỗi ngày (AI chạy trên máy người xem). */
+/** Người không phải VIP được phân tích bấy nhiêu ván mỗi ngày. */
 const FREE_PER_DAY = 3;
-
-function quotaKey() {
-  return `kd:analysis:${new Date().toISOString().slice(0, 10)}`;
-}
-
-function usedToday(): number {
-  try {
-    return Number(localStorage.getItem(quotaKey()) ?? 0);
-  } catch {
-    return 0;
-  }
-}
 
 function playMove(board: Board, m: Move): Board {
   const next = board.slice();
@@ -59,6 +47,8 @@ export interface AnalysisPanelProps {
   onSelect: (ply: number) => void;
   viewer: Side | null;
   onAnalysisUpdate?: (info: AnalysisUpdateInfo) => void;
+  gameId?: string;
+  initialAnalysis?: (PositionEval | null)[] | null;
 }
 
 export function AnalysisPanel({
@@ -67,10 +57,12 @@ export function AnalysisPanel({
   onSelect,
   viewer,
   onAnalysisUpdate,
+  gameId,
+  initialAnalysis,
 }: AnalysisPanelProps) {
   const think = useEngine();
   const { user } = useSession();
-  const [evals, setEvals] = useState<(PositionEval | null)[] | null>(null);
+  const [evals, setEvals] = useState<(PositionEval | null)[] | null>(initialAnalysis ?? null);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const vip = !!user?.vipUntil;
@@ -190,18 +182,25 @@ export function AnalysisPanel({
     return findTurningPoints(review.moves, 3);
   }, [review]);
 
+  // Nếu có gameId và chưa có evals, tự động kiểm tra xem ván đã được phân tích trước đó chưa
+  useEffect(() => {
+    if (evals || !gameId) return;
+    let cancelled = false;
+    fetch(`/api/game/${gameId}/analysis`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (!cancelled && data?.analyzed && Array.isArray(data.evals)) {
+          setEvals(data.evals);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [gameId, evals]);
+
   const run = async () => {
     setError(null);
-    if (!vip) {
-      const used = usedToday();
-      if (used >= FREE_PER_DAY) {
-        setError(`Bạn đã dùng hết ${FREE_PER_DAY} lượt phân tích miễn phí hôm nay.`);
-        return;
-      }
-      try {
-        localStorage.setItem(quotaKey(), String(used + 1));
-      } catch {}
-    }
     setProgress(0);
 
     const runFallback = async () => {
@@ -224,8 +223,13 @@ export function AnalysisPanel({
         const res = await fetch("/api/engine/batch", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fens }),
+          body: JSON.stringify({ fens, gameId }),
         });
+        if (res.status === 429) {
+          const data = await res.json().catch(() => ({}));
+          setError(data.error ?? `Bạn đã dùng hết ${FREE_PER_DAY} lượt phân tích miễn phí hôm nay.`);
+          return true;
+        }
         if (!res.ok || !res.body) return false;
 
         const reader = res.body.getReader();

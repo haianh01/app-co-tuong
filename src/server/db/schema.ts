@@ -196,6 +196,28 @@ export const games = pgTable(
   ],
 );
 
+export const gameAnalysis = pgTable(
+  "game_analysis",
+  {
+    gameId: varchar("game_id", { length: 12 }).primaryKey().references(() => games.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    evals: jsonb("evals").notNull(),
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("game_analysis_version_idx").on(t.version)],
+);
+
+/** Thống kê lượt phân tích hàng ngày để kiểm tra quota trên máy chủ (user mỗi ngày, khách theo IP). */
+export const analysisUsage = pgTable(
+  "analysis_usage",
+  {
+    /** "user:<userId>:<YYYY-MM-DD>" hoặc "ip:<ip>:<YYYY-MM-DD>" */
+    key: varchar("key", { length: 80 }).primaryKey(),
+    count: integer("count").notNull().default(0),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+  },
+);
+
 export const tournaments = pgTable(
   "tournaments",
   {
@@ -240,3 +262,5 @@ export const seasonRewards = pgTable("season_rewards", {
 export type User = typeof users.$inferSelect;
 export type Game = typeof games.$inferSelect;
 export type Tournament = typeof tournaments.$inferSelect;
+export type GameAnalysis = typeof gameAnalysis.$inferSelect;
+export type AnalysisUsage = typeof analysisUsage.$inferSelect;

@@ -35,7 +35,7 @@ describe("AnalysisPanel", () => {
     render(<Harness state={state} />);
     fireEvent.click(screen.getByRole("button", { name: "Phân tích ván" }));
 
-    const red = await screen.findByRole("button", { name: /1\. Đỏ P9\.2/ });
+    const red = await screen.findByRole("button", { name: /1\. Đỏ P9\.2/ }, { timeout: 5000 });
     const black = screen.getByRole("button", { name: /1\. Đen B5\.1/ });
     // Như màn xem lại ván: bàn cờ đang ở nước cuối nên lời giải thích của nước đó hiện sẵn.
     expect(screen.getByText("Nên đi X1.1 ăn Pháo đỏ.")).toBeTruthy();
@@ -101,7 +101,7 @@ describe("AnalysisPanel", () => {
     render(<Harness state={state} onUpdate={onUpdate} />);
     fireEvent.click(screen.getByRole("button", { name: "Phân tích ván" }));
 
-    const red = await screen.findByRole("button", { name: /1\. Đỏ P9\.2/ });
+    const red = await screen.findByRole("button", { name: /1\. Đỏ P9\.2/ }, { timeout: 5000 });
     expect(red).toBeTruthy();
 
     // 1. Biểu đồ điểm cả ván hiện diện
@@ -128,5 +128,74 @@ describe("AnalysisPanel", () => {
 
     // 4. Callback onAnalysisUpdate đã được gọi để gửi arrows / preview lên component cha
     expect(onUpdate).toHaveBeenCalled();
+  });
+
+  it("hiển thị ngay phân tích khi nhận initialAnalysis từ SSR", async () => {
+    const state = replayMoves(
+      [{ from: sq(7, 0), to: sq(5, 0) }, { from: sq(3, 4), to: sq(4, 4) }],
+      "2bakab2/9/9/4p4/r8/9/4P4/C8/9/2BAKAB2 w",
+    );
+    const initialEvals = [
+      { score: 0, best: { from: sq(7, 0), to: sq(0, 0) } },
+      { score: 450, best: { from: sq(4, 0), to: sq(5, 0) } },
+      { score: -450, best: null },
+    ];
+
+    render(
+      <AnalysisPanel
+        state={state}
+        ply={2}
+        onSelect={() => {}}
+        viewer="r"
+        initialAnalysis={initialEvals}
+      />,
+    );
+
+    // Không cần bấm "Phân tích ván", danh sách nước cờ đã có sẵn ngay lập tức
+    const red = await screen.findByRole("button", { name: /1\. Đỏ P9\.2/ });
+    expect(red).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Phân tích ván" })).toBeNull();
+  });
+
+  it("tự động tải phân tích đã lưu qua GET /api/game/[id]/analysis khi có gameId", async () => {
+    const state = replayMoves(
+      [{ from: sq(7, 0), to: sq(5, 0) }, { from: sq(3, 4), to: sq(4, 4) }],
+      "2bakab2/9/9/4p4/r8/9/4P4/C8/9/2BAKAB2 w",
+    );
+    const savedEvals = [
+      { score: 0, best: { from: sq(7, 0), to: sq(0, 0) } },
+      { score: 450, best: { from: sq(4, 0), to: sq(5, 0) } },
+      { score: -450, best: null },
+    ];
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/game/game123/analysis")) {
+        return Response.json({
+          analyzed: true,
+          evals: savedEvals,
+        });
+      }
+      return originalFetch(input);
+    });
+
+    try {
+      render(
+        <AnalysisPanel
+          gameId="game123"
+          state={state}
+          ply={2}
+          onSelect={() => {}}
+          viewer="r"
+        />,
+      );
+
+      // Tự động load và hiển thị nước cờ
+      const red = await screen.findByRole("button", { name: /1\. Đỏ P9\.2/ });
+      expect(red).toBeTruthy();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

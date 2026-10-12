@@ -3,8 +3,17 @@
 // thay thế việc tạo ~150 HTTP request tuần tự.
 
 import { connection } from "next/server";
+import type { PositionEval } from "@/lib/xiangqi/analysis";
 import { legalMoves, parseFen, type Move } from "@/lib/xiangqi/engine";
 import { engineScore, toUciFen, uciToMove } from "@/lib/xiangqi/uci";
+import {
+  FREE_ANALYSIS_PER_DAY,
+  consumeAnalysisQuota,
+  getSavedAnalysis,
+  saveGameAnalysis,
+} from "@/server/analysis/store";
+import { SESSION_COOKIE, getUserBySession, parseCookies, type AuthUser } from "@/server/auth";
+import { getDb } from "@/server/db";
 import { engineCache, makeEngineCacheKey } from "@/server/engine/cache";
 import { getEnginePool, type EngineLimits } from "@/server/engine/uci";
 import { RateLimiter } from "@/server/rate-limit";
@@ -22,11 +31,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "Quá nhiều yêu cầu phân tích" }, { status: 429, headers: noStore });
   }
 
-  const pool = getEnginePool();
-  if (!pool) return Response.json({ error: "Chưa cài engine" }, { status: 503, headers: noStore });
-  if (pool.waiting > 32) return Response.json({ error: "Engine đang quá tải" }, { status: 503, headers: noStore });
-
-  let body: { fens?: unknown };
+  let body: { fens?: unknown; gameId?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -40,9 +45,54 @@ export async function POST(request: Request) {
   const fens = body.fens.map(String);
   const total = fens.length;
   const encoder = new TextEncoder();
+  const gameId = typeof body.gameId === "string" && /^[A-Za-z0-9]{6,12}$/.test(body.gameId) ? body.gameId : undefined;
+
+  const db = await getDb();
+  let user: AuthUser | null = null;
+  const token = parseCookies(request.headers.get("cookie") ?? undefined)[SESSION_COOKIE];
+  if (token) {
+    user = await getUserBySession(db, token);
+  }
+
+  // Nếu ván online đã được phân tích trước đó (cùng version), dùng lại ngay kết quả đã lưu mà không tốn quota.
+  if (gameId) {
+    const saved = await getSavedAnalysis(db, gameId);
+    if (saved) {
+      const stream = new ReadableStream({
+        start(controller) {
+          for (let i = 0; i < saved.length; i++) {
+            const chunk = JSON.stringify({ index: i, total: saved.length, eval: saved[i] }) + "\n";
+            controller.enqueue(encoder.encode(chunk));
+          }
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "application/x-ndjson; charset=utf-8",
+          ...noStore,
+        },
+      });
+    }
+  }
+
+  // Kiểm tra quota trên máy chủ (user mỗi ngày, khách theo IP)
+  const quota = await consumeAnalysisQuota(db, user, ip);
+  if (!quota.success) {
+    return Response.json(
+      { error: `Bạn đã dùng hết ${FREE_ANALYSIS_PER_DAY} lượt phân tích miễn phí hôm nay.` },
+      { status: 429, headers: noStore },
+    );
+  }
+
+  const pool = getEnginePool();
+  if (!pool) return Response.json({ error: "Chưa cài engine" }, { status: 503, headers: noStore });
+  if (pool.waiting > 32) return Response.json({ error: "Engine đang quá tải" }, { status: 503, headers: noStore });
 
   const stream = new ReadableStream({
     async start(controller) {
+      const collectedEvals: (PositionEval | null)[] = [];
+
       for (let i = 0; i < total; i++) {
         const fen = fens[i];
         let pos;
@@ -51,16 +101,19 @@ export async function POST(request: Request) {
         } catch {
           const errChunk = JSON.stringify({ index: i, total, error: "FEN không hợp lệ" }) + "\n";
           controller.enqueue(encoder.encode(errChunk));
+          collectedEvals.push(null);
           continue;
         }
 
         const legal = legalMoves(pos);
         if (legal.length === 0) {
+          const emptyEval: PositionEval = { score: 0, best: null, depth: 0, pv: [], lines: [] };
+          collectedEvals.push(emptyEval);
           const emptyChunk =
             JSON.stringify({
               index: i,
               total,
-              eval: { score: 0, best: null, depth: 0, pv: [], lines: [] },
+              eval: emptyEval,
             }) + "\n";
           controller.enqueue(encoder.encode(emptyChunk));
           continue;
@@ -77,17 +130,19 @@ export async function POST(request: Request) {
             depth: l.depth,
             pv: l.pv.map(uciToMove).filter((m): m is Move => m !== null),
           }));
+          const cachedEval: PositionEval = {
+            score: engineScore(cached.cp, cached.mate),
+            best,
+            depth: cached.depth,
+            pv: pvMoves,
+            lines,
+          };
+          collectedEvals.push(cachedEval);
           const chunk =
             JSON.stringify({
               index: i,
               total,
-              eval: {
-                score: engineScore(cached.cp, cached.mate),
-                best,
-                depth: cached.depth,
-                pv: pvMoves,
-                lines,
-              },
+              eval: cachedEval,
             }) + "\n";
           controller.enqueue(encoder.encode(chunk));
           continue;
@@ -104,24 +159,35 @@ export async function POST(request: Request) {
             depth: l.depth,
             pv: l.pv.map(uciToMove).filter((m): m is Move => m !== null),
           }));
+          const searchedEval: PositionEval = {
+            score: engineScore(res.cp, res.mate),
+            best,
+            depth: res.depth,
+            pv: pvMoves,
+            lines,
+          };
+          collectedEvals.push(searchedEval);
           const chunk =
             JSON.stringify({
               index: i,
               total,
-              eval: {
-                score: engineScore(res.cp, res.mate),
-                best,
-                depth: res.depth,
-                pv: pvMoves,
-                lines,
-              },
+              eval: searchedEval,
             }) + "\n";
           controller.enqueue(encoder.encode(chunk));
         } catch {
+          collectedEvals.push(null);
           const failChunk = JSON.stringify({ index: i, total, error: "Lỗi tìm kiếm engine" }) + "\n";
           controller.enqueue(encoder.encode(failChunk));
         }
       }
+
+      // Lưu kết quả phân tích nếu là ván online và tính toán thành công
+      if (gameId && collectedEvals.length === total && !collectedEvals.some((e) => e === null)) {
+        try {
+          await saveGameAnalysis(db, gameId, collectedEvals);
+        } catch {}
+      }
+
       controller.close();
     },
   });

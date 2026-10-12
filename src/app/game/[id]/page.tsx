@@ -6,6 +6,7 @@ import type { Side } from "@/lib/xiangqi/engine";
 import type { EndReason } from "@/lib/xiangqi/game";
 import { toPlayerInfo } from "@/server/auth";
 import { getCurrentUser } from "@/server/current-user";
+import { getSavedAnalysis } from "@/server/analysis/store";
 import { getDb } from "@/server/db";
 import { getGameRecord, type GameRecord } from "@/server/queries";
 import { GameReplay, type ReplayData } from "./GameReplay";
@@ -44,7 +45,11 @@ async function GameLoader({ params }: Pick<PageProps<"/game/[id]">, "params">) {
   const { id } = await params;
   await connection();
   const user = await getCurrentUser();
-  const record = /^[A-Za-z0-9]{6,12}$/.test(id) ? await getGameRecord(await getDb(), id) : null;
-  if (record) return <GameReplay data={toReplay(record)} viewerId={user?.id ?? null} />;
+  const db = await getDb();
+  const record = /^[A-Za-z0-9]{6,12}$/.test(id) ? await getGameRecord(db, id) : null;
+  if (record) {
+    const initialAnalysis = await getSavedAnalysis(db, id);
+    return <GameReplay data={toReplay(record)} viewerId={user?.id ?? null} initialAnalysis={initialAnalysis} />;
+  }
   return <OnlineGame key={id} gameId={id} me={user ? toPlayerInfo(user) : null} />;
 }

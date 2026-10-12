@@ -18,6 +18,8 @@ export interface PositionEvalLine {
 export interface PositionEval {
   score: number;
   best: Move | null;
+  /** Độ sâu tìm kiếm của engine. */
+  depth?: number;
   /** Chuỗi nước đi chính từ engine (PV). */
   pv?: Move[];
   /** Chuỗi biến cờ tướng ký hiệu tiếng Việt có sẵn. */

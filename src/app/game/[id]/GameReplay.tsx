@@ -9,6 +9,7 @@ import { tcLabel, type Variant } from "@/lib/online/protocol";
 import { Side, findKing, inCheck, opponent } from "@/lib/xiangqi/engine";
 import { describeResult, pieceIds, replayMoves, type EndReason } from "@/lib/xiangqi/game";
 import { isHidden, jieqiGameState, jieqiInCheck, layoutFrom } from "@/lib/xiangqi/jieqi";
+import type { PositionEval } from "@/lib/xiangqi/analysis";
 import play from "@/app/play/play.module.css";
 import { AnalysisPanel, type AnalysisUpdateInfo } from "./AnalysisPanel";
 import { ReportButton } from "./ReportButton";
@@ -40,7 +41,15 @@ export interface ReplayData {
   endedAt: string;
 }
 
-export function GameReplay({ data, viewerId }: { data: ReplayData; viewerId: string | null }) {
+export function GameReplay({
+  data,
+  viewerId,
+  initialAnalysis,
+}: {
+  data: ReplayData;
+  viewerId: string | null;
+  initialAnalysis?: (PositionEval | null)[] | null;
+}) {
   const jieqi = data.variant === "jieqi";
   const full = useMemo(() => (jieqi ? jieqiGameState(data.moves) : replayMoves(data.moves)), [data.moves, jieqi]);
   // Cờ úp: ván đã xong nên được xem bố cục thật của các quân còn úp.
@@ -156,6 +165,8 @@ export function GameReplay({ data, viewerId }: { data: ReplayData; viewerId: str
         </div>
         {!jieqi && (
           <AnalysisPanel
+            gameId={data.id}
+            initialAnalysis={initialAnalysis}
             state={full}
             ply={ply}
             onSelect={go}

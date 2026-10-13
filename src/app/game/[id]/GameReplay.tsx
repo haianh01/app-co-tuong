@@ -13,6 +13,10 @@ import type { PositionEval } from "@/lib/xiangqi/analysis";
 import play from "@/app/play/play.module.css";
 import { AnalysisPanel, type AnalysisUpdateInfo } from "./AnalysisPanel";
 import { ReportButton } from "./ReportButton";
+import { PositionAnalysisModal } from "@/components/board/PositionAnalysisModal";
+import { usePositionAnalysis } from "@/hooks/usePositionAnalysis";
+import type { CandidateMoveAnalysis } from "@/lib/xiangqi/position-analysis";
+import type { BoardArrow } from "@/components/board/XiangqiBoard";
 import styles from "./game.module.css";
 
 export interface ReplayPlayer {
@@ -58,6 +62,15 @@ export function GameReplay({
   const total = full.moves.length;
   const [ply, setPly] = useState(total);
   const [analysisInfo, setAnalysisInfo] = useState<AnalysisUpdateInfo | null>(null);
+  const [showPosModal, setShowPosModal] = useState(false);
+  const [posArrows, setPosArrows] = useState<BoardArrow[]>([]);
+  const [posHighlights, setPosHighlights] = useState<number[]>([]);
+  const {
+    result: posResult,
+    loading: posLoading,
+    error: posError,
+    analyze: runPosAnalysis,
+  } = usePositionAnalysis();
   const go = (p: number) => setPly(Math.max(0, Math.min(total, p)));
   const shown = useMemo(() => full.moves.slice(0, ply), [full, ply]);
   useMoveSounds(shown);
@@ -96,6 +109,39 @@ export function GameReplay({
     );
   };
 
+  const handleOpenPosAnalysis = () => {
+    setShowPosModal(true);
+    setPosArrows([]);
+    setPosHighlights([]);
+    const historyMoves = full.moves.slice(0, ply).map((m) => m.move);
+    const historyNotations = full.moves.slice(0, ply).map((m) => m.notation);
+    runPosAnalysis(pos.board, pos.turn, historyMoves, historyNotations);
+  };
+
+  const handleSelectPosCandidate = (cand: CandidateMoveAnalysis) => {
+    setPosArrows([
+      {
+        from: cand.move.from,
+        to: cand.move.to,
+        kind: "better",
+      },
+    ]);
+    setPosHighlights([cand.move.from, cand.move.to]);
+  };
+
+  const handleSelectPosThreat = () => {
+    if (!posResult?.layer3.threatMove) return;
+    setPosArrows([
+      {
+        from: posResult.layer3.threatMove.from,
+        to: posResult.layer3.threatMove.to,
+        kind: "custom",
+        color: "#ef4444",
+      },
+    ]);
+    setPosHighlights(posResult.layer3.dangerPieces.map((p) => p.square));
+  };
+
   const onKeyDown = (e: KeyboardEvent) => {
     const keys: Record<string, number> = { ArrowLeft: ply - 1, ArrowRight: ply + 1, Home: 0, End: total };
     if (e.key in keys) {
@@ -129,8 +175,8 @@ export function GameReplay({
           lastMove={displayLastMove}
           checkSquare={checkSquare}
           disabled
-          arrows={displayArrows}
-          highlights={displayHighlights}
+          arrows={[...displayArrows, ...posArrows]}
+          highlights={[...displayHighlights, ...posHighlights]}
         />
       </section>
 
@@ -159,6 +205,7 @@ export function GameReplay({
             </span>
           </div>
           <div className={styles.replayActions}>
+            <button type="button" className="btn" onClick={handleOpenPosAnalysis}>Phân tích hình cờ</button>
             <Link href="/online" className="btn btn-primary">Đấu ván mới</Link>
             {opponentOfViewer && <ReportButton targetId={opponentOfViewer.id} targetName={opponentOfViewer.displayName} gameId={data.id} />}
           </div>
@@ -175,6 +222,20 @@ export function GameReplay({
           />
         )}
       </div>
+
+      <PositionAnalysisModal
+        isOpen={showPosModal}
+        onClose={() => {
+          setShowPosModal(false);
+          setPosArrows([]);
+          setPosHighlights([]);
+        }}
+        analysis={posResult}
+        loading={posLoading}
+        error={posError}
+        onSelectCandidate={handleSelectPosCandidate}
+        onSelectThreat={handleSelectPosThreat}
+      />
     </main>
   );
 }

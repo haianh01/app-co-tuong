@@ -50,3 +50,15 @@ describe("PlayClient – bảng kết quả", () => {
     expect(screen.getByRole("button", { name: "Xin thua" }).hasAttribute("disabled")).toBe(true);
   });
 });
+
+describe("PlayClient – Phân tích hình cờ", () => {
+  it("nút 'Phân tích hình cờ' luôn có sẵn và bấm vào mở modal", async () => {
+    render(<PlayClient initial={{ level: 1, side: "r", minutes: 0 }} />);
+    const btn = screen.getByRole("button", { name: "Phân tích hình cờ" });
+    expect(btn).toBeTruthy();
+    fireEvent.click(btn);
+    expect(await screen.findByRole("dialog")).toBeTruthy();
+    expect(screen.getByText("🔍 Phân tích hình cờ")).toBeTruthy();
+  });
+});
+

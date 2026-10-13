@@ -145,6 +145,8 @@ export interface EngineLineResult {
   depth: number;
   pv?: string[];
   pvMoves?: Move[];
+  /** Xác suất [Thắng, Hòa, Thua] theo phần nghìn trực tiếp từ engine UCI_ShowWDL */
+  wdl?: [number, number, number];
 }
 
 export interface AiResult {
@@ -158,6 +160,8 @@ export interface AiResult {
   pvMoves?: Move[];
   /** Danh sách các biến khi chạy MultiPV. */
   lines?: EngineLineResult[];
+  /** Xác suất [Thắng, Hòa, Thua] theo phần nghìn trực tiếp từ engine UCI_ShowWDL */
+  wdl?: [number, number, number];
 }
 
 /** Ghi đè cấu hình của cấp độ (vd. phân tích ván: độ sâu cố định, không nhiễu). */

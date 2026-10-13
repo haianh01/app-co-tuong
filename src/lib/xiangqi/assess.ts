@@ -59,14 +59,14 @@ export interface AssessOptions {
 /** Tên tiếng Việt hiển thị của từng yếu tố kỳ lý. */
 export const FACTOR_NAMES: Record<FactorId, string> = {
   vatChat: "ưu thế hơn quân (vật chất)",
-  anToanTuong: "cung tướng an toàn và vững chắc hơn",
-  hoatDongXe: "Xe cơ động, chiếm vị trí thông thoáng",
-  hoatDongMa: "Mã linh hoạt, chiếm điểm cao điểm then chốt",
-  phao: "sức ép từ Pháo đầu / Pháo cắm đáy",
-  totQuaHa: "uy lực từ Tốt qua sông áp sát",
-  quanKem: "đối phương có quân sơ hở, mất gốc",
-  sangKien: "nắm quyền chủ động, đòn ép liên tục",
-  khuyetSiTuong: "khai thác điểm yếu khuyết Sĩ Tượng của đối phương",
+  anToanTuong: "cung Tướng an toàn, vững chắc",
+  hoatDongXe: "Xe cơ động, chiếm lộ thông",
+  hoatDongMa: "Mã linh hoạt, chiếm điểm cao",
+  phao: "sức ép Pháo đầu / Pháo cắm đáy",
+  totQuaHa: "uy lực Tốt qua sông",
+  quanKem: "có quân đối phương treo, sơ hở",
+  sangKien: "nắm quyền chủ động, ép liên tục",
+  khuyetSiTuong: "khai thác đối phương khuyết Sĩ Tượng",
 };
 
 /** Bảng trọng số mặc định cho từng yếu tố (tương ứng với thang điểm centipawn). */

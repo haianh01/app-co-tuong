@@ -6,6 +6,8 @@ import { moveNotation } from "./notation";
 
 /** Điểm chiếu bí theo quy ước của ai.ts: MATE − số nửa nước đến khi chiếu bí. */
 export const MATE_SCORE = 100_000;
+/** Ngưỡng điểm để coi là thế cờ sát cục (chiếu bí). */
+export const MATE_THRESHOLD = 90_000;
 
 export function moveToUci(m: Move): string {
   const sqName = (i: number) => String.fromCharCode(97 + (i % COLS)) + String(ROWS - 1 - Math.floor(i / COLS));

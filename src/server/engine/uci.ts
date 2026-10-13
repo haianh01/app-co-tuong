@@ -449,7 +449,7 @@ export class EnginePool {
         threatMove: null,
         threatUci: null,
         threatNotation: "Đang bị chiếu tướng",
-        score: 10_000,
+        score: 0,
         pv: [],
         pvUci: [],
         isMate: false,

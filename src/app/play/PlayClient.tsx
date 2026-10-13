@@ -2,8 +2,11 @@
 
 import { ReactNode, useEffect, useMemo, useReducer, useState } from "react";
 import { AnalysisPanel, type AnalysisUpdateInfo } from "@/app/game/[id]/AnalysisPanel";
-import { XiangqiBoard } from "@/components/board/XiangqiBoard";
+import { XiangqiBoard, type BoardArrow } from "@/components/board/XiangqiBoard";
 import { MoveList, PlayerCard, ResultOverlay } from "@/components/game/GamePanels";
+import { PositionAnalysisModal } from "@/components/board/PositionAnalysisModal";
+import { usePositionAnalysis } from "@/hooks/usePositionAnalysis";
+import type { CandidateMoveAnalysis } from "@/lib/xiangqi/position-analysis";
 import { useSession } from "@/components/session/SessionProvider";
 import { useEngine } from "@/hooks/useEngine";
 import { useMoveSounds, useResultSound } from "@/hooks/useGameSounds";
@@ -87,6 +90,15 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
   const [analysisInfo, setAnalysisInfo] = useState<AnalysisUpdateInfo | null>(null);
   const [coach, setCoach] = useState(true);
   const [overlayClosed, setOverlayClosed] = useState(false);
+  const [showPosAnalysis, setShowPosAnalysis] = useState(false);
+  const [posArrows, setPosArrows] = useState<BoardArrow[]>([]);
+  const [posHighlights, setPosHighlights] = useState<number[]>([]);
+  const {
+    result: posResult,
+    loading: posLoading,
+    error: posError,
+    analyze: runPosAnalysis,
+  } = usePositionAnalysis();
   const think = useEngine();
 
   const pos = currentPosition(state);
@@ -168,6 +180,39 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
     }).catch(() => {});
   };
 
+  const handleOpenPosAnalysis = () => {
+    setShowPosAnalysis(true);
+    setPosArrows([]);
+    setPosHighlights([]);
+    const historyMoves = state.moves.slice(0, viewPly).map((m) => m.move);
+    const historyNotations = state.moves.slice(0, viewPly).map((m) => m.notation);
+    runPosAnalysis(viewBoard, viewTurn, historyMoves, historyNotations);
+  };
+
+  const handleSelectPosCandidate = (cand: CandidateMoveAnalysis) => {
+    setPosArrows([
+      {
+        from: cand.move.from,
+        to: cand.move.to,
+        kind: "better",
+      },
+    ]);
+    setPosHighlights([cand.move.from, cand.move.to]);
+  };
+
+  const handleSelectPosThreat = () => {
+    if (!posResult?.layer3.threatMove) return;
+    setPosArrows([
+      {
+        from: posResult.layer3.threatMove.from,
+        to: posResult.layer3.threatMove.to,
+        kind: "custom",
+        color: "#ef4444",
+      },
+    ]);
+    setPosHighlights(posResult.layer3.dangerPieces.map((p) => p.square));
+  };
+
   const capturedBy = (s: "r" | "b") => state.moves.filter((m) => m.side === s && m.captured).map((m) => m.captured!);
   const timeOf = (s: "r" | "b") => (clock.limited ? formatClock(clock.time[s]) : null);
   const lowTime = (s: "r" | "b") => clock.limited && clock.time[s] < 60_000;
@@ -229,8 +274,8 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
           hintSquare={activeHint?.from ?? null}
           disabled={!canAct}
           onSquareClick={onSquareClick}
-          arrows={displayArrows}
-          highlights={displayHighlights}
+          arrows={[...displayArrows, ...posArrows]}
+          highlights={[...displayHighlights, ...posHighlights]}
         >
           {outcomeText && !reviewing && !overlayClosed && (
             <ResultOverlay seal={outcomeText.seal} title={outcomeText.title} detail={outcomeText.detail}>
@@ -252,6 +297,7 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
           <div className={styles.actions}>
             <button type="button" className="btn" onClick={undo} disabled={!canUndo}>Đi lại</button>
             <button type="button" className="btn" onClick={askHint} disabled={!canAct}>Gợi ý</button>
+            <button type="button" className="btn" onClick={handleOpenPosAnalysis}>Phân tích hình cờ</button>
             <button
               type="button"
               className="btn btn-danger"
@@ -282,6 +328,20 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
         </div>
         <div className={styles.setup}>{setup}</div>
       </div>
+
+      <PositionAnalysisModal
+        isOpen={showPosAnalysis}
+        onClose={() => {
+          setShowPosAnalysis(false);
+          setPosArrows([]);
+          setPosHighlights([]);
+        }}
+        analysis={posResult}
+        loading={posLoading}
+        error={posError}
+        onSelectCandidate={handleSelectPosCandidate}
+        onSelectThreat={handleSelectPosThreat}
+      />
     </main>
   );
 }

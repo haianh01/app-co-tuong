@@ -14,6 +14,10 @@ vi.mock("@/hooks/useEngine", () => ({
 
 const FEN = "2bakab2/9/9/4p4/r8/9/4P4/C8/9/2BAKAB2 w";
 
+/** Lời bình đổi cách diễn đạt theo từng nước, nên chỉ kiểm tra đoạn lời bình có đủ các dữ kiện bắt buộc. */
+const note = (...parts: string[]) => (_: string, el: Element | null) =>
+  el?.tagName === "P" && parts.every((p) => el.textContent!.includes(p));
+
 describe("LiveCoach", () => {
   it("chưa đi nước nào thì chỉ có lời dẫn", () => {
     render(<LiveCoach state={replayMoves([], FEN)} player="r" />);
@@ -25,7 +29,7 @@ describe("LiveCoach", () => {
     const state = replayMoves([{ from: sq(7, 0), to: sq(5, 0) }, { from: sq(3, 4), to: sq(4, 4) }], FEN);
     render(<LiveCoach state={state} player="r" />);
     expect(await screen.findByText("Nước hớ", {}, { timeout: 10_000 })).toBeTruthy();
-    expect(screen.getByText("Pháo đi vào ô bị Xe đen ăn mà không có quân bảo vệ. Đen đáp X1.1 ăn không Pháo.")).toBeTruthy();
+    expect(screen.getByText(note("Pháo", "Xe đen", "X1.1", "ăn"))).toBeTruthy();
     expect(screen.queryByText(/B5\.1/)).toBeNull();
   });
 
@@ -36,7 +40,7 @@ describe("LiveCoach", () => {
     expect(await screen.findByText("Nước tốt nhất", {}, { timeout: 10_000 })).toBeTruthy();
     expect(screen.getByText(/Độ chính xác 100%/)).toBeTruthy();
     // Nước tốt vẫn có nhận xét chiến lược.
-    expect(screen.getByText(/^Kế hoạch: .+X9\.2/)).toBeTruthy();
+    expect(screen.getByText(note("X9.2"))).toBeTruthy();
   });
 
   it("cache kết quả theo cặp FEN: giữ nguyên kết quả nước cũ khi đi thêm nước mới", async () => {
@@ -46,7 +50,7 @@ describe("LiveCoach", () => {
     const { rerender } = render(<LiveCoach state={state1} player="r" />);
 
     expect(await screen.findByText("Nước hớ", {}, { timeout: 10_000 })).toBeTruthy();
-    expect(screen.getByText(/Pháo đi vào ô bị Xe đen ăn/)).toBeTruthy();
+    expect(screen.getByText(note("Pháo", "Xe đen", "X1.1", "ăn"))).toBeTruthy();
 
     // Đi thêm nước thứ 3 (Đỏ đi)
     const m3 = { from: sq(5, 0), to: sq(5, 1) };
@@ -54,6 +58,6 @@ describe("LiveCoach", () => {
     rerender(<LiveCoach state={state2} player="r" />);
 
     // Nước cũ vẫn hiển thị đúng từ cache
-    expect(screen.getByText(/Pháo đi vào ô bị Xe đen ăn/)).toBeTruthy();
+    expect(screen.getByText(note("Pháo", "Xe đen", "X1.1", "ăn"))).toBeTruthy();
   });
 });

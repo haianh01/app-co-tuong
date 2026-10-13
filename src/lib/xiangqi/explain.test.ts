@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { findBestMove } from "./ai";
 import { reviewGame, type PositionEval } from "./analysis";
-import { parseFen, sq, type Position } from "./engine";
-import { exchangeGain, explainMove, explainText, formatPoints, hangingPieces, moveIdea } from "./explain";
+import { parseFen, sq, type Position, type Side } from "./engine";
+import { exchangeGain, explainMove, explainText, formatPoints, hangingPieces, moveIdea, pickVariant, type Fact } from "./explain";
 import { replayMoves } from "./game";
 import { detectOpeningFault, principleScores } from "./strategy";
 
@@ -443,3 +443,127 @@ describe("tri thức khai cuộc & định thức tàn cuộc (Phase 3)", () => 
   });
 });
 
+
+describe("đa dạng cách diễn đạt (explainText với seed)", () => {
+  // Nước của cùng một bên cách nhau 2 nửa nước, nên kiểm tra trên các seed chẵn (Đỏ) và lẻ (Đen) riêng.
+  const seeds = (parity: 0 | 1) => Array.from({ length: 30 }, (_, i) => i * 2 + parity + 1);
+
+  function expectVariedButFaithful(facts: Fact[], side: Side, mustInclude: string[]) {
+    for (const parity of [0, 1] as const) {
+      const texts = seeds(parity).map((s) => explainText(facts, side, s));
+      expect(new Set(texts).size).toBeGreaterThanOrEqual(2);
+      for (const t of texts) {
+        for (const needle of mustInclude) expect(t).toContain(needle);
+        expect(t).not.toMatch(/undefined|null|NaN| {2}| \.|\.\./);
+        expect(t[0]).toBe(t[0].toUpperCase());
+        expect(t.endsWith(".")).toBe(true);
+      }
+    }
+    expect(explainText(facts, side, 7)).toBe(explainText(facts, side, 7));
+  }
+
+  it("không truyền seed thì luôn ra câu chuẩn, và pickVariant chia đều cho nước của cùng một bên", () => {
+    expect(pickVariant(["a", "b", "c"], undefined, "k")).toBe("a");
+    for (const parity of [0, 1] as const) {
+      const counts = { a: 0, b: 0, c: 0 };
+      for (let i = 0; i < 300; i++) counts[pickVariant(["a", "b", "c"] as const, i * 2 + parity, "k")]++;
+      for (const n of Object.values(counts)) expect(n).toBeGreaterThan(60);
+    }
+  });
+
+  it("mất quân vì đi vào ô bị ăn: mọi cách nói đều nêu đúng quân, quân ăn và nước đáp", () => {
+    const r = review("2bakab2/9/9/4p4/r8/9/4P4/C8/9/2BAKAB2 w", [[7, 0, 5, 0]]);
+    expectVariedButFaithful(r.facts, r.side, ["Pháo", "Xe đen", "X1.1"]);
+  });
+
+  it("đổi Xe lấy Pháo được bảo vệ: giữ đúng nước ăn lại và số điểm thiệt", () => {
+    const r = review("3k5/9/1c3r3/9/9/1R7/9/9/9/4K4 w", [[5, 1, 2, 1]]);
+    expectVariedButFaithful(r.facts, r.side, ["Xe", "Pháo đen", "X6-2", "4,5 điểm"]);
+  });
+
+  it("vừa chiếu vừa bắt Xe, kèm nước nên đi ăn Mã", () => {
+    const r = review("4k4/9/9/9/9/n1R6/9/9/9/3K5 w", [[9, 3, 8, 3]]);
+    expectVariedButFaithful(r.facts, r.side, ["M1.2", "Xe", "X7-9", "Mã đen"]);
+  });
+
+  it("để đối phương chiếu bí: giữ nước chiếu bí và nước chặn", () => {
+    const r = review("3k1a3/9/8R/9/P6c1/5n3/p7p/6N2/9/3AKAB2 b", [[6, 0, 7, 0]]);
+    expectVariedButFaithful(r.facts, r.side, ["Đỏ", "X1-6", "M6/5", "chiếu bí"]);
+  });
+
+  it("lỗi chiến lược khai cuộc: luôn nêu nước nên đi, nước đã đi và quân mất gốc", () => {
+    const state = replayMoves([{ from: sq(9, 8), to: sq(8, 8) }]);
+    const evals: PositionEval[] = [
+      { score: 20, best: { from: sq(7, 7), to: sq(7, 4) } },
+      { score: 130, best: { from: sq(0, 1), to: sq(2, 2) } },
+    ];
+    const m = reviewGame(state, evals).moves[0];
+    expectVariedButFaithful(m.facts, m.side, ["P2-5", "X1.1", "Mã 2 "]);
+  });
+
+  it("nhận xét kế hoạch cho Xe qua hà: luôn nhắc tên nước và quân mất gốc", () => {
+    const line = [[7, 7, 7, 4], [0, 7, 2, 6], [9, 7, 7, 6], [0, 8, 0, 7], [9, 8, 9, 7], [0, 1, 2, 2], [9, 7, 3, 7]] as const;
+    const state = replayMoves(line.map(([a, b, c, d]) => ({ from: sq(a, b), to: sq(c, d) })));
+    const reply = findBestMove(state.history[7], 3, () => 0, { depth: 3, timeMs: 60_000, noise: 0 }).move;
+    const fact = moveIdea(state.history[6].board, state.moves[6].move, reply, 6);
+    expectVariedButFaithful([fact], "r", ["X2.6", "Xe 2 "]);
+  });
+
+  it("lỗi khai cuộc không có tên thế trận vẫn viết hoa đầu câu", () => {
+    expect(explainText([{ kind: "openingFault", fault: "lateRook" }], "r")).toMatch(/^Khai cuộc cần sớm xuất Xe/);
+  });
+
+  describe("nhận diện hình cờ sát cục (patterns)", () => {
+    it("explainMove phát hiện khi nước đi lập thế Mã hậu Pháo", () => {
+      // Trước: Pháo đỏ ở (6, 2), Mã đỏ ở (3, 4), Tướng đen ở (0, 4)
+      const beforePos = parseFen("4k4/9/9/4N4/9/9/2C6/9/9/4K4 w");
+      // Đỏ đi P7-5 (từ (6, 2) sang (6, 4)) lập thế Mã hậu Pháo!
+      const move = { from: sq(6, 2), to: sq(6, 4) };
+      const afterBoard = beforePos.board.slice();
+      afterBoard[move.to] = afterBoard[move.from];
+      afterBoard[move.from] = null;
+
+      const facts = explainMove({
+        before: beforePos.board,
+        move,
+        after: afterBoard,
+        evalBefore: { score: 500, best: move },
+        evalAfter: { score: -500, best: null },
+        loss: 0,
+      });
+
+      const pat = facts.find((f) => f.kind === "pattern");
+      expect(pat).toBeDefined();
+      expect(pat?.kind === "pattern" && pat.patternId).toBe("ma_hau_phao");
+      expect(pat?.kind === "pattern" && pat.action).toBe("formed");
+
+      const text = explainText(facts, "r");
+      expect(text).toContain("Mã hậu Pháo");
+    });
+
+    it("explainMove phát hiện khi nước đi để đối phương lập thế Trùng Pháo", () => {
+      // Trước: Đen có 2 Pháo ở (2, 4) và (4, 4), Sĩ đen ở (1, 4)
+      // Tướng đỏ ở (9, 4). Đỏ đi nước hớ không xử lý.
+      const beforePos = parseFen("4k4/9/4c4/9/4c4/9/9/9/4K4/9 w");
+      // Đỏ đi một nước hớ Tướng sang (9, 3) chẳng hạn
+      const move = { from: sq(8, 4), to: sq(8, 3) };
+      // Bàn cờ trước nước đi
+      const startBoard = parseFen("4k4/9/4c4/9/4c4/9/9/9/4K4/9 w").board;
+      const afterBoard = startBoard.slice();
+      // Đối phương có nước đáp lập thế
+      const replyMove = { from: sq(2, 4), to: sq(2, 4) }; // Hoặc reply tạo thế
+      const facts: Fact[] = [
+        {
+          kind: "pattern",
+          patternId: "trung_phao",
+          patternName: "Trùng Pháo",
+          side: "b",
+          action: "allowed",
+          reply: "P5.2",
+        },
+      ];
+      const text = explainText(facts, "r");
+      expect(text).toContain("Trùng Pháo");
+    });
+  });
+});

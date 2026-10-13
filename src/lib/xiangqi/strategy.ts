@@ -180,52 +180,122 @@ export const PLAN_NAME: Record<Plan, string> = {
   canBang: "giữ thế, tăng hoạt động quân",
 };
 
-export const PLAN_TEXT: Record<Plan, (opp: string, opening?: string) => string> = {
-  raQuan: (_opp, opening) =>
-    opening
-      ? `Đang trong thế trận ${opening}, việc chính là ra quân nhanh và cân đối.`
-      : "Đang khai cuộc, việc chính là ra quân nhanh và cân đối.",
-  tanCong: (opp) => `Cung tướng ${opp} đang yếu, nên dồn quân tấn công.`,
-  phongThu: () => "Cung tướng mình đang bị uy hiếp, nên ưu tiên phòng thủ.",
-  donGianHoa: () => "Đang hơn quân, nên giữ chắc và đơn giản hóa thế cờ.",
-  tanCuoc: () => "Đã vào tàn cuộc, Tốt qua sông và khai thác điểm yếu Sĩ Tượng là then chốt.",
-  canBang: () => "",
+// Các bảng câu dưới đây có nhiều cách diễn đạt cho cùng một ý; phần tử đầu là câu chuẩn,
+// explain.ts chọn cách diễn đạt theo nước đi để cả ván đọc không lặp (xem pickVariant).
+
+/** Câu mở đầu nêu kế hoạch hiện tại (`opp`: tên phe đối phương). */
+export const PLAN_TEXT: Record<Plan, ((opp: string, opening?: string) => string)[]> = {
+  raQuan: [
+    (_opp, opening) =>
+      opening
+        ? `Đang trong thế trận ${opening}, việc chính là ra quân nhanh và cân đối.`
+        : "Đang khai cuộc, việc chính là ra quân nhanh và cân đối.",
+    (_opp, opening) =>
+      opening
+        ? `Thế trận ${opening} vừa định hình, cần xuất nhanh Xe Mã Pháo cho cân đối.`
+        : "Còn ở khai cuộc, cần đưa nhanh các quân lớn ra trận.",
+    (_opp, opening) =>
+      opening
+        ? `Với ${opening}, ưu tiên lúc này là ra đủ quân lớn.`
+        : "Giai đoạn khai cuộc: ưu tiên ra quân nhanh, tránh đi một quân nhiều lần.",
+  ],
+  tanCong: [
+    (opp) => `Cung tướng ${opp} đang yếu, nên dồn quân tấn công.`,
+    (opp) => `Cung ${opp} có điểm yếu, đây là lúc tập trung quân công sát.`,
+    (opp) => `Nên tận dụng cung tướng ${opp} đang lỏng để tổ chức tấn công.`,
+  ],
+  phongThu: [
+    () => "Cung tướng mình đang bị uy hiếp, nên ưu tiên phòng thủ.",
+    () => "Cung tướng mình đang chịu sức ép, cần củng cố phòng tuyến trước.",
+    () => "Đối phương đang uy hiếp cung tướng, trước hết phải giữ nhà.",
+  ],
+  donGianHoa: [
+    () => "Đang hơn quân, nên giữ chắc và đơn giản hóa thế cờ.",
+    () => "Đã hơn quân, cách thắng chắc nhất là đổi bớt quân và hạn chế rủi ro.",
+    () => "Đang ưu thế về quân, nên chơi chắc tay, không cho đối phương cơ hội phản công.",
+  ],
+  tanCuoc: [
+    () => "Đã vào tàn cuộc, Tốt qua sông và khai thác điểm yếu Sĩ Tượng là then chốt.",
+    () => "Ván cờ đã sang tàn cuộc, mỗi con Tốt qua sông đều quý và Sĩ Tượng thiếu là điểm yếu chết người.",
+    () => "Ở tàn cuộc, cần đưa Tốt qua sông và nhắm vào chỗ khuyết Sĩ Tượng của đối phương.",
+  ],
+  canBang: [() => ""],
 };
 
-/** Câu cho lý do nước nên đi tốt hơn. */
-export const GAIN_TEXT: Record<Principle, string> = {
-  xe: "Xe thông đường hơn",
-  ma: "Mã có thêm chỗ nhảy",
-  raQuan: "đưa thêm quân ra trận",
-  apLuc: "tăng sức ép lên cung tướng đối phương",
-  anToan: "cung tướng mình an toàn hơn",
-  matGoc: "không để quân mất gốc",
-  phongToa: "chặn đường Xe đối phương",
-  tot: "có thêm Tốt qua sông",
-  diemThenChot: "đưa quân vào điểm then chốt",
-  catLienLac: "cắt liên lạc giữa các quân đối phương",
-  khongCheTuong: "khống chế đường ra của Tướng đối phương",
-  khuyetSi: "tận dụng điểm yếu đối phương khuyết Sĩ (khuyết Sĩ kỵ Mã)",
-  khuyetTuong: "khoét sâu vào thế đối phương khuyết Tượng (khuyết Tượng kỵ Pháo)",
-  totVaoCung: "đưa Tốt áp sát uy hiếp cung tướng",
+/** Câu cho lý do nước nên đi tốt hơn (đứng được sau "giúp", "vì" hoặc dấu hai chấm). */
+export const GAIN_TEXT: Record<Principle, string[]> = {
+  xe: ["Xe thông đường hơn", "Xe hoạt động rộng hơn", "Xe chiếm được đường thông thoáng hơn"],
+  ma: ["Mã có thêm chỗ nhảy", "Mã linh hoạt hơn", "Mã có thêm điểm nhảy"],
+  raQuan: ["đưa thêm quân ra trận", "ra quân nhanh hơn", "thêm một quân lớn tham chiến"],
+  apLuc: [
+    "tăng sức ép lên cung tướng đối phương",
+    "siết chặt cung tướng đối phương hơn",
+    "gia tăng áp lực lên cung đối phương",
+  ],
+  anToan: ["cung tướng mình an toàn hơn", "cung tướng mình vững hơn", "củng cố cung tướng"],
+  matGoc: ["không để quân mất gốc", "giữ các quân đều có gốc", "quân nào cũng có gốc"],
+  phongToa: ["chặn đường Xe đối phương", "bó Xe đối phương", "hạn chế đường đi của Xe đối phương"],
+  tot: ["có thêm Tốt qua sông", "đưa thêm Tốt qua sông", "tăng số Tốt qua sông"],
+  diemThenChot: ["đưa quân vào điểm then chốt", "chiếm được điểm then chốt", "đặt quân vào vị trí đắc địa"],
+  catLienLac: [
+    "cắt liên lạc giữa các quân đối phương",
+    "chia cắt quân đối phương",
+    "làm quân đối phương mất gốc",
+  ],
+  khongCheTuong: [
+    "khống chế đường ra của Tướng đối phương",
+    "khóa đường chạy của Tướng đối phương",
+    "bó hẹp chỗ đứng của Tướng đối phương",
+  ],
+  khuyetSi: [
+    "tận dụng điểm yếu đối phương khuyết Sĩ (khuyết Sĩ kỵ Mã)",
+    "đánh vào chỗ khuyết Sĩ của đối phương (khuyết Sĩ kỵ Mã)",
+  ],
+  khuyetTuong: [
+    "khoét sâu vào thế đối phương khuyết Tượng (khuyết Tượng kỵ Pháo)",
+    "khai thác chỗ khuyết Tượng của đối phương (khuyết Tượng kỵ Pháo)",
+  ],
+  totVaoCung: [
+    "đưa Tốt áp sát uy hiếp cung tướng",
+    "đưa Tốt tiến sát cung tướng đối phương",
+    "dùng Tốt uy hiếp sát cung",
+  ],
 };
 
-/** Câu cho việc nước đã đi làm nguyên lý kém đi. */
-export const LOSS_TEXT: Record<Principle, string> = {
-  xe: "làm Xe bị bó",
-  ma: "làm Mã bị chặn chân",
-  raQuan: "chưa giúp gì cho việc ra quân",
-  apLuc: "giảm sức ép lên cung tướng đối phương",
-  anToan: "làm cung tướng hở ra",
-  matGoc: "để quân mất gốc",
-  phongToa: "mở đường cho Xe đối phương",
-  tot: "chưa đưa Tốt qua sông",
-  diemThenChot: "rời điểm then chốt",
-  catLienLac: "để quân đối phương nối lại liên lạc",
-  khongCheTuong: "nới đường ra cho Tướng đối phương",
-  khuyetSi: "bỏ lỡ cơ hội đánh vào điểm yếu khuyết Sĩ của đối phương",
-  khuyetTuong: "chưa khai thác được thế khuyết Tượng của đối phương",
-  totVaoCung: "chưa đưa được Tốt áp sát cung tướng",
+/** Câu cho việc nước đã đi làm nguyên lý kém đi (đứng được sau tên nước, "nhưng" hoặc dấu hai chấm). */
+export const LOSS_TEXT: Record<Principle, string[]> = {
+  xe: ["làm Xe bị bó", "khiến Xe kém hoạt động", "làm Xe mất đường"],
+  ma: ["làm Mã bị chặn chân", "khiến Mã bị bó chân", "làm Mã khó nhảy"],
+  raQuan: ["chưa giúp gì cho việc ra quân", "làm chậm việc ra quân", "chưa đưa thêm quân nào ra trận"],
+  apLuc: [
+    "giảm sức ép lên cung tướng đối phương",
+    "nới lỏng áp lực lên cung đối phương",
+    "để cung đối phương dễ thở hơn",
+  ],
+  anToan: ["làm cung tướng hở ra", "làm cung tướng mình yếu đi", "để lộ sơ hở ở cung tướng"],
+  matGoc: ["để quân mất gốc", "để quân không có gốc", "bỏ quân không gốc"],
+  phongToa: ["mở đường cho Xe đối phương", "thả Xe đối phương ra", "để Xe đối phương hoạt động tự do hơn"],
+  tot: ["chưa đưa Tốt qua sông", "chưa tận dụng được Tốt", "để Tốt dậm chân tại chỗ"],
+  diemThenChot: ["rời điểm then chốt", "bỏ vị trí then chốt", "rời khỏi chỗ đứng quan trọng"],
+  catLienLac: [
+    "để quân đối phương nối lại liên lạc",
+    "giúp quân đối phương liên kết lại",
+    "để quân đối phương có gốc trở lại",
+  ],
+  khongCheTuong: [
+    "nới đường ra cho Tướng đối phương",
+    "thả lỏng Tướng đối phương",
+    "để Tướng đối phương có đường thoát",
+  ],
+  khuyetSi: [
+    "bỏ lỡ cơ hội đánh vào điểm yếu khuyết Sĩ của đối phương",
+    "chưa tận dụng chỗ khuyết Sĩ của đối phương",
+  ],
+  khuyetTuong: [
+    "chưa khai thác được thế khuyết Tượng của đối phương",
+    "bỏ qua chỗ khuyết Tượng của đối phương",
+  ],
+  totVaoCung: ["chưa đưa được Tốt áp sát cung tướng", "để Tốt đứng xa cung tướng đối phương"],
 };
 
 export type OpeningFaultType = "repeatPiece" | "lateRook";

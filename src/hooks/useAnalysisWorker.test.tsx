@@ -10,7 +10,8 @@ class FakeAnalysisWorker {
   static all: FakeAnalysisWorker[] = [];
   posted: unknown[] = [];
   terminated = false;
-  private listeners = new Set<(e: MessageEvent) => void>();
+  private messageListeners = new Set<(e: MessageEvent) => void>();
+  private errorListeners = new Set<(e: Event) => void>();
 
   constructor(readonly url: URL, readonly options: WorkerOptions) {
     FakeAnalysisWorker.all.push(this);
@@ -20,12 +21,14 @@ class FakeAnalysisWorker {
     this.posted.push(data);
   }
 
-  addEventListener(_type: "message", fn: (e: MessageEvent) => void) {
-    this.listeners.add(fn);
+  addEventListener(type: string, fn: any) {
+    if (type === "message") this.messageListeners.add(fn);
+    if (type === "error") this.errorListeners.add(fn);
   }
 
-  removeEventListener(_type: "message", fn: (e: MessageEvent) => void) {
-    this.listeners.delete(fn);
+  removeEventListener(type: string, fn: any) {
+    if (type === "message") this.messageListeners.delete(fn);
+    if (type === "error") this.errorListeners.delete(fn);
   }
 
   terminate() {
@@ -33,11 +36,15 @@ class FakeAnalysisWorker {
   }
 
   reply(data: unknown) {
-    for (const fn of [...this.listeners]) fn({ data } as MessageEvent);
+    for (const fn of [...this.messageListeners]) fn({ data } as MessageEvent);
+  }
+
+  emitError() {
+    for (const fn of [...this.errorListeners]) fn(new Event("error"));
   }
 
   get listenerCount() {
-    return this.listeners.size;
+    return this.messageListeners.size + this.errorListeners.size;
   }
 }
 
@@ -66,6 +73,30 @@ describe("useAnalysisWorker", () => {
     w.reply({ id: 1, result: mockReview });
     await expect(promise).resolves.toEqual(mockReview);
     expect(w.listenerCount).toBe(0);
+  });
+
+  it("tự động chạy trên luồng chính nếu worker báo lỗi", async () => {
+    const { result } = renderHook(() => useAnalysisWorker());
+    const w = FakeAnalysisWorker.all[0];
+    const state = replayMoves([]);
+    const promise = result.current(state, []);
+    w.emitError();
+    const res = await promise;
+    expect(res).toBeDefined();
+    expect(res.moves).toBeDefined();
+    expect(w.listenerCount).toBe(0);
+  });
+
+  it("tự động chạy trên luồng chính nếu worker quá thời gian (timeout)", async () => {
+    vi.useFakeTimers();
+    const { result } = renderHook(() => useAnalysisWorker(500));
+    const state = replayMoves([]);
+    const promise = result.current(state, []);
+    vi.advanceTimersByTime(600);
+    const res = await promise;
+    expect(res).toBeDefined();
+    expect(res.moves).toBeDefined();
+    vi.useRealTimers();
   });
 
   it("rời trang thì terminate worker", () => {

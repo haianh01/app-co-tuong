@@ -113,6 +113,7 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
             ),
           ],
           m.side,
+          i + 1,
         );
         cached = { review, scoreLoss, accuracy: moveAcc, best, idea };
         coachCache.current.set(fenPairKey, cached);
@@ -161,7 +162,7 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
                   {m.better && <span className="muted"> · nên đi {m.better}</span>}
                 </span>
               </div>
-              {m.facts.length > 0 && <p className={game.reviewNote}>{explainText(m.facts, m.side)}</p>}
+              {m.facts.length > 0 && <p className={game.reviewNote}>{explainText(m.facts, m.side, m.ply)}</p>}
               {m.line && m.line.length > 1 && (
                 <p className={game.reviewLine}>
                   Biến tiếp diễn: {m.line.join(" ➔ ")}

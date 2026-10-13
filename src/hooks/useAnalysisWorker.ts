@@ -4,11 +4,14 @@ import { useCallback, useEffect, useRef } from "react";
 import type { GameState } from "@/lib/xiangqi/game";
 import { reviewGame, type PositionEval, type ReviewResult } from "@/lib/xiangqi/analysis";
 
+const DEFAULT_TIMEOUT_MS = 3000;
+
 /**
  * Hook chạy `reviewGame(state, evals)` trong Web Worker riêng.
- * Nếu môi trường không hỗ trợ Worker (test jsdom, SSR), tự động fallback về gọi trực tiếp.
+ * Nếu môi trường không hỗ trợ Worker (test jsdom, SSR), hoặc worker bị lỗi / quá thời gian,
+ * tự động fallback về gọi trực tiếp trên luồng chính.
  */
-export function useAnalysisWorker() {
+export function useAnalysisWorker(timeoutMs: number = DEFAULT_TIMEOUT_MS) {
   const workerRef = useRef<Worker | null>(null);
   const seq = useRef(0);
 
@@ -33,13 +36,46 @@ export function useAnalysisWorker() {
     }
     return new Promise((resolve) => {
       const id = ++seq.current;
-      const onMessage = (e: MessageEvent<{ id: number; result: ReviewResult }>) => {
-        if (e.data.id !== id) return;
-        worker.removeEventListener("message", onMessage);
-        resolve(e.data.result);
+      let settled = false;
+
+      const finish = (res: ReviewResult) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(res);
       };
+
+      const fallback = () => {
+        finish(reviewGame(state, evals));
+      };
+
+      const timer = setTimeout(() => {
+        fallback();
+      }, timeoutMs);
+
+      const onMessage = (e: MessageEvent<{ id: number; result: ReviewResult }>) => {
+        if (!e.data || e.data.id !== id) return;
+        finish(e.data.result);
+      };
+
+      const onError = () => {
+        fallback();
+      };
+
+      const cleanup = () => {
+        clearTimeout(timer);
+        worker.removeEventListener("message", onMessage);
+        worker.removeEventListener("error", onError);
+      };
+
       worker.addEventListener("message", onMessage);
-      worker.postMessage({ id, state, evals });
+      worker.addEventListener("error", onError);
+
+      try {
+        worker.postMessage({ id, state, evals });
+      } catch {
+        fallback();
+      }
     });
-  }, []);
+  }, [timeoutMs]);
 }

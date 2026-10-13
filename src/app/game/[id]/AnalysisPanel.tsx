@@ -158,9 +158,20 @@ export function AnalysisPanel({
       });
     }
 
+    const hlSet = new Set<number>(currentReview.highlights ?? []);
+    if (currentReview.facts) {
+      for (const f of currentReview.facts) {
+        if (f.kind === "pattern" && f.pieces) {
+          for (const p of f.pieces) {
+            hlSet.add(p.square);
+          }
+        }
+      }
+    }
+
     return {
       arrows: arrs,
-      highlights: currentReview.highlights ?? [],
+      highlights: Array.from(hlSet),
     };
   }, [previewLine, previewData, currentReview]);
 
@@ -439,7 +450,24 @@ export function AnalysisPanel({
                       </span>
                     </button>
                     {m.ply === ply && m.facts.length > 0 && (
-                      <p className={styles.reviewNote}>{explainText(m.facts, m.side)}</p>
+                      <>
+                        {m.facts.some((f) => f.kind === "pattern") && (
+                          <div className={styles.patternContainer}>
+                            {m.facts
+                              .filter((f) => f.kind === "pattern")
+                              .map((f: any, idx: number) => (
+                                <span
+                                  key={`pat-${idx}`}
+                                  className={styles.patternBadge}
+                                  title={f.description}
+                                >
+                                  ⚔️ {f.patternName} ({f.action === "formed" ? "Lập thế" : f.action === "allowed" ? "Để đối phương lập thế" : "Hóa giải"})
+                                </span>
+                              ))}
+                          </div>
+                        )}
+                        <p className={styles.reviewNote}>{explainText(m.facts, m.side, m.ply)}</p>
+                      </>
                     )}
                     {m.ply === ply && m.line && m.line.length > 1 && (
                       <div className={styles.reviewLineContainer}>

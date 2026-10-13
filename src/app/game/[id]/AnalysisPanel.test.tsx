@@ -26,6 +26,10 @@ beforeEach(() => {
 });
 
 describe("AnalysisPanel", () => {
+
+/** Lời bình đổi cách diễn đạt theo từng nước, nên chỉ kiểm tra đoạn lời bình có đủ các dữ kiện bắt buộc. */
+const note = (...parts: string[]) => (_: string, el: Element | null) =>
+  el?.tagName === "P" && parts.every((p) => el.textContent!.includes(p));
   it("bấm vào nước hớ thì hiện lời giải thích của đúng nước đó", async () => {
     // Đỏ đẩy Pháo vào chỗ bị Xe ăn; Đen không ăn mà lại đẩy Tốt.
     const state = replayMoves(
@@ -38,15 +42,15 @@ describe("AnalysisPanel", () => {
     const red = await screen.findByRole("button", { name: /1\. Đỏ P9\.2/ }, { timeout: 5000 });
     const black = screen.getByRole("button", { name: /1\. Đen B5\.1/ });
     // Như màn xem lại ván: bàn cờ đang ở nước cuối nên lời giải thích của nước đó hiện sẵn.
-    expect(screen.getByText("Nên đi X1.1 ăn Pháo đỏ.")).toBeTruthy();
-    expect(screen.queryByText(/Pháo đi vào ô bị Xe đen ăn/)).toBeNull();
+    expect(screen.getByText(note("X1.1", "Pháo đỏ"))).toBeTruthy();
+    expect(screen.queryByText(note("Pháo", "Xe đen", "X1.1", "ăn"))).toBeNull();
 
     fireEvent.click(red);
-    expect(screen.getByText("Pháo đi vào ô bị Xe đen ăn mà không có quân bảo vệ. Đen đáp X1.1 ăn không Pháo.")).toBeTruthy();
-    expect(screen.queryByText("Nên đi X1.1 ăn Pháo đỏ.")).toBeNull();
+    expect(screen.getByText(note("Pháo", "Xe đen", "X1.1", "ăn"))).toBeTruthy();
+    expect(screen.queryByText(note("X1.1", "Pháo đỏ"))).toBeNull();
 
     fireEvent.click(black);
-    expect(screen.getByText("Nên đi X1.1 ăn Pháo đỏ.")).toBeTruthy();
+    expect(screen.getByText(note("X1.1", "Pháo đỏ"))).toBeTruthy();
   });
 
   it("nhận kết quả từ stream NDJSON của /api/engine/batch", async () => {
@@ -112,7 +116,7 @@ describe("AnalysisPanel", () => {
     const tpCard = screen.getByRole("button", { name: /Bước ngoặt #1/i });
     expect(tpCard).toBeTruthy();
     fireEvent.click(tpCard);
-    expect(screen.getByText("Pháo đi vào ô bị Xe đen ăn mà không có quân bảo vệ. Đen đáp X1.1 ăn không Pháo.")).toBeTruthy();
+    expect(screen.getByText(note("Pháo", "Xe đen", "X1.1", "ăn"))).toBeTruthy();
 
     // 3. Đi thử biến tiếp diễn
     const tryBtn = screen.getByRole("button", { name: /Đi thử biến này/i });

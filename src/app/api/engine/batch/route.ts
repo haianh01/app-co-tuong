@@ -54,10 +54,15 @@ export async function POST(request: Request) {
     user = await getUserBySession(db, token);
   }
 
-  // Nếu ván online đã được phân tích trước đó (cùng version), dùng lại ngay kết quả đã lưu mà không tốn quota.
+  // Nếu ván online đã được phân tích trước đó (cùng version và khớp thế cờ), dùng lại ngay kết quả đã lưu mà không tốn quota.
   if (gameId) {
     const saved = await getSavedAnalysis(db, gameId);
-    if (saved) {
+    const matches =
+      saved &&
+      saved.length === total &&
+      saved.every((item, i) => !item?.fen || item.fen === fens[i]);
+
+    if (matches) {
       const stream = new ReadableStream({
         start(controller) {
           for (let i = 0; i < saved.length; i++) {
@@ -76,7 +81,11 @@ export async function POST(request: Request) {
     }
   }
 
-  // Kiểm tra quota trên máy chủ (user mỗi ngày, khách theo IP)
+  const pool = getEnginePool();
+  if (!pool) return Response.json({ error: "Chưa cài engine" }, { status: 503, headers: noStore });
+  if (pool.waiting > 32) return Response.json({ error: "Engine đang quá tải" }, { status: 503, headers: noStore });
+
+  // Kiểm tra và trừ quota trên máy chủ (user mỗi ngày, khách theo IP)
   const quota = await consumeAnalysisQuota(db, user, ip);
   if (!quota.success) {
     return Response.json(
@@ -84,10 +93,6 @@ export async function POST(request: Request) {
       { status: 429, headers: noStore },
     );
   }
-
-  const pool = getEnginePool();
-  if (!pool) return Response.json({ error: "Chưa cài engine" }, { status: 503, headers: noStore });
-  if (pool.waiting > 32) return Response.json({ error: "Engine đang quá tải" }, { status: 503, headers: noStore });
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -107,7 +112,7 @@ export async function POST(request: Request) {
 
         const legal = legalMoves(pos);
         if (legal.length === 0) {
-          const emptyEval: PositionEval = { score: 0, best: null, depth: 0, pv: [], lines: [] };
+          const emptyEval: PositionEval = { score: 0, best: null, depth: 0, pv: [], lines: [], fen };
           collectedEvals.push(emptyEval);
           const emptyChunk =
             JSON.stringify({
@@ -136,6 +141,7 @@ export async function POST(request: Request) {
             depth: cached.depth,
             pv: pvMoves,
             lines,
+            fen,
           };
           collectedEvals.push(cachedEval);
           const chunk =
@@ -165,6 +171,7 @@ export async function POST(request: Request) {
             depth: res.depth,
             pv: pvMoves,
             lines,
+            fen,
           };
           collectedEvals.push(searchedEval);
           const chunk =
@@ -185,7 +192,9 @@ export async function POST(request: Request) {
       if (gameId && collectedEvals.length === total && !collectedEvals.some((e) => e === null)) {
         try {
           await saveGameAnalysis(db, gameId, collectedEvals);
-        } catch {}
+        } catch (err) {
+          console.error(`[analysis/batch] Không thể lưu phân tích ván ${gameId}:`, err);
+        }
       }
 
       controller.close();

@@ -90,7 +90,7 @@ describe("POST /api/engine/batch", () => {
     expect(data.error).toBe("Danh sách FEN không hợp lệ");
   });
 
-  it("trả 503 nếu chưa cài engine", async () => {
+  it("trả 503 nếu chưa cài engine mà không trừ quota", async () => {
     globalForEngine.__enginePool = null;
     const req = new Request("http://localhost/api/engine/batch", {
       method: "POST",
@@ -101,6 +101,24 @@ describe("POST /api/engine/batch", () => {
     expect(res.status).toBe(503);
     const data = await res.json();
     expect(data.error).toBe("Chưa cài engine");
+    expect(mockStore.consumeAnalysisQuota).not.toHaveBeenCalled();
+  });
+
+  it("trả 503 nếu engine đang quá tải và không trừ quota", async () => {
+    globalForEngine.__enginePool = {
+      waiting: 33,
+      search: vi.fn(),
+    };
+    const req = new Request("http://localhost/api/engine/batch", {
+      method: "POST",
+      body: JSON.stringify({ fens: ["rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w"] }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(503);
+    const data = await res.json();
+    expect(data.error).toBe("Engine đang quá tải");
+    expect(mockStore.consumeAnalysisQuota).not.toHaveBeenCalled();
   });
 
   it("stream NDJSON phân tích thành công và ghi vào cache", async () => {
@@ -223,6 +241,43 @@ describe("POST /api/engine/batch", () => {
     expect(mockStore.consumeAnalysisQuota).not.toHaveBeenCalled();
   });
 
+  it("không dùng lại kết quả đã lưu nếu số nước hoặc FEN không khớp", async () => {
+    const cachedEvals: PositionEval[] = [
+      { score: 350, best: null, depth: 10, pv: [], fen: "fen1" },
+      { score: -200, best: null, depth: 10, pv: [], fen: "fen2" },
+    ];
+    mockStore.getSavedAnalysis.mockResolvedValueOnce(cachedEvals);
+
+    // Gửi request với 3 FEN (lệch số lượng so với 2 evals đã lưu)
+    const reqDifferentCount = new Request("http://localhost/api/engine/batch", {
+      method: "POST",
+      body: JSON.stringify({
+        fens: ["fen1", "fen2", "fen3"],
+        gameId: "g12345",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const resCount = await POST(reqDifferentCount);
+    expect(resCount.status).toBe(200);
+    expect(mockStore.consumeAnalysisQuota).toHaveBeenCalledTimes(1);
+
+    mockStore.consumeAnalysisQuota.mockClear();
+    mockStore.getSavedAnalysis.mockResolvedValueOnce(cachedEvals);
+
+    // Gửi request với FEN khác
+    const reqDifferentFen = new Request("http://localhost/api/engine/batch", {
+      method: "POST",
+      body: JSON.stringify({
+        fens: ["fen1", "fen_mismatch"],
+        gameId: "g12345",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const resFen = await POST(reqDifferentFen);
+    expect(resFen.status).toBe(200);
+    expect(mockStore.consumeAnalysisQuota).toHaveBeenCalledTimes(1);
+  });
+
   it("lưu kết quả vào game_analysis sau khi phân tích xong ván online", async () => {
     mockStore.getSavedAnalysis.mockResolvedValueOnce(null);
     mockStore.consumeAnalysisQuota.mockResolvedValueOnce({ success: true, remaining: 2 });
@@ -241,5 +296,29 @@ describe("POST /api/engine/batch", () => {
     const chunks = await readNdjson<BatchChunk>(res);
     expect(chunks).toHaveLength(1);
     expect(mockStore.saveGameAnalysis).toHaveBeenCalledWith(expect.anything(), "gnew01", expect.any(Array));
+  });
+
+  it("ghi log lỗi console.error nếu lưu kết quả vào DB thất bại", async () => {
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mockStore.getSavedAnalysis.mockResolvedValueOnce(null);
+    mockStore.saveGameAnalysis.mockRejectedValueOnce(new Error("DB error"));
+
+    const req = new Request("http://localhost/api/engine/batch", {
+      method: "POST",
+      body: JSON.stringify({
+        fens: ["rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w"],
+        gameId: "gerr01",
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    await readNdjson<BatchChunk>(res);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining("[analysis/batch] Không thể lưu phân tích ván gerr01:"),
+      expect.any(Error),
+    );
+    consoleSpy.mockRestore();
   });
 });

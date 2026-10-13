@@ -26,6 +26,8 @@ export interface PositionEval {
   line?: string[];
   /** Danh sách các biến lựa chọn khi chạy MultiPV. */
   lines?: PositionEvalLine[];
+  /** Thế cờ (FEN) tương ứng nếu có. */
+  fen?: string;
 }
 
 export type MoveClass =

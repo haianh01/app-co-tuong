@@ -17,6 +17,7 @@ import {
 } from "./strategy";
 import { detectTheoreticalEndgame, type TheoreticalEndgame } from "./endgame";
 import { buildLlmCommentaryPrompt, generateLlmCommentary, type LlmCommentaryOptions, type LlmPrompt } from "./llm-commentary";
+import { detectPatterns, type MatePatternId } from "./patterns";
 
 /** Điểm thắng tuyệt đối mà AI trả về khi thấy chiếu bí (khớp với MATE trong ai.ts). */
 const MATE = 100_000;
@@ -98,7 +99,7 @@ export interface PieceRef {
 
 const fileNumber = (col: number, s: Side) => (s === "r" ? 9 - col : col + 1);
 
-function ref(board: Board, square: number): PieceRef {
+export function ref(board: Board, square: number): PieceRef {
   const piece = board[square]!;
   const s = sideOf(piece);
   const col = colOf(square);
@@ -163,7 +164,18 @@ export type Fact =
   /** Đang có ưu thế thắng rõ rệt nhưng để rớt về thế cân bằng. */
   | { kind: "missedWin"; better?: string; points?: number }
   /** Nhận diện tàn cuộc lý thuyết thắng hoặc hòa. */
-  | { kind: "endgame"; endgame: TheoreticalEndgame };
+  | { kind: "endgame"; endgame: TheoreticalEndgame }
+  /** Nhận diện hình cờ sát cục kinh điển (lập hình, để đối phương lập hình, hoặc phá hình). */
+  | {
+      kind: "pattern";
+      patternId: MatePatternId;
+      patternName: string;
+      side: Side;
+      action: "formed" | "allowed" | "broken";
+      reply?: string;
+      pieces?: PieceRef[];
+      description?: string;
+    };
 
 export interface MoveContext {
   before: Board;
@@ -184,6 +196,65 @@ export interface MoveContext {
 }
 
 const sameMove = (a: Move | null | undefined, b: Move) => !!a && a.from === b.from && a.to === b.to;
+
+function detectPatternFact(ctx: MoveContext, mover: Side, reply: Move | null): Fact | null {
+  const { before, after } = ctx;
+  const opp = opponent(mover);
+
+  // 1. Bên đi (mover) vừa lập thế sát cục mới mà thế trước chưa có (chỉ xét khi nước đi không bị hớ)
+  if (ctx.loss <= 50) {
+    const patternsAfter = detectPatterns(after, mover);
+    const patternsBefore = detectPatterns(before, mover);
+    const formed = patternsAfter.find((pa) => !patternsBefore.some((pb) => pb.id === pa.id));
+    if (formed) {
+      return {
+        kind: "pattern",
+        patternId: formed.id,
+        patternName: formed.name,
+        side: mover,
+        action: "formed",
+        pieces: formed.pieces.filter((sq) => after[sq]).map((sq) => ref(after, sq)),
+        description: formed.description,
+      };
+    }
+  }
+
+  // 2. Bên đi (mover) vừa phá được thế sát cục của đối phương
+  const oppBefore = detectPatterns(before, opp);
+  const oppAfter = detectPatterns(after, opp);
+  const broken = oppBefore.find((pb) => !oppAfter.some((pa) => pa.id === pb.id));
+  if (broken) {
+    return {
+      kind: "pattern",
+      patternId: broken.id,
+      patternName: broken.name,
+      side: mover,
+      action: "broken",
+      description: broken.description,
+    };
+  }
+
+  // 3. Đối phương (opp) đáp reply lập thế sát cục
+  if (reply) {
+    const next = play(after, reply);
+    const oppReplyPatterns = detectPatterns(next, opp);
+    const allowed = oppReplyPatterns.find((pr) => !oppBefore.some((pb) => pb.id === pr.id));
+    if (allowed) {
+      return {
+        kind: "pattern",
+        patternId: allowed.id,
+        patternName: allowed.name,
+        side: opp,
+        action: "allowed",
+        reply: moveNotation(after, reply),
+        pieces: allowed.pieces.filter((sq) => next[sq]).map((sq) => ref(next, sq)),
+        description: allowed.description,
+      };
+    }
+  }
+
+  return null;
+}
 
 /** Rút các dữ kiện giải thích một nước đi, xếp theo mức quan trọng giảm dần. */
 export function explainMove(ctx: MoveContext): Fact[] {
@@ -228,6 +299,10 @@ export function explainMove(ctx: MoveContext): Fact[] {
     const trappedFact = detectTrappedPiece(ctx, reply);
     if (trappedFact) facts.push(trappedFact);
   }
+  if (facts.length === 0) {
+    const patFact = detectPatternFact(ctx, mover, reply);
+    if (patFact) facts.push(patFact);
+  }
   if (reply && facts.length === 0) {
     const threat = threatAfter(after, reply, mover);
     if (threat) facts.push(threat);
@@ -238,6 +313,7 @@ export function explainMove(ctx: MoveContext): Fact[] {
   }
   const tactical = facts.some(
     (f) =>
+      f.kind === "pattern" ||
       f.kind === "losesPiece" ||
       f.kind === "missedCapture" ||
       f.kind === "missedEscape" ||
@@ -699,124 +775,333 @@ export function formatPoints(points: number): string {
   return String(Math.max(0.5, Math.round(points / 50) / 2)).replace(".", ",");
 }
 
-function sentence(f: Fact, mover: Side): string {
+/**
+ * Chọn một cách diễn đạt trong `variants`. Không có `seed` thì luôn lấy câu chuẩn (phần tử đầu);
+ * có `seed` (số nửa nước) thì chọn cố định theo seed và `key`, để cả ván đọc không lặp một mẫu câu
+ * mà server và client vẫn ra cùng một câu.
+ */
+export function pickVariant<T>(variants: readonly T[], seed: number | undefined, key = ""): T {
+  if (seed === undefined || variants.length === 1) return variants[0];
+  let h = Math.imul(seed + 1, 0x9e3779b1);
+  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 0x01000193);
+  h ^= h >>> 15;
+  h = Math.imul(h, 0x2c1b3c6d);
+  h ^= h >>> 12;
+  return variants[(h >>> 0) % variants.length];
+}
+
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+function sentence(f: Fact, mover: Side, seed: number | undefined): string {
   const O = SIDE_NAME[opponent(mover)];
   const o = COLOR[opponent(mover)];
+  const v = <T>(key: string, variants: readonly T[]) => pickVariant(variants, seed, key);
+  const gain = (p: Principle) => v(`gain.${p}`, GAIN_TEXT[p]);
+  const loss = (p: Principle, loose: string[]) =>
+    p === "matGoc" && loose.length
+      ? v("loss.loose", [`để ${loose.join(", ")} mất gốc`, `khiến ${loose.join(", ")} không còn gốc`])
+      : v(`loss.${p}`, LOSS_TEXT[p]);
   switch (f.kind) {
     case "allowsMate":
       return f.moves <= 1
-        ? `Nước này để ${O} chiếu bí ngay bằng ${f.reply}.`
-        : `Nước này để ${O} có đường chiếu bí trong ${f.moves} nước, bắt đầu bằng ${f.reply}.`;
+        ? v("allowsMate1", [
+            `Nước này để ${O} chiếu bí ngay bằng ${f.reply}.`,
+            `Sai lầm quyết định: ${O} chiếu bí ngay bằng ${f.reply}.`,
+            `Sau nước này, ${O} chỉ cần đi ${f.reply} là chiếu bí.`,
+          ])
+        : v("allowsMate", [
+            `Nước này để ${O} có đường chiếu bí trong ${f.moves} nước, bắt đầu bằng ${f.reply}.`,
+            `Sau nước này, ${O} có đòn chiếu bí ${f.moves} nước, mở đầu bằng ${f.reply}.`,
+            `Nước này mở ra cho ${O} đường chiếu bí ${f.moves} nước, khởi đầu là ${f.reply}.`,
+          ]);
     case "missedMate":
       return f.moves <= 1
-        ? `Bỏ lỡ nước chiếu bí ${f.better}.`
-        : `Bỏ lỡ đường chiếu bí trong ${f.moves} nước, bắt đầu bằng ${f.better}.`;
+        ? v("missedMate1", [
+            `Bỏ lỡ nước chiếu bí ${f.better}.`,
+            `Có ${f.better} chiếu bí ngay mà không đi.`,
+            `Đã có sẵn nước chiếu bí ${f.better} nhưng lại bỏ qua.`,
+          ])
+        : v("missedMate", [
+            `Bỏ lỡ đường chiếu bí trong ${f.moves} nước, bắt đầu bằng ${f.better}.`,
+            `Có đòn chiếu bí ${f.moves} nước mở đầu bằng ${f.better} nhưng không nhận ra.`,
+            `Bỏ qua cơ hội kết thúc ván: ${f.better} mở đầu đòn chiếu bí ${f.moves} nước.`,
+          ]);
     case "avoidsMate":
-      return `Nên đi ${f.better} để chặn đường chiếu bí đó.`;
+      return v("avoidsMate", [
+        `Nên đi ${f.better} để chặn đường chiếu bí đó.`,
+        `Cần đi ${f.better} để hóa giải đòn chiếu bí này.`,
+        `Nước phòng thủ đúng là ${f.better}, chặn được đường chiếu bí.`,
+      ]);
+    case "pattern": {
+      const actor = f.side === "r" ? "Đỏ" : "Đen";
+      const victim = opponent(f.side) === "r" ? "Đỏ" : "Đen";
+      if (f.action === "formed") {
+        return v(`pattern.formed.${f.patternId}`, [
+          `${actor} lập thế ${f.patternName}, dọa chiếu bí.`,
+          `${actor} hình thành thế trận ${f.patternName} cực kỳ hiểm hóc.`,
+          `Sau nước này, ${actor} tạo ra thế sát ${f.patternName}.`,
+        ]);
+      }
+      if (f.action === "allowed") {
+        const rep = f.reply ? ` (${f.reply})` : "";
+        return v(`pattern.allowed.${f.patternId}`, [
+          `Nước đi sơ hở để ${actor} lập thế ${f.patternName}${rep}, dọa chiếu bí.`,
+          `Để ${actor} có cơ hội đi ${f.reply ?? "tiếp"} tạo thế ${f.patternName} sát cục.`,
+          `Tạo điều kiện cho ${actor} lập thế ${f.patternName}${rep}, khó tránh khỏi thất thế.`,
+        ]);
+      }
+      return v(`pattern.broken.${f.patternId}`, [
+        `${actor} kịp thời hóa giải thế ${f.patternName} của ${victim}.`,
+        `Nước đi phòng thủ chuẩn xác, phá vỡ thế ${f.patternName} nguy hiểm của ${victim}.`,
+        `Hóa giải thành công thế sát ${f.patternName} của ${victim}.`,
+      ]);
+    }
     case "doubleCheck": {
       const names = f.checkers.map((c) => `${c.name} ${o}`).join(" và ");
-      return `${O} đáp ${f.reply}, ${names} cùng lúc chiếu tướng (chiếu kép), buộc Tướng phải chạy.`;
+      return v("doubleCheck", [
+        `${O} đáp ${f.reply}, ${names} cùng lúc chiếu tướng (chiếu kép), buộc Tướng phải chạy.`,
+        `${O} đi ${f.reply} tạo thế chiếu kép: ${names} cùng chiếu, Tướng buộc phải chạy.`,
+        `Sau ${f.reply} của ${O}, ${names} cùng chiếu tướng (chiếu kép); không thể chặn cả hai nên Tướng phải chạy.`,
+      ]);
     }
     case "discoveredCheck": {
       const moved = `${f.moved.name} ${o}`;
       const checker = `${f.checker.name} ${o}`;
       if (f.target) {
-        return `${O} đáp ${f.reply}, rút ${moved} mở đường cho ${checker} chiếu tướng (chiếu rút), đồng thời đe dọa ăn ${f.target.name}.`;
+        return v("discoveredCheckTarget", [
+          `${O} đáp ${f.reply}, rút ${moved} mở đường cho ${checker} chiếu tướng (chiếu rút), đồng thời đe dọa ăn ${f.target.name}.`,
+          `${O} có đòn chiếu rút ${f.reply}: ${moved} rút đi để ${checker} chiếu tướng, đồng thời nhắm ăn ${f.target.name}.`,
+          `Sau nước này, ${O} đi ${f.reply} rút ${moved} cho ${checker} chiếu tướng (chiếu rút); vừa phải đỡ chiếu vừa khó giữ ${f.target.name}.`,
+        ]);
       }
-      return `${O} đáp ${f.reply}, rút ${moved} mở đường cho ${checker} chiếu tướng (chiếu rút).`;
+      return v("discoveredCheck", [
+        `${O} đáp ${f.reply}, rút ${moved} mở đường cho ${checker} chiếu tướng (chiếu rút).`,
+        `${O} có đòn chiếu rút ${f.reply}: ${moved} rút đi để ${checker} chiếu tướng.`,
+        `${O} đi ${f.reply}, ${moved} dạt ra mở đường cho ${checker} chiếu tướng (chiếu rút).`,
+      ]);
     }
     case "pin": {
       const pinner = `${f.pinner.name} ${o}`;
+      const pinned = f.pinned.name;
       const target = f.absolute ? "Tướng" : f.behind.name;
       const guard = f.absolute ? "không thể di chuyển vì để lộ Tướng" : `di chuyển sẽ để mất ${target}`;
-      return `${O} đáp ${f.reply}, ${pinner} ghim chặt ${f.pinned.name} ở trước ${target} (${guard}).`;
+      const leave = f.absolute ? "không thể rời đi vì sẽ lộ Tướng" : `rời đi là mất ${target}`;
+      return v("pin", [
+        `${O} đáp ${f.reply}, ${pinner} ghim chặt ${pinned} ở trước ${target} (${guard}).`,
+        `${O} đi ${f.reply} ghim ${pinned}: ${pinned} đứng giữa ${pinner} và ${target} nên ${leave}.`,
+        `Sau ${f.reply} của ${O}, ${pinned} bị ${pinner} ghim trước ${target}, ${leave}.`,
+      ]);
     }
     case "horseBlock": {
+      const horse = f.horse.name;
       if (f.byOpponent) {
-        return `${O} đáp ${f.reply}, ngáng chân ${f.horse.name}, khiến ${f.horse.name} bị bó và không thể hoạt động.`;
+        return v("horseBlockOpp", [
+          `${O} đáp ${f.reply}, ngáng chân ${horse}, khiến ${horse} bị bó và không thể hoạt động.`,
+          `${O} đi ${f.reply} chặn đúng chân ${horse}, Mã mất đường nhảy và dễ bị bắt.`,
+          `Sau ${f.reply} của ${O}, ${horse} bị ngáng chân nên khó xoay xở.`,
+        ]);
       }
-      return `${f.blocker.name} vừa đi làm cản chân ${f.horse.name}, khiến ${f.horse.name} mất đường cơ động và khả năng phòng thủ.`;
+      return v("horseBlockSelf", [
+        `${f.blocker.name} vừa đi làm cản chân ${horse}, khiến ${horse} mất đường cơ động và khả năng phòng thủ.`,
+        `${f.blocker.name} tự chặn chân ${horse} của mình, khiến Mã vừa khó cơ động vừa mất khả năng bảo vệ.`,
+        `Nước này đặt ${f.blocker.name} vào đúng chân ${horse} (tự cản chân Mã), làm Mã bị bó và hở hàng phòng thủ.`,
+      ]);
     }
     case "trappedPiece": {
       const att = f.attacker ? ` dưới đòn tấn công của ${f.attacker.name} ${o}` : "";
       const rep = f.reply ? ` (${f.reply})` : "";
-      return `${f.piece.name} bị vây khốn${att}${rep}, không còn ô an toàn nào để tháo lui.`;
+      return v("trappedPiece", [
+        `${f.piece.name} bị vây khốn${att}${rep}, không còn ô an toàn nào để tháo lui.`,
+        `${f.piece.name} rơi vào thế bị vây${att}${rep}: đi đâu cũng bị ăn.`,
+        `${f.piece.name} đã lọt vào vòng vây${att}${rep} và không còn đường rút an toàn.`,
+      ]);
     }
     case "losesPiece": {
       const victim = f.victim.name;
       const attacker = `${f.attacker.name} ${o}`;
-      const tail = f.free ? `ăn không ${victim}` : `ăn ${victim}, lời ${formatPoints(f.points)} điểm sau khi đổi quân`;
+      const points = formatPoints(f.points);
+      const tail = f.free
+        ? v("losesPiece.free", [`ăn không ${victim}`, `bắt gọn ${victim}`, `ăn ${victim} mà không mất gì`])
+        : v("losesPiece.trade", [
+            `ăn ${victim}, lời ${points} điểm sau khi đổi quân`,
+            `ăn ${victim}, sau khi đổi quân vẫn lời ${points} điểm`,
+          ]);
       const guard = f.defended ? "; có quân bảo vệ nhưng đổi quân vẫn thiệt" : " mà không có quân bảo vệ";
+      const reply = `${O} đáp ${f.reply} ${tail}.`;
       switch (f.cause) {
         case "moved":
-          return `${victim} đi vào ô bị ${attacker} ăn${guard}. ${O} đáp ${f.reply} ${tail}.`;
+          return v("losesPiece.moved", [
+            `${victim} đi vào ô bị ${attacker} ăn${guard}. ${reply}`,
+            `${victim} đi vào tầm ăn của ${attacker}${guard}. ${reply}`,
+            `Nước này dâng ${victim} cho ${attacker}${guard}. ${reply}`,
+          ]);
         case "trade":
-          return `${f.moved.name} ăn ${f.took!.name} ${o} nhưng bị ${attacker} ăn lại (${f.reply}), đổi như vậy thiệt ${formatPoints(f.points)} điểm.`;
+          return v("losesPiece.tradeCause", [
+            `${f.moved.name} ăn ${f.took!.name} ${o} nhưng bị ${attacker} ăn lại (${f.reply}), đổi như vậy thiệt ${points} điểm.`,
+            `${f.moved.name} ăn ${f.took!.name} ${o} rồi bị ${attacker} ăn lại bằng ${f.reply}; cuộc đổi quân này thiệt ${points} điểm.`,
+            `Đổi ${f.moved.name} lấy ${f.took!.name} ${o} là đổi lỗ: ${O} ăn lại bằng ${f.reply}, thiệt ${points} điểm.`,
+          ]);
         case "ignored":
-          return `${victim} đang bị ${attacker} bắt nhưng nước này không xử lý. ${O} đáp ${f.reply} ${tail}.`;
+          return v("losesPiece.ignored", [
+            `${victim} đang bị ${attacker} bắt nhưng nước này không xử lý. ${reply}`,
+            `Bỏ mặc ${victim} đang bị ${attacker} bắt. ${reply}`,
+            `${victim} bị ${attacker} bắt từ trước mà nước này không cứu. ${reply}`,
+          ]);
         case "opened":
-          return `${f.moved.name} rời chỗ cũ, mở đường cho ${attacker}. ${O} đáp ${f.reply} ${tail}.`;
+          return v("losesPiece.opened", [
+            `${f.moved.name} rời chỗ cũ, mở đường cho ${attacker}. ${reply}`,
+            `${f.moved.name} vừa đi đã để lộ đường cho ${attacker}. ${reply}`,
+            `Khi ${f.moved.name} rời đi, ${attacker} có đường tấn công. ${reply}`,
+          ]);
         case "screen":
-          return `${f.moved.name} đứng vào làm ngòi cho ${attacker}. ${O} đáp ${f.reply} ${tail}.`;
+          return v("losesPiece.screen", [
+            `${f.moved.name} đứng vào làm ngòi cho ${attacker}. ${reply}`,
+            `${f.moved.name} chen vào làm ngòi cho ${attacker}. ${reply}`,
+            `${f.moved.name} đứng sai chỗ, thành ngòi cho ${attacker}. ${reply}`,
+          ]);
         case "unguarded":
-          return `Nước này làm ${victim} mất bảo vệ. ${O} đáp ${f.reply} ${tail}.`;
+          return v("losesPiece.unguarded", [
+            `Nước này làm ${victim} mất bảo vệ. ${reply}`,
+            `Nước này khiến ${victim} không còn được bảo vệ đủ. ${reply}`,
+            `Sau nước này ${victim} thiếu quân bảo vệ. ${reply}`,
+          ]);
         default:
-          return `${O} đáp ${f.reply} ${tail}.`;
+          return reply;
       }
     }
     case "threatens": {
-      const names = f.targets.map((t) => t.name);
-      if (f.check) return `${O} đáp ${f.reply}, vừa chiếu tướng vừa đe dọa ăn ${names.join(" và ")}.`;
-      if (names.length >= 2) return `${O} đáp ${f.reply}, cùng lúc bắt ${names.join(" và ")}.`;
-      return `${O} đáp ${f.reply}, đe dọa ăn ${names[0]}.`;
+      const names = f.targets.map((t) => t.name).join(" và ");
+      if (f.check) {
+        return v("threatensCheck", [
+          `${O} đáp ${f.reply}, vừa chiếu tướng vừa đe dọa ăn ${names}.`,
+          `${O} có ${f.reply} chiếu tướng, kèm theo đòn bắt ${names}.`,
+          `Sau nước này, ${O} đi ${f.reply} vừa chiếu vừa bắt ${names}.`,
+        ]);
+      }
+      if (f.targets.length >= 2) {
+        return v("threatensFork", [
+          `${O} đáp ${f.reply}, cùng lúc bắt ${names}.`,
+          `${O} có đòn bắt đôi ${f.reply}, nhắm cả ${names}.`,
+          `${O} đi ${f.reply} bắt đôi ${names}, khó giữ được cả hai.`,
+        ]);
+      }
+      return v("threatens", [
+        `${O} đáp ${f.reply}, đe dọa ăn ${names}.`,
+        `${O} đi ${f.reply} bắt ${names}.`,
+        `Sau nước này, ${O} có ${f.reply} tấn công ${names}.`,
+      ]);
     }
     case "missedCapture":
-      return `Nên đi ${f.better} ăn ${f.victim.name} ${o}.`;
+      return v("missedCapture", [
+        `Nên đi ${f.better} ăn ${f.victim.name} ${o}.`,
+        `Lẽ ra có thể đi ${f.better} ăn ${f.victim.name} ${o}.`,
+        `Bỏ lỡ ${f.better} ăn ${f.victim.name} ${o}, lời ${formatPoints(f.points)} điểm.`,
+      ]);
     case "missedEscape":
-      return `Nên đi ${f.better} để đưa ${f.piece.name} khỏi chỗ bị bắt.`;
+      return v("missedEscape", [
+        `Nên đi ${f.better} để đưa ${f.piece.name} khỏi chỗ bị bắt.`,
+        `Cần đi ${f.better} cứu ${f.piece.name} đang bị bắt.`,
+        `Lẽ ra phải đi ${f.better} để ${f.piece.name} thoát khỏi chỗ bị bắt.`,
+      ]);
     case "openingFault": {
       const head = f.opening ? `Trong thế trận ${f.opening}: ` : "";
       const pName = f.piece?.name ?? "Quân này";
-      const betterPart = f.better ? ` Nên đi ${f.better}.` : "";
+      const betterPart = f.better ? v("openingFault.better", [` Nên đi ${f.better}.`, ` Hợp lý hơn là ${f.better}.`]) : "";
       if (f.fault === "repeatPiece") {
-        return `${head}${pName} đã đi nhiều lần trong khai cuộc khi các quân lớn khác chưa ra trận.${betterPart}`;
+        return v("openingFault.repeat", [
+          `${head}${pName} đã đi nhiều lần trong khai cuộc khi các quân lớn khác chưa ra trận.${betterPart}`,
+          `${head}khai cuộc kỵ đi một quân nhiều lần: ${pName} lại đi tiếp trong khi các quân lớn khác còn nằm nhà.${betterPart}`,
+          `${head}${pName} đi đi lại lại, làm chậm nhịp ra quân của cả thế trận.${betterPart}`,
+        ]);
       }
-      return `${head}khai cuộc cần sớm xuất Xe chiếm lộ thông (chậm ra Xe sẽ thất thế, "Một Xe mười quân").${betterPart}`;
+      return v("openingFault.lateRook", [
+        `${head}khai cuộc cần sớm xuất Xe chiếm lộ thông (chậm ra Xe sẽ thất thế, "Một Xe mười quân").${betterPart}`,
+        `${head}hai Xe vẫn nằm ở góc dù khai cuộc đã qua mấy nước; Xe là quân mạnh nhất, ra chậm là thiệt ("Một Xe mười quân").${betterPart}`,
+        `${head}nên tranh thủ đưa Xe ra lộ thông trước, quân mạnh nhất còn nằm nhà thì thế trận thiếu sức.${betterPart}`,
+      ]);
     }
     case "strategy": {
-      const intro = PLAN_TEXT[f.plan](O, f.opening);
-      const why = f.gains.map((p) => GAIN_TEXT[p]).join(" và ");
-      const loss = f.worsened[0] === "matGoc" && f.loose.length ? `để ${f.loose.join(", ")} mất gốc` : LOSS_TEXT[f.worsened[0]];
-      const worse = f.worsened.length ? `, còn ${f.played} ${loss}` : "";
-      return `${intro ? intro + " " : ""}Nên đi ${f.better}: ${why}${worse}.`;
+      const intro = v(`plan.${f.plan}`, PLAN_TEXT[f.plan])(O, f.opening);
+      const lead = intro ? intro + " " : "";
+      const why = f.gains.map(gain).join(" và ");
+      const worse = f.worsened.length
+        ? v("strategy.worse", [", còn ", "; trong khi đó "]) + `${f.played} ${loss(f.worsened[0], f.loose)}`
+        : "";
+      return v("strategy", [
+        `${lead}Nên đi ${f.better}: ${why}${worse}.`,
+        `${lead}Tốt hơn là ${f.better}, vì ${why}${worse}.`,
+        `${lead}${f.better} là lựa chọn tốt hơn: ${why}${worse}.`,
+      ]);
     }
     case "idea": {
-      const head = f.opening && f.plan === "raQuan" ? `Kế hoạch ra quân (${f.opening}):` : `Kế hoạch: ${PLAN_NAME[f.plan]}.`;
-      const lossText = (p: Principle) => (p === "matGoc" && f.loose.length ? `để ${f.loose.join(", ")} mất gốc` : LOSS_TEXT[p]);
-      const good = f.gains.map((p) => (p === "matGoc" ? "quân có gốc hơn" : GAIN_TEXT[p])).join(" và ");
-      if (good && f.worsened.length) return `${head} ${f.played} giúp ${good}, nhưng ${lossText(f.worsened[0])}.`;
-      if (good) return `${head} ${f.played} giúp ${good}.`;
-      if (f.worsened.length) return `${head} ${f.played} ${lossText(f.worsened[0])}.`;
-      return `${head} ${f.played} giữ thế, chưa thay đổi nhiều.`;
+      const head =
+        f.opening && f.plan === "raQuan"
+          ? v("idea.headOpening", [
+              `Kế hoạch ra quân (${f.opening}):`,
+              `Ra quân theo ${f.opening}:`,
+              `Trong thế trận ${f.opening}:`,
+            ])
+          : v("idea.head", [
+              `Kế hoạch: ${PLAN_NAME[f.plan]}.`,
+              `Hướng chính lúc này: ${PLAN_NAME[f.plan]}.`,
+              `Trọng tâm: ${PLAN_NAME[f.plan]}.`,
+            ]);
+      const good = f.gains.map((p) => (p === "matGoc" ? "quân có gốc hơn" : gain(p))).join(" và ");
+      const bad = f.worsened.length ? loss(f.worsened[0], f.loose) : "";
+      if (good && bad) {
+        return v("idea.mixed", [
+          `${head} ${f.played} giúp ${good}, nhưng ${bad}.`,
+          `${head} ${f.played} được cái ${good}, tiếc là ${bad}.`,
+          `${head} ${f.played} giúp ${good}, song lại ${bad}.`,
+        ]);
+      }
+      if (good) {
+        return v("idea.good", [`${head} ${f.played} giúp ${good}.`, `${head} Ưu điểm của ${f.played}: ${good}.`]);
+      }
+      if (bad) {
+        return v("idea.bad", [`${head} ${f.played} ${bad}.`, `${head} Nhược điểm của ${f.played}: ${bad}.`]);
+      }
+      return v("idea.neutral", [
+        `${head} ${f.played} giữ thế, chưa thay đổi nhiều.`,
+        `${head} ${f.played} là nước chờ, thế cờ chưa đổi nhiều.`,
+        `${head} ${f.played} không làm thế cờ thay đổi đáng kể.`,
+      ]);
     }
     case "evalDrop": {
       const lost = `${SIDE_NAME[mover]} thiệt khoảng ${formatPoints(f.points)} điểm`;
-      if (!f.reply) return `Theo AI, ${lost} so với nước tốt nhất.`;
-      return `Nước đáp mạnh nhất của ${O} là ${f.reply}${f.check ? " (chiếu tướng)" : ""}; theo AI, ${lost}.`;
+      if (!f.reply) {
+        return v("evalDrop", [`Theo AI, ${lost} so với nước tốt nhất.`, `So với nước tốt nhất, ${lost} theo đánh giá của AI.`]);
+      }
+      const check = f.check ? " (chiếu tướng)" : "";
+      return v("evalDropReply", [
+        `Nước đáp mạnh nhất của ${O} là ${f.reply}${check}; theo AI, ${lost}.`,
+        `${O} sẽ đáp ${f.reply}${check}; tính ra ${lost} so với nước tốt nhất.`,
+        `Sau nước đáp ${f.reply}${check} của ${O}, AI tính ${lost}.`,
+      ]);
     }
     case "missedWin": {
       const betterPart = f.better ? ` (nên đi ${f.better})` : "";
-      return `Bỏ lỡ cơ hội thắng rõ rệt: thế cờ đang áp đảo nhưng để rớt về thế cân bằng${betterPart}.`;
+      return v("missedWin", [
+        `Bỏ lỡ cơ hội thắng rõ rệt: thế cờ đang áp đảo nhưng để rớt về thế cân bằng${betterPart}.`,
+        `Thế thắng trong tầm tay nhưng để tuột mất, ván cờ trở về cân bằng${betterPart}.`,
+        `Đang áp đảo mà đi nước này thì ưu thế gần như mất hết${betterPart}.`,
+      ]);
     }
-    case "endgame": {
-      return `Thế cờ tàn cuộc lý thuyết: ${f.endgame.name}. ${f.endgame.description}`;
-    }
+    case "endgame":
+      return v("endgame", [
+        `Thế cờ tàn cuộc lý thuyết: ${f.endgame.name}. ${f.endgame.description}`,
+        `Đây là tàn cuộc lý thuyết "${f.endgame.name}". ${f.endgame.description}`,
+        `Thế cờ đã thành tàn cuộc ${f.endgame.name}. ${f.endgame.description}`,
+      ]);
   }
 }
 
-/** Lời giải thích hoàn chỉnh cho một nước của phe `mover`. */
-export function explainText(facts: Fact[], mover: Side): string {
-  return facts.map((f) => sentence(f, mover)).join(" ");
+/**
+ * Lời giải thích hoàn chỉnh cho một nước của phe `mover`.
+ * `seed` (thường là số nửa nước) đổi cách diễn đạt giữa các nước; bỏ trống thì dùng câu chuẩn.
+ */
+export function explainText(facts: Fact[], mover: Side, seed?: number): string {
+  return facts.map((f) => capitalize(sentence(f, mover, seed))).join(" ");
 }
 
 export {

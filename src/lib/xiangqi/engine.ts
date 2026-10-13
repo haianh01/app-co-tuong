@@ -29,9 +29,9 @@ export const typeOf = (p: Piece) => p.toLowerCase() as PieceType;
 export const opponent = (s: Side): Side => (s === "r" ? "b" : "r");
 
 const inBoard = (r: number, c: number) => r >= 0 && r < ROWS && c >= 0 && c < COLS;
-const inPalace = (r: number, c: number, s: Side) =>
+export const inPalace = (r: number, c: number, s: Side) =>
   c >= 3 && c <= 5 && (s === "r" ? r >= 7 && r <= 9 : r >= 0 && r <= 2);
-const crossedRiver = (r: number, s: Side) => (s === "r" ? r <= 4 : r >= 5);
+export const crossedRiver = (r: number, s: Side) => (s === "r" ? r <= 4 : r >= 5);
 
 const ORTHO = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
 const DIAG = [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const;
@@ -311,3 +311,27 @@ export function chasedPieces(before: Board, after: Board, mover: Side): number[]
   }
   return out;
 }
+
+/** Giá trị quy đổi quân chuẩn mực (centipawns). */
+export const PIECE_VALUES: Record<PieceType, number> = {
+  k: 10_000,
+  r: 900,
+  c: 450,
+  n: 400,
+  b: 200,
+  a: 200,
+  p: 100,
+};
+
+/** Tạo bàn cờ mới sau khi thực hiện nước đi `m` (thuần hàm, không thay đổi mảng cũ). */
+export function play(board: Board, m: Move): Board {
+  const next = board.slice();
+  next[m.to] = next[m.from];
+  next[m.from] = null;
+  return next;
+}
+
+/** Kiểm tra một ô cờ (0..89) có nằm trong cung tướng của phe `s` không. */
+export const inPalaceSq = (square: number, s: Side): boolean =>
+  inPalace(rowOf(square), colOf(square), s);
+

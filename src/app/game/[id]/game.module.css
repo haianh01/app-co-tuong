@@ -452,3 +452,119 @@
   color: #fca5a5;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
+
+/* Khối phân tích chuyên gia toàn diện (B1 - B7) */
+.expertCard {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(217, 164, 65, 0.25);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.expertHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 8px;
+}
+
+.expertPhaseBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 700;
+  background: rgba(217, 164, 65, 0.15);
+  color: var(--gold-text);
+  border: 1px solid rgba(217, 164, 65, 0.3);
+}
+
+.expertPlanText {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.expertSection {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.expertSectionTitle {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.expertSectionAssessment {
+  color: #60a5fa;
+}
+
+.expertSectionIntent {
+  color: #34d399;
+}
+
+.expertSectionThreat {
+  color: #f87171;
+}
+
+.expertSectionOpening {
+  color: #fbbf24;
+}
+
+.expertFactorList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 4px;
+}
+
+.expertFactorTag {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(96, 165, 250, 0.12);
+  color: #93c5fd;
+  border: 1px solid rgba(96, 165, 250, 0.25);
+}
+
+.expertNextMoves {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.expertNextMoveBtn {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  color: #fde68a;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.expertNextMoveBtn:hover {
+  background: rgba(251, 191, 36, 0.25);
+  border-color: #fbbf24;
+}
+

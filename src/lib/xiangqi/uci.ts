@@ -1,7 +1,7 @@
 // Chuyển đổi giữa cách biểu diễn của dự án và giao thức UCI của engine (Pikafish, Fairy-Stockfish).
 // UCI dùng tọa độ ICCS: cột a–i từ trái sang (phía Đỏ), hàng 0–9 tính từ đáy bên Đỏ, vd. "h2e2" = Pháo 2 bình 5.
 
-import { COLS, ROWS, toFen, type Board, type Move, type Position } from "./engine";
+import { COLS, ROWS, toFen, play, type Board, type Move, type Position } from "./engine";
 import { moveNotation } from "./notation";
 
 /** Điểm chiếu bí theo quy ước của ai.ts: MATE − số nửa nước đến khi chiếu bí. */
@@ -29,13 +29,6 @@ export function engineScore(cp: number | null | undefined, mate: number | null |
   if (mate == null) return cp ?? 0;
   if (mate > 0) return MATE_SCORE - (2 * mate - 1);
   return -(MATE_SCORE - 2 * Math.abs(mate));
-}
-
-function play(board: Board, m: Move): Board {
-  const next = board.slice();
-  next[m.to] = next[m.from];
-  next[m.from] = null;
-  return next;
 }
 
 /** Chuyển mảng các chuỗi nước đi UCI thành mảng Move. */

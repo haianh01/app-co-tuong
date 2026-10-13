@@ -542,16 +542,6 @@ describe("đa dạng cách diễn đạt (explainText với seed)", () => {
     });
 
     it("explainMove phát hiện khi nước đi để đối phương lập thế Trùng Pháo", () => {
-      // Trước: Đen có 2 Pháo ở (2, 4) và (4, 4), Sĩ đen ở (1, 4)
-      // Tướng đỏ ở (9, 4). Đỏ đi nước hớ không xử lý.
-      const beforePos = parseFen("4k4/9/4c4/9/4c4/9/9/9/4K4/9 w");
-      // Đỏ đi một nước hớ Tướng sang (9, 3) chẳng hạn
-      const move = { from: sq(8, 4), to: sq(8, 3) };
-      // Bàn cờ trước nước đi
-      const startBoard = parseFen("4k4/9/4c4/9/4c4/9/9/9/4K4/9 w").board;
-      const afterBoard = startBoard.slice();
-      // Đối phương có nước đáp lập thế
-      const replyMove = { from: sq(2, 4), to: sq(2, 4) }; // Hoặc reply tạo thế
       const facts: Fact[] = [
         {
           kind: "pattern",

@@ -6,6 +6,7 @@ import type { BoardArrow } from "@/components/board/XiangqiBoard";
 import { useSession } from "@/components/session/SessionProvider";
 import { useAnalysisWorker } from "@/hooks/useAnalysisWorker";
 import { useEngine } from "@/hooks/useEngine";
+import { FACTOR_NAMES } from "@/lib/xiangqi/assess";
 import {
   CLASS_NAME,
   findTurningPoints,
@@ -16,11 +17,19 @@ import {
   type TurningPoint,
 } from "@/lib/xiangqi/analysis";
 import { toFen, type Board, type Move, type Side } from "@/lib/xiangqi/engine";
-import { explainText } from "@/lib/xiangqi/explain";
+import { explainText, type Fact } from "@/lib/xiangqi/explain";
 import type { GameState } from "@/lib/xiangqi/game";
+import type { GamePhase } from "@/lib/xiangqi/phases";
+import { PLAN_NAME } from "@/lib/xiangqi/strategy";
 import play from "@/app/play/play.module.css";
 import { ScoreChart } from "./ScoreChart";
 import styles from "./game.module.css";
+
+const PHASE_NAMES: Record<GamePhase, string> = {
+  khaiCuoc: "Khai cuộc",
+  trungCuoc: "Trung cuộc",
+  tanCuoc: "Tàn cuộc",
+};
 
 /** Người không phải VIP được phân tích bấy nhiêu ván mỗi ngày. */
 const FREE_PER_DAY = 3;
@@ -389,6 +398,102 @@ export function AnalysisPanel({
             </div>
           )}
 
+          {/* Thẻ phân tích kỳ lý chuyên gia toàn diện cho nước đang chọn (B1 - B7) */}
+          {currentReview && (
+            <div className={styles.expertCard}>
+              <div className={styles.expertHeader}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  {currentReview.phase && (
+                    <span className={styles.expertPhaseBadge}>
+                      ♟️ {PHASE_NAMES[currentReview.phase]}
+                    </span>
+                  )}
+                  <strong>
+                    Nước {Math.ceil(currentReview.ply / 2)}: {sideName(currentReview.side)} {currentReview.notation}
+                  </strong>
+                </div>
+                {currentReview.plan && (
+                  <span className={styles.expertPlanText}>
+                    Kế hoạch: Đỏ ({PLAN_NAME[currentReview.plan.r]}) · Đen ({PLAN_NAME[currentReview.plan.b]})
+                  </span>
+                )}
+              </div>
+
+              {/* 1. Đánh giá thế cờ */}
+              {currentReview.assessment && (
+                <div className={styles.expertSection}>
+                  <span className={`${styles.expertSectionTitle} ${styles.expertSectionAssessment}`}>
+                    ⚖️ Đánh giá cục diện
+                  </span>
+                  <p style={{ margin: 0 }}>
+                    {currentReview.assessment.leader
+                      ? `${sideName(currentReview.assessment.leader)} chiếm ưu thế (${currentReview.assessment.evalCp > 0 ? "+" : ""}${currentReview.assessment.evalCp} cp, ${currentReview.assessment.winPct.toFixed(1)}% thắng)`
+                      : `Cục diện giằng co cân bằng (${currentReview.assessment.winPct.toFixed(1)}% thắng)`}
+                    {currentReview.assessment.summary ? ` · ${currentReview.assessment.summary}` : ""}
+                  </p>
+                  {currentReview.assessment.factors.length > 0 && (
+                    <div className={styles.expertFactorList}>
+                      {currentReview.assessment.factors.map((f, fIdx) => (
+                        <span key={`f-${fIdx}`} className={styles.expertFactorTag}>
+                          {FACTOR_NAMES[f.id] ?? f.id} ({sideName(f.side)})
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 2. Ý đồ nước cờ */}
+              {currentReview.intent && (
+                <div className={styles.expertSection}>
+                  <span className={`${styles.expertSectionTitle} ${styles.expertSectionIntent}`}>
+                    🎯 Ý đồ nước đi
+                  </span>
+                  <p style={{ margin: 0 }}>{currentReview.intent.summary}</p>
+                  {currentReview.betterIntent && (
+                    <p style={{ margin: "2px 0 0", color: "var(--gold-text)", fontSize: "11px" }}>
+                      💡 Nước AI gợi ý ({currentReview.better}): {currentReview.betterIntent.summary}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* 3. Mối đe dọa từ đối phương */}
+              {currentReview.threats && currentReview.threats.length > 0 && (
+                <div className={styles.expertSection}>
+                  <span className={`${styles.expertSectionTitle} ${styles.expertSectionThreat}`}>
+                    ⚠️ Đối phương đang đe dọa
+                  </span>
+                  <p style={{ margin: 0, color: "#fca5a5" }}>{currentReview.threats[0].summary}</p>
+                </div>
+              )}
+
+              {/* 4. Sách khai cuộc & Gợi ý nước tiếp theo */}
+              {currentReview.openingGuide && (
+                <div className={styles.expertSection}>
+                  <span className={`${styles.expertSectionTitle} ${styles.expertSectionOpening}`}>
+                    📖 Khai cuộc: {currentReview.openingGuide.name}
+                  </span>
+                  {currentReview.openingGuide.intent && (
+                    <p style={{ margin: 0, fontSize: "11px", color: "var(--muted)" }}>
+                      Ý đồ: Đỏ ({currentReview.openingGuide.intent.r}) · Đen ({currentReview.openingGuide.intent.b})
+                    </p>
+                  )}
+                  {currentReview.openingGuide.nextMoves.length > 0 && (
+                    <div className={styles.expertNextMoves}>
+                      <span style={{ fontSize: "11px", color: "var(--muted)" }}>Nước sách tiếp theo:</span>
+                      {currentReview.openingGuide.nextMoves.slice(0, 4).map((nm, nmIdx) => (
+                        <span key={`nm-${nmIdx}`} className={styles.expertNextMoveBtn} title={nm.lineName}>
+                          {nm.move}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Chế độ đi thử biến tiếp diễn */}
           {previewLine && (
             <div className={styles.previewBox}>
@@ -455,8 +560,8 @@ export function AnalysisPanel({
                         {m.facts.some((f) => f.kind === "pattern") && (
                           <div className={styles.patternContainer}>
                             {m.facts
-                              .filter((f) => f.kind === "pattern")
-                              .map((f: any, idx: number) => (
+                              .filter((f): f is Fact & { kind: "pattern"; patternName: string; action: string; description: string } => f.kind === "pattern")
+                              .map((f, idx: number) => (
                                 <span
                                   key={`pat-${idx}`}
                                   className={styles.patternBadge}

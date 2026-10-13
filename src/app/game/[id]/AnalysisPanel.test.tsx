@@ -202,4 +202,30 @@ const note = (...parts: string[]) => (_: string, el: Element | null) =>
       globalThis.fetch = originalFetch;
     }
   });
+
+  it("hiển thị thẻ phân tích chuyên gia toàn diện (B1 - B7) khi xem nước cờ", async () => {
+    const state = replayMoves(
+      [{ from: sq(7, 0), to: sq(5, 0) }, { from: sq(3, 4), to: sq(4, 4) }],
+      "2bakab2/9/9/4p4/r8/9/4P4/C8/9/2BAKAB2 w",
+    );
+    const savedEvals = [
+      { score: 0, best: { from: sq(7, 0), to: sq(0, 0) }, depth: 10, pv: [] },
+      { score: 450, best: { from: sq(4, 0), to: sq(5, 0) }, depth: 10, pv: [] },
+      { score: -450, best: null, depth: 10, pv: [] },
+    ];
+    render(
+      <AnalysisPanel
+        state={state}
+        ply={1}
+        onSelect={() => {}}
+        viewer="r"
+        initialAnalysis={savedEvals}
+      />,
+    );
+
+    // Kiểm tra các phần của ExpertCard hiển thị
+    expect(await screen.findByText(/Đánh giá cục diện/i)).toBeTruthy();
+    expect(screen.getByText(/Kế hoạch:/i)).toBeTruthy();
+  });
 });
+

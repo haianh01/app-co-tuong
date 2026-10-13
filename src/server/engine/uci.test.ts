@@ -63,7 +63,7 @@ describe("computeSearchTimeoutMs", () => {
 describe("EnginePool APIs: threat & refute", () => {
   it("threat(fen): đổi lượt đi (null-move) tìm nước đe dọa của đối phương", async () => {
     const pool = new EnginePool("fake-exe", 1);
-    const mockSearch = vi.fn(async (_fen: string, _limits: EngineLimits): Promise<EngineResult> => ({
+    const mockSearch = vi.fn(async (): Promise<EngineResult> => ({
       bestmove: "h2e2",
       depth: 10,
       cp: 200,

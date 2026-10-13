@@ -606,7 +606,6 @@ function detectDaiDaoKhuOa(board: Board, side: Side, kSq: number): DetectedPatte
 function detectNhiQuyPhachMon(board: Board, side: Side, kSq: number): DetectedPattern | null {
   const pawns = findPieces(board, side, "p");
   const opp = opponent(side);
-  const palaceRow = opp === "b" ? 1 : 8;
 
   // Tìm 2 tốt ở nách cung: cột 3 và 5, ở hàng 1/2 với Black, 7/8 với Red
   const flankPawns = pawns.filter((pSq) => {

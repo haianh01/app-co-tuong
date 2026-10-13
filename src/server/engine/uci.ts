@@ -13,7 +13,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { inCheck, legalMoves, opponent, parseFen, type Board, type Move, type Position, type Side } from "@/lib/xiangqi/engine";
+import { inCheck, opponent, parseFen, type Board, type Move, type Position, type Side } from "@/lib/xiangqi/engine";
 import { explainMove, type Fact } from "@/lib/xiangqi/explain";
 import { moveNotation } from "@/lib/xiangqi/notation";
 import { winChance } from "@/lib/xiangqi/analysis";
@@ -26,6 +26,45 @@ export interface EngineLimits {
   depth?: number;
   /** Số biến đánh giá song song (mặc định 1, phân tích dùng 3). */
   multipv?: number;
+}
+
+/**
+ * Làm sạch và kiểm tra chặt chẽ các giới hạn engine từ client để ngăn ngừa
+ * UCI Command Injection và tấn công làm nghẽn tài nguyên engine pool.
+ */
+export function sanitizeEngineLimits(
+  raw: unknown,
+  defaults: EngineLimits,
+): EngineLimits {
+  if (typeof raw !== "object" || raw === null) return { ...defaults };
+  const obj = raw as Record<string, unknown>;
+  const limits: EngineLimits = {};
+
+  if (typeof obj.nodes === "number" && Number.isFinite(obj.nodes) && obj.nodes > 0) {
+    limits.nodes = Math.max(1_000, Math.min(120_000, Math.floor(obj.nodes)));
+  } else if (defaults.nodes !== undefined) {
+    limits.nodes = defaults.nodes;
+  }
+
+  if (typeof obj.depth === "number" && Number.isFinite(obj.depth) && obj.depth > 0) {
+    limits.depth = Math.max(1, Math.min(20, Math.floor(obj.depth)));
+  } else if (defaults.depth !== undefined) {
+    limits.depth = defaults.depth;
+  }
+
+  if (typeof obj.movetime === "number" && Number.isFinite(obj.movetime) && obj.movetime > 0) {
+    limits.movetime = Math.max(100, Math.min(5_000, Math.floor(obj.movetime)));
+  } else if (defaults.movetime !== undefined) {
+    limits.movetime = defaults.movetime;
+  }
+
+  if (typeof obj.multipv === "number" && Number.isFinite(obj.multipv) && obj.multipv > 0) {
+    limits.multipv = Math.max(1, Math.min(3, Math.floor(obj.multipv)));
+  } else if (defaults.multipv !== undefined) {
+    limits.multipv = defaults.multipv;
+  }
+
+  return limits;
 }
 
 export interface EngineLine {
@@ -223,6 +262,8 @@ export class UciProcess {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.listeners = this.listeners.filter((l) => l !== fn);
+        // Hủy tiến trình ngay khi timeout để ngăn việc engine trả bestmove muộn vào request sau
+        this.kill();
         reject(new Error("Engine không trả lời"));
       }, timeoutMs);
       const fn = (line: string) => {
@@ -246,8 +287,10 @@ export class UciProcess {
 
   /**
    * Tìm kiếm nước đi tốt nhất cho thế cờ.
-   * `options.newGame = true` chỉ gửi ucinewgame khi bắt đầu ván mới.
-   * Các nước tiếp theo trong cùng ván không gửi ucinewgame để giữ ấm bộ nhớ đệm (Hash).
+   * Mặc định `options?.newGame !== false` luôn gửi ucinewgame để khởi tạo ván mới sạch sẽ,
+   * tránh bị ô nhiễm bộ nhớ đệm (Hash) giữa các request/cấp độ khác nhau.
+   * Chỉ khi caller truyền tường minh `options: { newGame: false }` (như trong batch phân tích ván),
+   * thì mới bỏ qua ucinewgame để giữ ấm bộ nhớ đệm.
    */
   async search(
     fen: string,
@@ -256,7 +299,8 @@ export class UciProcess {
     options?: { newGame?: boolean },
   ): Promise<EngineResult> {
     await this.ready;
-    if (options?.newGame) {
+    const shouldNewGame = options?.newGame !== false;
+    if (shouldNewGame) {
       await this.newGame();
     }
     const targetMultiPv = limits.multipv ?? 1;

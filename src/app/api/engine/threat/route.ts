@@ -1,6 +1,6 @@
 import { connection } from "next/server";
 import { parseFen } from "@/lib/xiangqi/engine";
-import { getEnginePool, type EngineLimits } from "@/server/engine/uci";
+import { getEnginePool, sanitizeEngineLimits, type EngineLimits } from "@/server/engine/uci";
 import { RateLimiter } from "@/server/rate-limit";
 
 // Mỗi IP: 300 lần / 5 phút
@@ -30,10 +30,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "FEN không hợp lệ" }, { status: 400, headers: noStore });
   }
 
-  const limits: EngineLimits =
-    typeof body.limits === "object" && body.limits !== null
-      ? (body.limits as EngineLimits)
-      : { nodes: 40_000, multipv: 1 };
+  const limits: EngineLimits = sanitizeEngineLimits(body.limits, { nodes: 40_000, multipv: 1 });
 
   try {
     const result = await pool.threat(fenStr, limits);

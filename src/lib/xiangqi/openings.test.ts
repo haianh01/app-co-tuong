@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest";
 import { computeBadges, type BadgeStats } from "@/lib/badges";
 import { applyMove, initialPosition, legalMoves } from "./engine";
 import { moveNotation } from "./notation";
-import { isBookMove, openingOf, tallyOpenings, detectOpeningFromMoves } from "./openings";
+import {
+  isBookMove,
+  openingOf,
+  tallyOpenings,
+  detectOpeningFromMoves,
+  findNextBookMoves,
+  getOpeningGuide,
+} from "./openings";
 
 const start = initialPosition();
 const red = (n: string) => openingOf(n).name;
@@ -83,6 +90,46 @@ describe("nhận diện khai cuộc", () => {
 
     // Nước lạ
     expect(detectOpeningFromMoves([])).toBeUndefined();
+  });
+
+  describe("Cây khai cuộc mở rộng và gợi ý nước đi (B7)", () => {
+    it("findNextBookMoves gợi ý chính xác các nước đi tiếp theo chuẩn trong sách", () => {
+      // Sau nước 1 P2-5 của Đỏ, Đen có các nước đối ứng chuẩn (M8.7, P8-5, P2-5, M2.3...)
+      const nextMoves = findNextBookMoves(["P2-5"]);
+      expect(nextMoves.length).toBeGreaterThanOrEqual(4);
+      const moves = nextMoves.map((m) => m.move);
+      expect(moves).toContain("M8.7"); // Thuận/Bình phong
+      expect(moves).toContain("P8-5"); // Thuận pháo
+      expect(moves).toContain("P2-5"); // Nghịch pháo
+      expect(moves).toContain("M2.3"); // Phản cung mã
+
+      // Đã đi 2 nước P2-5, M8.7 -> Đỏ có nước tiếp theo M2.3
+      const nextRed = findNextBookMoves(["P2-5", "M8.7"]);
+      expect(nextRed.some((m) => m.move === "M2.3")).toBe(true);
+
+      // Khi chuỗi rỗng hoặc vượt quá độ sâu sách -> trả về mảng rỗng
+      expect(findNextBookMoves([])).toEqual([]);
+    });
+
+    it("getOpeningGuide cung cấp đầy đủ thông tin kỳ lý và ý đồ hai bên", () => {
+      const guide = getOpeningGuide(["P2-5", "M8.7", "M2.3", "X9-8", "X1-2", "M2.3", "B7.1", "B7.1", "X2.6", "P8-9"]);
+      expect(guide).not.toBeNull();
+      expect(guide?.name).toContain("Bình Phong Mã");
+      expect(guide?.category).toBe("binhPhongMa");
+      expect(guide?.intent?.r).toContain("Xe");
+      expect(guide?.intent?.b).toContain("pháo đổi xe");
+      expect(guide?.pliesMatched).toBe(10);
+    });
+
+    it("nhận diện các khai cuộc đặc sắc mới: Cấp Tấn Trung Binh và Kim Câu Pháo", () => {
+      // Cấp tấn trung binh
+      expect(
+        detectOpeningFromMoves(["P2-5", "M8.7", "M2.3", "X9-8", "X1-2", "M2.3", "B7.1", "B7.1", "B5.1"])
+      ).toContain("Cấp tấn trung binh");
+
+      // Kim Câu Pháo
+      expect(detectOpeningFromMoves(["P2-7", "M8.7"])).toContain("Kim Câu Pháo");
+    });
   });
 });
 

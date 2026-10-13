@@ -8,7 +8,7 @@ import type { PositionEval } from "./analysis";
 import {
   Board, Move, Piece, PieceType, Side,
   attackersOf, colOf, inCheck, isDefended, opponent, rowOf, sideOf, typeOf, ROWS, COLS,
-  findKing, isAttacked, pseudoMoves, sq,
+  findKing, isAttacked, pseudoMoves, sq, play,
 } from "./engine";
 import { PIECE_NAME, moveNotation } from "./notation";
 import {
@@ -18,6 +18,31 @@ import {
 import { detectTheoreticalEndgame, type TheoreticalEndgame } from "./endgame";
 import { buildLlmCommentaryPrompt, generateLlmCommentary, type LlmCommentaryOptions, type LlmPrompt } from "./llm-commentary";
 import { detectPatterns, type MatePatternId } from "./patterns";
+import { type PositionAssessment, FACTOR_NAMES } from "./assess";
+import {
+  type ThreatFact,
+  type IgnoredThreatFact,
+  type ParriedFact,
+  type ThreatData,
+  detectThreat,
+  detectThreatMoveFacts,
+} from "./threats";
+import {
+  type Purpose,
+  type IntentFact,
+  type DetectIntentOptions,
+  detectIntent,
+  PURPOSE_NAMES,
+} from "./intent";
+import {
+  type InitiativeFact,
+  type OpenFileFact,
+  type ExchangeFact,
+  type ExchangeReason,
+  detectInitiative,
+  detectOpenFile,
+  detectExchange,
+} from "./middlegame";
 
 /** Điểm thắng tuyệt đối mà AI trả về khi thấy chiếu bí (khớp với MATE trong ai.ts). */
 const MATE = 100_000;
@@ -37,13 +62,6 @@ function valueAt(board: Board, square: number): number {
   if (t !== "p") return VALUE[t] ?? 0;
   const crossed = sideOf(p) === "r" ? rowOf(square) <= 4 : rowOf(square) >= 5;
   return crossed ? 200 : 100;
-}
-
-function play(board: Board, m: Move): Board {
-  const next = board.slice();
-  next[m.to] = next[m.from];
-  next[m.from] = null;
-  return next;
 }
 
 /** Nước ăn quân ở `target` bằng quân rẻ nhất của phe `by` mà không tự để tướng bị chiếu. */
@@ -175,7 +193,23 @@ export type Fact =
       reply?: string;
       pieces?: PieceRef[];
       description?: string;
-    };
+    }
+  /** Đánh giá thế cờ toàn diện, giải thích vì sao một bên hơn (B2). */
+  | PositionAssessment
+  /** Đòn đe dọa của một bên khi bên kia bỏ lượt (B3). */
+  | ThreatFact
+  /** Nước đi bỏ qua đòn đe dọa có sẵn của đối phương (B3). */
+  | IgnoredThreatFact
+  /** Nước đi kịp thời hóa giải đòn đe dọa của đối phương (B3). */
+  | ParriedFact
+  /** Ý đồ chiến thuật / chiến lược của nước cờ (B4). */
+  | IntentFact
+  /** Tranh tiên / chuỗi nước ép buộc liên tiếp (B5). */
+  | InitiativeFact
+  /** Lộ mở / chiếm cột thông (B5). */
+  | OpenFileFact
+  /** Đổi quân có chủ đích (B5). */
+  | ExchangeFact;
 
 export interface MoveContext {
   before: Board;
@@ -193,6 +227,10 @@ export interface MoveContext {
   opening?: string;
   /** Lịch sử các nước cờ đã đi trước nước này. */
   historyMoves?: Move[];
+  /** Dữ liệu đòn đe dọa trước nước đi (nếu có tính toán từ engine). */
+  threatBefore?: ThreatData | null;
+  /** Dữ liệu đòn đe dọa sau nước đi (nếu có tính toán từ engine). */
+  threatAfter?: ThreatData | null;
 }
 
 const sameMove = (a: Move | null | undefined, b: Move) => !!a && a.from === b.from && a.to === b.to;
@@ -307,6 +345,14 @@ export function explainMove(ctx: MoveContext): Fact[] {
     const threat = threatAfter(after, reply, mover);
     if (threat) facts.push(threat);
   }
+  if (ctx.threatBefore) {
+    const threatMoveFacts = detectThreatMoveFacts(ctx);
+    for (const tf of threatMoveFacts) {
+      if (!facts.some((f) => f.kind === tf.kind)) {
+        facts.push(tf);
+      }
+    }
+  }
   if (better) {
     const missed = missedChance(before, after, move, better, mover);
     if (missed) facts.push(missed);
@@ -321,7 +367,10 @@ export function explainMove(ctx: MoveContext): Fact[] {
       f.kind === "discoveredCheck" ||
       f.kind === "pin" ||
       f.kind === "horseBlock" ||
-      f.kind === "trappedPiece",
+      f.kind === "trappedPiece" ||
+      f.kind === "threat" ||
+      f.kind === "ignoredThreat" ||
+      f.kind === "parried",
   );
   if (better && !tactical) {
     if (ctx.ply !== undefined && ctx.ply <= 16) {
@@ -354,7 +403,17 @@ export function explainMove(ctx: MoveContext): Fact[] {
 }
 
 /** Thế cờ sau một nước và nước đáp mạnh nhất của đối phương (để việc đổi quân dở dang không làm lệch chỉ số). */
-function settle(board: Board, m: Move, reply?: Move | null): Board {
+function settle(board: Board, m: Move, reply?: Move | null, pv?: Move[]): Board {
+  if (pv && pv.length > 0) {
+    let current = board;
+    const movesToPlay = pv[0]?.from === m.from && pv[0]?.to === m.to ? pv : [m, ...pv];
+    for (const step of movesToPlay) {
+      if (current[step.from]) {
+        current = play(current, step);
+      }
+    }
+    return current;
+  }
   const after = play(board, m);
   if (reply !== undefined) return reply ? play(after, reply) : after;
   const turn = opponent(sideOf(board[m.from]!));
@@ -401,7 +460,7 @@ function newlyLoose(before: Board, move: Move, after: Board, mover: Side): strin
 
 /**
  * Nhận xét chiến lược cho mọi nước (kể cả nước tốt): kế hoạch hiện tại và nước này làm được / làm hỏng gì
- * so với trước khi đi (đã tính nước đáp `reply` của đối phương nếu có).
+ * so với trước khi đi (đã tính nước đáp `reply` của đối phương hoặc chuỗi PV nếu có).
  */
 export function moveIdea(
   before: Board,
@@ -411,6 +470,8 @@ export function moveIdea(
   opening?: string,
   historyMoves?: Move[],
   isBest?: boolean,
+  pv?: Move[],
+  intentOptions?: DetectIntentOptions,
 ): Fact {
   const mover = sideOf(before[move.from]!);
   if (!isBest && historyMoves) {
@@ -425,8 +486,25 @@ export function moveIdea(
     }
   }
 
+  // Tận dụng intent khi là nước tốt nhất (B4)
+  if (isBest) {
+    const intent = detectIntent(before, move, play(before, move), {
+      ...intentOptions,
+      pv: intentOptions?.pv ?? pv,
+      ply: intentOptions?.ply ?? ply,
+    });
+    if (
+      intent &&
+      (intent.purposes.includes("thiQuan") ||
+        intent.purposes.includes("datSat") ||
+        intent.purposes.includes("lapHinh"))
+    ) {
+      return intent;
+    }
+  }
+
   const plan = choosePlan(before, mover, ply);
-  const after = settle(before, move, reply);
+  const after = settle(before, move, reply, pv);
   const b0 = principleScores(before, mover);
   const a = principleScores(after, mover);
   const deltas = PRINCIPLES.map((p) => ({ p, d: WEIGHTS[plan][p] * (a[p] - b0[p]) }));
@@ -792,7 +870,7 @@ export function pickVariant<T>(variants: readonly T[], seed: number | undefined,
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
-function sentence(f: Fact, mover: Side, seed: number | undefined): string {
+export function sentence(f: Fact, mover: Side = "r", seed?: number): string {
   const O = SIDE_NAME[opponent(mover)];
   const o = COLOR[opponent(mover)];
   const v = <T>(key: string, variants: readonly T[]) => pickVariant(variants, seed, key);
@@ -1093,6 +1171,62 @@ function sentence(f: Fact, mover: Side, seed: number | undefined): string {
         `Đây là tàn cuộc lý thuyết "${f.endgame.name}". ${f.endgame.description}`,
         `Thế cờ đã thành tàn cuộc ${f.endgame.name}. ${f.endgame.description}`,
       ]);
+    case "assessment": {
+      if (f.dynamic && f.summary) {
+        return f.summary;
+      }
+      if (!f.leader) {
+        return v("assessment.neutral", [
+          "Thế cờ giằng co cân bằng, hai bên ngang ngửa về thế trận.",
+          "Thế trận cân bằng, chưa bên nào tạo được ưu thế rõ rệt.",
+        ]);
+      }
+      const leaderName = SIDE_NAME[f.leader];
+      const factorDescs = f.factors.map((fa) => FACTOR_NAMES[fa.id]).join(", ");
+      return v("assessment.leader", [
+        `${leaderName} chiếm ưu thế nhờ ${factorDescs}.`,
+        `Ưu thế thuộc về ${leaderName} với các yếu tố: ${factorDescs}.`,
+      ]);
+    }
+    case "threat": {
+      const byName = SIDE_NAME[f.by];
+      if (f.isMate) {
+        return v("threat.mate", [
+          `${byName} đang đe dọa sát cục bằng nước ${f.move}.`,
+          `Nguy hiểm: ${byName} dọa chiếu bí với ${f.move}.`,
+          `${byName} chuẩn bị đòn sát cục bắt đầu bằng ${f.move}.`,
+        ]);
+      }
+      if (f.summary) {
+        return f.summary;
+      }
+      return v("threat.gain", [
+        `${byName} dọa ${f.move}${f.line.length > 1 ? ` (biến: ${f.line.join(", ")})` : ""}.`,
+        `Đối phương đang đe dọa nước ${f.move}.`,
+      ]);
+    }
+    case "ignoredThreat": {
+      return v("ignoredThreat", [
+        `Nước đi bỏ qua đòn đe dọa ${f.threat} của ${O}, để ${O} đi ${f.reply} chiếm ưu thế (+${formatPoints(f.points)} điểm).`,
+        `Bỏ qua nước dọa ${f.threat} của đối phương; ${O} lập tức khai thác bằng ${f.reply} (+${formatPoints(f.points)} điểm).`,
+        `Không phòng thủ đòn dọa ${f.threat}, để ${O} đáp trả bằng ${f.reply}.`,
+      ]);
+    }
+    case "parried": {
+      return v("parried", [
+        `Nước ${f.played} kịp thời hóa giải đòn đe dọa ${f.threat} của ${O}.`,
+        `${f.played} là nước phòng thủ chuẩn xác, vô hiệu hóa đòn dọa ${f.threat}.`,
+        `Kịp thời đi ${f.played} để chặn đứng đòn dọa ${f.threat} của ${O}.`,
+      ]);
+    }
+    case "intent":
+      return f.summary;
+    case "initiative":
+      return f.summary;
+    case "openFile":
+      return f.summary;
+    case "exchange":
+      return f.summary;
   }
 }
 
@@ -1111,4 +1245,21 @@ export {
   type LlmCommentaryOptions,
   type LlmPrompt,
   type TheoreticalEndgame,
+  type ThreatFact,
+  type IgnoredThreatFact,
+  type ParriedFact,
+  type ThreatData,
+  detectThreat,
+  detectThreatMoveFacts,
+  type Purpose,
+  type IntentFact,
+  detectIntent,
+  PURPOSE_NAMES,
+  type InitiativeFact,
+  type OpenFileFact,
+  type ExchangeFact,
+  type ExchangeReason,
+  detectInitiative,
+  detectOpenFile,
+  detectExchange,
 };

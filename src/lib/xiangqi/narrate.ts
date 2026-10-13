@@ -4,22 +4,14 @@
 // Ví dụ: "sau X1.1, M2.3, X1-2 thì Đen hơn một Xe".
 
 import {
-  Board, Move, PieceType, Side,
+  type Board, type Move, type PieceType, type Side,
   inCheck, isAttacked, isDefended, opponent, sideOf, typeOf, legalMoves,
+  play, PIECE_VALUES,
 } from "./engine";
 import { exchangeGain, ref, type PieceRef } from "./explain";
 import { PIECE_NAME, moveNotation } from "./notation";
 
-/** Giá trị quy đổi quân (khớp với explain.ts). */
-export const PIECE_VALUES: Record<PieceType, number> = {
-  k: 10_000,
-  r: 900,
-  c: 450,
-  n: 400,
-  b: 200,
-  a: 200,
-  p: 100,
-};
+export { PIECE_VALUES };
 
 export interface PlyNarration {
   /** Thứ tự nửa nước (1, 2, 3...) */
@@ -176,13 +168,6 @@ export function describeMaterialDelta(startBoard: Board, endBoard: Board): Mater
   };
 }
 
-function play(board: Board, m: Move): Board {
-  const next = board.slice();
-  next[m.to] = next[m.from];
-  next[m.from] = null;
-  return next;
-}
-
 /**
  * Tìm các quân của đối phương bị đe dọa sau nước đi.
  * Là các quân bị tấn công mà không có quân bảo vệ, hoặc đổi quân có lợi cho bên đi.
@@ -232,14 +217,20 @@ function isAttackedDirect(board: Board, target: number, attackerSq: number): boo
   return isAttacked(singleBoard, target, sideOf(piece));
 }
 
+export interface NarratePvOptions {
+  /** Bỏ qua tính toán đòn đe dọa chi tiết từng nửa nước để tăng tốc tối đa */
+  skipThreats?: boolean;
+}
+
 /**
- * Phân tích và "kể" diễn biến của một chuỗi nước PV.
+ * Phân tích và sinh câu diễn biến cho một chuỗi nước đi PV của engine.
  *
- * @param startBoard Thế cờ ban đầu
- * @param turn Bên đi trước trong chuỗi
+ * @param startBoard Bàn cờ trước khi bắt đầu chuỗi biến
+ * @param turn Phe đi nước đầu tiên trong chuỗi
  * @param pv Dãy các nước đi trong biến
+ * @param options Tùy chọn hiệu năng bổ trợ
  */
-export function narratePv(startBoard: Board, turn: Side, pv: Move[]): PvNarration {
+export function narratePv(startBoard: Board, turn: Side, pv: Move[], options?: NarratePvOptions): PvNarration {
   if (!pv || pv.length === 0) {
     const delta = describeMaterialDelta(startBoard, startBoard);
     return {
@@ -271,7 +262,7 @@ export function narratePv(startBoard: Board, turn: Side, pv: Move[]): PvNarratio
     const nextBoard = play(currentBoard, m);
     const opp = opponent(currentTurn);
     const check = inCheck(nextBoard, opp);
-    const threats = findThreats(nextBoard, currentTurn, m.to);
+    const threats = options?.skipThreats ? [] : findThreats(nextBoard, currentTurn, m.to);
 
     plyNarratives.push({
       ply: idx + 1,

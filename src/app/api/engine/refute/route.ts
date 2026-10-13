@@ -1,6 +1,6 @@
 import { connection } from "next/server";
 import { parseFen, type Move } from "@/lib/xiangqi/engine";
-import { getEnginePool, type EngineLimits } from "@/server/engine/uci";
+import { getEnginePool, sanitizeEngineLimits, type EngineLimits } from "@/server/engine/uci";
 import { RateLimiter } from "@/server/rate-limit";
 
 // Mỗi IP: 300 lần / 5 phút
@@ -35,10 +35,7 @@ export async function POST(request: Request) {
   }
 
   const move = body.move as Move | string;
-  const limits: EngineLimits =
-    typeof body.limits === "object" && body.limits !== null
-      ? (body.limits as EngineLimits)
-      : { nodes: 60_000, multipv: 2 };
+  const limits: EngineLimits = sanitizeEngineLimits(body.limits, { nodes: 60_000, multipv: 2 });
 
   try {
     const result = await pool.refute(fenStr, move, limits);

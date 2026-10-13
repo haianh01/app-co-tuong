@@ -7,7 +7,7 @@
 // - Pass 2 (Sâu): 1-3M nodes, MultiPV 4 cho tối đa 10 thế cờ then chốt (winDrop lớn, nước duy nhất, nước hay).
 
 import { connection } from "next/server";
-import { winChance, type PositionEval } from "@/lib/xiangqi/analysis";
+import { winChance, winChanceFromWdl, type PositionEval } from "@/lib/xiangqi/analysis";
 import { legalMoves, parseFen, type Move } from "@/lib/xiangqi/engine";
 import { engineScore, toUciFen, uciToMove } from "@/lib/xiangqi/uci";
 import {
@@ -51,8 +51,8 @@ export function selectKeyPositions(evals: (PositionEval | null)[], maxCount: num
     // 1. Kiểm tra mức giảm xác suất thắng giữa 2 nước liên tiếp
     const next = evals[i + 1];
     if (next) {
-      const wBefore = cur.wdl ? cur.wdl[0] / 1000 : winChance(cur.score);
-      const wAfter = next.wdl ? 1 - next.wdl[0] / 1000 : winChance(-next.score);
+      const wBefore = cur.wdl ? winChanceFromWdl(cur.wdl) : winChance(cur.score);
+      const wAfter = next.wdl ? 1 - winChanceFromWdl(next.wdl) : winChance(-next.score);
       const winDrop = Math.max(0, wBefore - wAfter);
       if (winDrop >= 0.05) {
         isCandidate = true;
@@ -69,8 +69,8 @@ export function selectKeyPositions(evals: (PositionEval | null)[], maxCount: num
 
     // 2. Nước duy nhất (only) hoặc nước hay (brilliant) theo MultiPV
     if (cur.lines && cur.lines.length >= 2) {
-      const line1W = cur.lines[0]?.wdl ? cur.lines[0].wdl[0] / 1000 : winChance(cur.lines[0]?.score ?? cur.score);
-      const line2W = cur.lines[1]?.wdl ? cur.lines[1].wdl[0] / 1000 : winChance(cur.lines[1]?.score ?? -1500);
+      const line1W = cur.lines[0]?.wdl ? winChanceFromWdl(cur.lines[0].wdl) : winChance(cur.lines[0]?.score ?? cur.score);
+      const line2W = cur.lines[1]?.wdl ? winChanceFromWdl(cur.lines[1].wdl) : winChance(cur.lines[1]?.score ?? -1500);
       const deltaW = line1W - line2W;
       if (deltaW >= 0.15) {
         isCandidate = true;
@@ -242,7 +242,7 @@ export async function POST(request: Request) {
           }
 
           try {
-            const res = await runner.search(toUciFen(pos), ANALYSIS_FAST);
+            const res = await runner.search(toUciFen(pos), ANALYSIS_FAST, undefined, { newGame: false });
             engineCache.set(cacheKey, res);
             const searchedEval = convertEngineResultToEval(res, fen);
             collectedEvals.push(searchedEval);
@@ -292,7 +292,7 @@ export async function POST(request: Request) {
           }
 
           try {
-            const res = await runner.search(toUciFen(pos), ANALYSIS_DEEP);
+            const res = await runner.search(toUciFen(pos), ANALYSIS_DEEP, undefined, { newGame: false });
             engineCache.set(deepCacheKey, res);
             const deepEval = convertEngineResultToEval(res, fen);
             collectedEvals[idx] = deepEval;

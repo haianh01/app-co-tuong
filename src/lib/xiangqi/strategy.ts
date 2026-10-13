@@ -4,7 +4,8 @@
 // 3. Nguyên lý: các chỉ số đo được trên bàn cờ; kế hoạch quyết định trọng số của từng chỉ số.
 // Giải thích một nước = so chỉ số của thế sau nước đã đi với thế sau nước nên đi, lấy nguyên lý chênh nhiều nhất.
 
-import { Board, Move, Side, colOf, isDefended, opponent, pseudoMoves, rowOf, sideOf, typeOf } from "./engine";
+import { Board, Move, Side, colOf, opponent, pseudoMoves, rowOf, sideOf, typeOf, inPalaceSq as inPalace } from "./engine";
+import { extractFeatures } from "./features";
 
 export type Principle =
   | "xe" // Xe thông đường (số ô Xe đi được)
@@ -31,12 +32,6 @@ export type Plan = "raQuan" | "tanCong" | "phongThu" | "donGianHoa" | "tanCuoc" 
 
 const VALUE: Record<string, number> = { k: 0, a: 200, b: 200, n: 400, r: 900, c: 450, p: 100 };
 
-const inPalace = (i: number, s: Side) => {
-  const r = rowOf(i);
-  const c = colOf(i);
-  return c >= 3 && c <= 5 && (s === "r" ? r >= 7 : r <= 2);
-};
-
 /** Ô xuất phát của Xe, Mã, Pháo mỗi bên. */
 const HOME: Record<Side, number[]> = {
   r: [81, 82, 88, 89, 64, 70],
@@ -51,11 +46,8 @@ function pieces(board: Board, s: Side, types: string): number[] {
   return out;
 }
 
-const mobility = (board: Board, s: Side, t: string) =>
-  pieces(board, s, t).reduce((n, i) => n + pseudoMoves(board, i).length, 0);
-
 /** Số ô trong cung tướng của `target` bị phe đối phương khống chế. */
-function palacePressure(board: Board, target: Side): number {
+export function palacePressure(board: Board, target: Side): number {
   const by = opponent(target);
   const hit = new Set<number>();
   for (const i of pieces(board, by, "rncp")) for (const to of pseudoMoves(board, i)) if (inPalace(to, target)) hit.add(to);
@@ -63,10 +55,10 @@ function palacePressure(board: Board, target: Side): number {
 }
 
 /** Số hàng phe `s` đã tiến khỏi hàng đáy của mình (0–9). */
-const advance = (i: number, s: Side) => (s === "r" ? 9 - rowOf(i) : rowOf(i));
+export const advance = (i: number, s: Side) => (s === "r" ? 9 - rowOf(i) : rowOf(i));
 
 /** Quân phe `s` đứng ở điểm then chốt. */
-function keySquares(board: Board, s: Side): number {
+export function keySquares(board: Board, s: Side): number {
   let n = 0;
   for (const i of pieces(board, s, "n")) {
     const a = advance(i, s);
@@ -81,7 +73,7 @@ function keySquares(board: Board, s: Side): number {
 }
 
 /** Số ô Tướng đối phương có thể bước tới nhưng bị quân phe `s` khống chế (+1 nếu Tướng hết đường đi). */
-function kingControl(board: Board, s: Side): number {
+export function kingControl(board: Board, s: Side): number {
   const o = opponent(s);
   const k = board.indexOf(o === "r" ? "K" : "k");
   if (k < 0) return 0;
@@ -98,24 +90,30 @@ function kingControl(board: Board, s: Side): number {
 /** Chỉ số nguyên lý của phe `s` (càng cao càng tốt cho `s`), đã quy về cùng thang. */
 export function principleScores(board: Board, s: Side): Record<Principle, number> {
   const o = opponent(s);
+  const feat = extractFeatures(board);
+  const myFeat = feat[s];
+  const oppFeat = feat[o];
+
   const guards = pieces(board, s, "ab").length;
-  const loose = pieces(board, s, "rnc").filter((i) => !isDefended(board, i, s));
-  const crossed = pieces(board, s, "p").filter((i) => (s === "r" ? rowOf(i) <= 4 : rowOf(i) >= 5)).length;
+  const xeMobility = myFeat.pieces.filter((p) => typeOf(p.ref.piece) === "r").reduce((n, p) => n + p.mobility, 0);
+  const maMobility = myFeat.pieces.filter((p) => typeOf(p.ref.piece) === "n").reduce((n, p) => n + p.mobility, 0);
+  const oppXeMobility = oppFeat.pieces.filter((p) => typeOf(p.ref.piece) === "r").reduce((n, p) => n + p.mobility, 0);
+
   return {
-    xe: mobility(board, s, "r") / 3,
-    ma: mobility(board, s, "n") / 2,
+    xe: xeMobility / 3,
+    ma: maMobility / 2,
     raQuan: -HOME[s].filter((i) => board[i] && sideOf(board[i]!) === s && "rnc".includes(typeOf(board[i]!))).length,
     apLuc: palacePressure(board, o),
     anToan: -palacePressure(board, s) + guards / 2,
-    matGoc: -loose.length,
-    phongToa: -mobility(board, o, "r") / 3,
-    tot: crossed,
+    matGoc: -(myFeat.byTag.matGoc?.length ?? 0),
+    phongToa: -oppXeMobility / 3,
+    tot: myFeat.byTag.totQuaHa?.length ?? 0,
     diemThenChot: keySquares(board, s),
-    catLienLac: pieces(board, o, "rnc").filter((i) => !isDefended(board, i, o)).length,
+    catLienLac: oppFeat.byTag.matGoc?.length ?? 0,
     khongCheTuong: kingControl(board, s),
     khuyetSi: pieces(board, s, "n").length > 0 && pieces(board, o, "a").length <= 1 ? (2 - pieces(board, o, "a").length) * 1.5 : 0,
     khuyetTuong: pieces(board, s, "c").length > 0 && pieces(board, o, "b").length <= 1 ? (2 - pieces(board, o, "b").length) * 1.5 : 0,
-    totVaoCung: pieces(board, s, "p").filter((i) => (s === "r" ? rowOf(i) <= 2 : rowOf(i) >= 7) && colOf(i) >= 3 && colOf(i) <= 5).length * 2,
+    totVaoCung: (myFeat.byTag.totVaoCung?.length ?? 0) * 2,
   };
 }
 

@@ -1,9 +1,24 @@
 import { findBestMove } from "./ai";
-import { inCheck, legalMoves, opponent, type Board, type Move, type Side } from "./engine";
+import { assessPosition, type PositionAssessment } from "./assess";
+import { inCheck, legalMoves, opponent, play, type Board, type Move, type Side } from "./engine";
 import { explainMove, type Fact } from "./explain";
+import { detectIntent, type IntentFact } from "./intent";
 import type { GameState } from "./game";
 import { moveNotation } from "./notation";
-import { isBookMove, openingOf, detectOpeningFromMoves } from "./openings";
+import {
+  isBookMove,
+  detectOpeningFromMoves,
+  getOpeningGuide,
+  type OpeningGuide,
+} from "./openings";
+import {
+  detectPhases,
+  getPhaseAtPly,
+  type GamePhase,
+  type PhaseSummary,
+} from "./phases";
+import type { Plan } from "./strategy";
+import { detectThreat, type ThreatFact } from "./threats";
 import { formatPvLine } from "./uci";
 
 export interface PositionEvalLine {
@@ -74,6 +89,20 @@ export interface MoveReview {
   replyMove?: Move | null;
   /** Chuỗi nước cờ của biến tiếp diễn để đi thử trên bàn cờ. */
   pvMoves?: Move[];
+  /** Đánh giá thế cờ toàn diện sau nước đi (B2). */
+  assessment?: PositionAssessment | null;
+  /** Các mối đe dọa từ đối phương ở thế cờ hiện tại (B3). */
+  threats?: ThreatFact[];
+  /** Ý đồ kỳ lý của nước đã đi (B4). */
+  intent?: IntentFact | null;
+  /** Ý đồ kỳ lý của nước tốt hơn do AI đề xuất (B4). */
+  betterIntent?: IntentFact | null;
+  /** Giai đoạn ván đấu tại nửa nước này (B6). */
+  phase?: GamePhase;
+  /** Kế hoạch chiến lược hiện tại của hai bên (B6). */
+  plan?: Record<Side, Plan>;
+  /** Sách khai cuộc và ý đồ kỳ lý nếu đang ở khai cuộc (B7). */
+  openingGuide?: OpeningGuide | null;
 }
 
 export const CLASS_NAME: Record<MoveClass, string> = {
@@ -176,13 +205,6 @@ export function classifyWinDrop(
   return null;
 }
 
-function play(board: Board, m: Move): Board {
-  const next = board.slice();
-  next[m.to] = next[m.from];
-  next[m.from] = null;
-  return next;
-}
-
 /** Tính chuỗi biến phản đòn tiếp theo (tối đa maxPly nước) để giải thích sâu cho người chơi. */
 export function computeTacticalLine(
   after: Board,
@@ -243,6 +265,8 @@ export interface ReviewResult {
   moves: MoveReview[];
   accuracy: Record<Side, number | null>;
   opening?: string;
+  phases?: PhaseSummary[];
+  openingGuide?: OpeningGuide | null;
 }
 
 /**
@@ -259,6 +283,7 @@ export function reviewMove(
   historyMovesOverride?: Move[],
   playedNotationsOverride?: string[],
   thresholds: WinLossThresholds = WIN_LOSS_THRESHOLDS,
+  phases?: PhaseSummary[],
 ): {
   review: MoveReview;
   scoreLoss: number | null;
@@ -273,9 +298,29 @@ export function reviewMove(
     after = -clamp(afterEval.score);
   }
 
+  const notations = playedNotationsOverride ?? state.moves.slice(0, i + 1).map((x) => x.notation);
+  const phase: GamePhase = phases ? getPhaseAtPly(phases, i + 1) : (i + 1 <= 24 ? "khaiCuoc" : "trungCuoc");
+  const currentPhaseSummary = phases?.find((p) => i + 1 >= p.fromPly && i + 1 <= p.toPly);
+  const plan = currentPhaseSummary?.plan;
+  const openingGuide =
+    i + 1 <= 20 && isBookMove(notations)
+      ? getOpeningGuide(notations)
+      : null;
+
   if (!before || after === null) {
     return {
-      review: { ply: i + 1, side: m.side, notation: m.notation, loss: 0, cls: null, better: null, facts: [] },
+      review: {
+        ply: i + 1,
+        side: m.side,
+        notation: m.notation,
+        loss: 0,
+        cls: null,
+        better: null,
+        facts: [],
+        phase,
+        plan,
+        openingGuide,
+      },
       scoreLoss: null,
       winDrop: null,
       accuracy: null,
@@ -291,8 +336,6 @@ export function reviewMove(
   const loss = playedBest ? 0 : Math.max(0, beforeScore - afterScore);
   const winDrop = playedBest ? 0 : Math.max(0, wBefore - wAfter);
   const accuracy = moveAccuracy(winDrop);
-
-  const notations = playedNotationsOverride ?? state.moves.slice(0, i + 1).map((x) => x.notation);
 
   let cls: MoveClass | null = null;
   if (playedBest) {
@@ -360,7 +403,7 @@ export function reviewMove(
     });
 
     // Bỏ lỡ cơ hội thắng: đang thắng (W >= 75%) mà về thế cân bằng (W <= 55%)
-    // Và không phải do tự nướng quân trực tiếp (losesPiece với cause moved/ignored/screen/opened/unguarded)
+    // Và không phải do tự nướng quân trực tiếp
     const hasDirectPieceLoss = facts.some(
       (f) =>
         f.kind === "losesPiece" &&
@@ -381,65 +424,172 @@ export function reviewMove(
     }
   }
 
-    const replyMove = afterEval?.best ?? afterEval?.pv?.[0] ?? null;
-    const betterMove = before.best ?? null;
-    const pvMoves = afterEval?.pv ?? (afterEval?.best ? [afterEval.best] : undefined);
-
-    const review: MoveReview = {
-      ply: i + 1,
-      side: m.side,
-      notation: m.notation,
-      loss: Math.round(loss),
-      cls,
-      better,
-      facts,
-      line,
-      highlights,
-      winBefore: Math.round(wBefore * 1000) / 1000,
-      winAfter: Math.round(wAfter * 1000) / 1000,
-      winDrop: Math.round(winDrop * 1000) / 1000,
-      move: m.move,
-      betterMove: isFault ? betterMove : null,
-      replyMove: isFault ? replyMove : null,
-      pvMoves,
-    };
-
-    return { review, scoreLoss: loss, winDrop, accuracy };
-  }
-
-  /**
-   * `evals[i]` là điểm của thế cờ thứ i (sau i nửa nước), `null` nếu chưa/không phân tích.
-   * Đánh giá toàn bộ ván cờ theo xác suất thắng logistic và tính độ chính xác Lichess.
-   */
-  export function reviewGame(state: GameState, evals: (PositionEval | null)[]): ReviewResult {
-    const reviews: MoveReview[] = [];
-    const acc: Record<Side, number[]> = { r: [], b: [] };
-    const allNotations = state.moves.map((x) => x.notation);
-    const opening = detectOpeningFromMoves(allNotations);
-    const allMoves = state.moves.map((x) => x.move);
-
-    state.moves.forEach((m, i) => {
-      const historyMoves = allMoves.slice(0, i);
-      const playedNotations = allNotations.slice(0, i + 1);
-      const { review, accuracy } = reviewMove(
-        m,
-        i,
-        state,
-        evals[i],
-        evals[i + 1],
-        opening,
-        historyMoves,
-        playedNotations,
-      );
-      reviews.push(review);
-      if (accuracy !== null) {
-        acc[m.side].push(accuracy);
-      }
+  // 1. Ý đồ kỳ lý của nước đã đi (B4)
+  let intent: IntentFact | null = null;
+  if (isFault || cls !== null || i === state.moves.length - 1) {
+    intent = detectIntent(state.history[i].board, m.move, state.history[i + 1].board, {
+      pv: afterEval?.pv,
+      evalBefore: before,
+      evalAfter: afterEval,
+      loss,
+      ply: i,
     });
-
-    const avg = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
-    return { moves: reviews, accuracy: { r: avg(acc.r), b: avg(acc.b) }, opening };
+    if ((cls === "brilliant" || cls === "only") && intent && !facts.some((f) => f.kind === "intent")) {
+      facts.push(intent);
+    }
   }
+
+  // 2. Ý đồ của nước AI đề xuất tốt hơn nếu nước đi bị chấm lỗi (B4)
+  let betterIntent: IntentFact | null = null;
+  if (isFault && before.best) {
+    const betterNext = play(state.history[i].board, before.best);
+    betterIntent = detectIntent(state.history[i].board, before.best, betterNext, {
+      pv: before.pv,
+      evalBefore: before,
+      evalAfter: afterEval,
+      loss: 0,
+      ply: i,
+    });
+  }
+
+  // 3. Đánh giá thế cờ toàn diện sau nước đi (B2)
+  let assessment: PositionAssessment | null = null;
+  if (afterEval) {
+    const nextTurn = opponent(m.side);
+    // afterEval.score tính theo nextTurn (bên sắp đi); quy đổi sang chiều của Đỏ (dương = Đỏ hơn, âm = Đen hơn)
+    const evalRed = nextTurn === "r" ? afterEval.score : -afterEval.score;
+    const winPctRed = afterEval.wdl
+      ? (nextTurn === "r" ? winChanceFromWdl(afterEval.wdl) : 1 - winChanceFromWdl(afterEval.wdl)) * 100
+      : winChance(evalRed) * 100;
+
+    const isSignificant = isFault || cls === "brilliant" || cls === "only" || Math.abs(afterEval.score) >= 200 || i === state.moves.length - 1;
+    if (isSignificant) {
+      assessment = assessPosition(state.history[i + 1].board, {
+        evalCp: evalRed,
+        winPct: winPctRed,
+        pv: afterEval.pv,
+        turn: nextTurn,
+      });
+    } else {
+      assessment = {
+        kind: "assessment",
+        leader: null,
+        evalCp: evalRed,
+        winPct: winPctRed,
+        factors: [],
+        dynamic: false,
+        summary: "Cục diện giằng co cân bằng.",
+      };
+    }
+  }
+
+  // 4. Mối đe dọa của đối phương ở thế cờ hiện tại (B3)
+  const threats: ThreatFact[] = [];
+  if (afterEval?.best && (afterEval.score >= 200 || afterEval.score >= 90000)) {
+    const currentThreat = detectThreat(state.history[i + 1].board, m.side, {
+      threatMove: afterEval.best,
+      score: afterEval.score,
+      isMate: afterEval.score >= 90000,
+      pv: afterEval.pv ?? [afterEval.best],
+      opponent: opponent(m.side),
+    });
+    if (currentThreat) threats.push(currentThreat);
+  } else if (!afterEval && isFault) {
+    const currentThreat = detectThreat(state.history[i + 1].board, m.side);
+    if (currentThreat) threats.push(currentThreat);
+  }
+
+  const replyMove = afterEval?.best ?? afterEval?.pv?.[0] ?? null;
+  const betterMove = before.best ?? null;
+  const pvMoves = afterEval?.pv ?? (afterEval?.best ? [afterEval.best] : undefined);
+
+  const review: MoveReview = {
+    ply: i + 1,
+    side: m.side,
+    notation: m.notation,
+    loss: Math.round(loss),
+    cls,
+    better,
+    facts,
+    line,
+    highlights,
+    winBefore: Math.round(wBefore * 1000) / 1000,
+    winAfter: Math.round(wAfter * 1000) / 1000,
+    winDrop: Math.round(winDrop * 1000) / 1000,
+    move: m.move,
+    betterMove: isFault ? betterMove : null,
+    replyMove: isFault ? replyMove : null,
+    pvMoves,
+    assessment,
+    threats,
+    intent,
+    betterIntent,
+    phase,
+    plan,
+    openingGuide,
+  };
+
+  return { review, scoreLoss: loss, winDrop, accuracy };
+}
+
+/**
+ * `evals[i]` là điểm của thế cờ thứ i (sau i nửa nước), `null` nếu chưa/không phân tích.
+ * Đánh giá toàn bộ ván cờ theo xác suất thắng logistic và tính độ chính xác Lichess.
+ */
+export function reviewGame(state: GameState, evals: (PositionEval | null)[]): ReviewResult {
+  const reviews: MoveReview[] = [];
+  const acc: Record<Side, number[]> = { r: [], b: [] };
+  const allNotations = state.moves.map((x) => x.notation);
+  const opening = detectOpeningFromMoves(allNotations);
+  const allMoves = state.moves.map((x) => x.move);
+
+  // Tính xác suất thắng cho từng ply để phân chia giai đoạn chuẩn xác
+  const winChances = evals.map((ev, plyIdx) => {
+    if (!ev) return 0.5;
+    if (ev.wdl) {
+      const pTurn = plyIdx % 2 === 0 ? "r" : "b";
+      const w = winChanceFromWdl(ev.wdl);
+      return pTurn === "r" ? w : 1 - w;
+    }
+    const pTurn = plyIdx % 2 === 0 ? "r" : "b";
+    const scoreRed = pTurn === "r" ? ev.score : -ev.score;
+    return winChance(scoreRed);
+  });
+
+  const phases = detectPhases(state, { evaluations: evals, winChances });
+  const gameOpeningNotations = allNotations.slice(0, Math.min(allNotations.length, 16));
+  const openingGuide = getOpeningGuide(gameOpeningNotations);
+
+  state.moves.forEach((m, i) => {
+    const historyMoves = allMoves.slice(0, i);
+    const playedNotations = allNotations.slice(0, i + 1);
+    const { review, accuracy } = reviewMove(
+      m,
+      i,
+      state,
+      evals[i],
+      evals[i + 1],
+      opening,
+      historyMoves,
+      playedNotations,
+      WIN_LOSS_THRESHOLDS,
+      phases,
+    );
+    reviews.push(review);
+    if (accuracy !== null) {
+      acc[m.side].push(accuracy);
+    }
+  });
+
+  const avg = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
+  return {
+    moves: reviews,
+    accuracy: { r: avg(acc.r), b: avg(acc.b) },
+    opening,
+    phases,
+    openingGuide,
+  };
+}
 
   export interface TurningPoint {
     ply: number;

@@ -31,18 +31,42 @@ export async function POST(request: Request) {
   if (!pool) return Response.json({ error: "Chưa cài engine" }, { status: 503, headers: noStore });
   if (pool.waiting > 32) return Response.json({ error: "Engine đang quá tải" }, { status: 503, headers: noStore });
 
-  let body: { fen?: unknown; purpose?: unknown; level?: unknown; avoid?: unknown };
+  let body: { fen?: unknown; purpose?: unknown; level?: unknown; avoid?: unknown; action?: unknown; move?: unknown };
   try {
     body = await request.json();
   } catch {
     return Response.json({ error: "Dữ liệu không hợp lệ" }, { status: 400, headers: noStore });
   }
+  const fenStr = String(body.fen ?? "");
   let pos;
   try {
-    pos = parseFen(String(body.fen ?? ""));
+    pos = parseFen(fenStr);
   } catch {
     return Response.json({ error: "FEN không hợp lệ" }, { status: 400, headers: noStore });
   }
+
+  if (body.action === "threat") {
+    try {
+      const threatRes = await pool.threat(fenStr);
+      return Response.json(threatRes, { headers: noStore });
+    } catch {
+      return Response.json({ error: "Engine lỗi" }, { status: 503, headers: noStore });
+    }
+  }
+
+  if (body.action === "refute") {
+    if (!body.move || (typeof body.move !== "string" && typeof body.move !== "object")) {
+      return Response.json({ error: "Nước đi không hợp lệ" }, { status: 400, headers: noStore });
+    }
+    try {
+      const refuteRes = await pool.refute(fenStr, body.move as Move | string);
+      return Response.json(refuteRes, { headers: noStore });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Engine lỗi";
+      return Response.json({ error: msg }, { status: 400, headers: noStore });
+    }
+  }
+
   const limits = body.purpose === "analysis" ? ANALYSIS : PLAY[Number(body.level)];
   if (!limits) return Response.json({ error: "Cấp độ không hợp lệ" }, { status: 400, headers: noStore });
 
@@ -53,7 +77,6 @@ export async function POST(request: Request) {
   const allowed = legal.filter((m) => !avoid.some((a) => a?.from === m.from && a?.to === m.to));
   const searchmoves = avoid.length && allowed.length ? allowed.map(moveToUci) : undefined;
 
-  const fenStr = String(body.fen ?? "");
   const cacheKey = !searchmoves ? makeEngineCacheKey(fenStr, limits) : null;
   if (cacheKey && engineCache.has(cacheKey)) {
     const cached = engineCache.get(cacheKey)!;
@@ -65,6 +88,7 @@ export async function POST(request: Request) {
       depth: l.depth,
       pv: l.pv,
       pvMoves: l.pv.map(uciToMove).filter((m): m is Move => m !== null),
+      wdl: l.wdl,
     }));
     return Response.json(
       {
@@ -75,6 +99,7 @@ export async function POST(request: Request) {
         pv: cached.pv ?? [],
         pvMoves,
         lines,
+        wdl: cached.wdl,
       },
       { headers: { ...noStore, "X-Cache": "HIT" } },
     );
@@ -91,6 +116,7 @@ export async function POST(request: Request) {
       depth: l.depth,
       pv: l.pv,
       pvMoves: l.pv.map(uciToMove).filter((m): m is Move => m !== null),
+      wdl: l.wdl,
     }));
     return Response.json(
       {
@@ -101,6 +127,7 @@ export async function POST(request: Request) {
         pv: res.pv ?? [],
         pvMoves,
         lines,
+        wdl: res.wdl,
       },
       { headers: noStore },
     );

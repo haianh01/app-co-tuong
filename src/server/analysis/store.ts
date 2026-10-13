@@ -5,7 +5,7 @@ import { isVip } from "@/server/auth";
 import type { Database } from "@/server/db";
 import { analysisUsage, gameAnalysis } from "@/server/db/schema";
 
-export const CURRENT_ANALYSIS_VERSION = 1;
+export const CURRENT_ANALYSIS_VERSION = 2;
 export const FREE_ANALYSIS_PER_DAY = 3;
 
 /** Lấy chuỗi ngày YYYY-MM-DD theo múi giờ Việt Nam. */

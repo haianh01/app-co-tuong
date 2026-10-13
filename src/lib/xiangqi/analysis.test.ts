@@ -12,6 +12,8 @@ import {
   reviewGame,
   reviewMove,
   winChance,
+  winChanceFromWdl,
+  getPikafishK,
   type MoveReview,
   type PositionEval,
   WIN_LOSS_THRESHOLDS,
@@ -391,6 +393,49 @@ describe("findTurningPoints", () => {
       dummyMove(2, "b", "M8.7", null, 0.02),
     ];
     expect(findTurningPoints(moves)).toEqual([]);
+  });
+});
+
+describe("winChanceFromWdl & Elo calibration", () => {
+  it("winChanceFromWdl tính xác suất kỳ vọng từ wdl", () => {
+    // 500 thắng, 300 hòa, 200 thua => (500 + 150) / 1000 = 65%
+    expect(winChanceFromWdl([500, 300, 200])).toBe(0.65);
+    // Hòa 100% => 50%
+    expect(winChanceFromWdl([0, 1000, 0])).toBe(0.5);
+    // Thắng 100% => 1.0
+    expect(winChanceFromWdl([1000, 0, 0])).toBe(1.0);
+  });
+
+  it("getPikafishK điều chỉnh theo dải Elo", () => {
+    expect(getPikafishK(1100)).toBe(0.0030);
+    expect(getPikafishK(1400)).toBe(0.0036);
+    expect(getPikafishK(1600)).toBe(0.0042);
+    expect(getPikafishK(1900)).toBe(0.0048);
+    expect(getPikafishK(2200)).toBe(0.0055);
+    expect(getPikafishK(undefined)).toBe(PIKAFISH_K);
+
+    // winChance nhận Elo
+    const wLow = winChance(200, 1100);
+    const wHigh = winChance(200, 2200);
+    expect(wHigh).toBeGreaterThan(wLow);
+  });
+
+  it("reviewMove dùng dữ liệu WDL khi có sẵn", () => {
+    const state = replayMoves([{ from: sq(9, 8), to: sq(8, 8) }]);
+    const before: PositionEval = {
+      score: 50,
+      best: { from: sq(9, 8), to: sq(8, 8) },
+      wdl: [600, 300, 100], // W = 75%
+    };
+    const afterEval: PositionEval = {
+      score: -50,
+      best: null,
+      wdl: [100, 300, 600], // Đối phương có W = 25% => người đi có W = 75%
+    };
+    const { review, winDrop } = reviewMove(state.moves[0], 0, state, before, afterEval);
+    expect(review.winBefore).toBe(0.75);
+    expect(review.winAfter).toBe(0.75);
+    expect(winDrop).toBe(0);
   });
 });
 

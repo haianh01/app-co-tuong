@@ -247,7 +247,7 @@ export function AnalysisPanel({
         const decoder = new TextDecoder();
         let buffer = "";
         const out: (PositionEval | null)[] = new Array(state.history.length).fill(null);
-        let count = 0;
+        const receivedIndices = new Set<number>();
 
         while (true) {
           const { done, value } = await reader.read();
@@ -272,14 +272,15 @@ export function AnalysisPanel({
                   best: data.eval.best,
                   pv: data.eval.pv,
                   lines: data.eval.lines,
+                  wdl: data.eval.wdl,
                 };
               }
-              count++;
-              setProgress(count / state.history.length);
+              receivedIndices.add(data.index);
+              setProgress(receivedIndices.size / state.history.length);
             }
           }
         }
-        if (count === state.history.length) {
+        if (receivedIndices.size === state.history.length) {
           setEvals(out);
           return true;
         }

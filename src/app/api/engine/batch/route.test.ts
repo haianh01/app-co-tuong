@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { engineCache } from "@/server/engine/cache";
 import type { PositionEval } from "@/lib/xiangqi/analysis";
-import type { EnginePool, EngineResult } from "@/server/engine/uci";
-import { POST } from "./route";
+import type { EngineLimits, EnginePool, EngineResult } from "@/server/engine/uci";
+import { POST, selectKeyPositions, ANALYSIS_FAST, ANALYSIS_DEEP } from "./route";
 
 vi.mock("next/server", () => ({
   connection: async () => {},
@@ -320,5 +320,77 @@ describe("POST /api/engine/batch", () => {
       expect.any(Error),
     );
     consoleSpy.mockRestore();
+  });
+
+  it("selectKeyPositions: lọc đúng các thế cờ then chốt (winDrop lớn, nước duy nhất)", () => {
+    const evals: (PositionEval | null)[] = [
+      { score: 300, best: null }, // index 0: Đỏ đang hơn (+300)
+      { score: -300, best: null }, // index 1: Đen đang thua (-300), winDrop = 0
+      { score: 300, best: null }, // index 2: Đỏ đang hơn (+300)
+      { score: 400, best: null }, // index 3: Đen được +400 (Đỏ thành -400) => Đỏ mắc sai lầm nghiêm trọng ở thế 2!
+      {
+        score: -400,
+        best: null,
+        lines: [
+          { score: -400, best: null },
+          { score: -1500, best: null }, // Nước duy nhất (only): nước 2 thua thảm
+        ],
+      }, // index 4: only move
+    ];
+
+    const keys = selectKeyPositions(evals, 2);
+    expect(keys).toEqual([2, 4]);
+  });
+
+  it("chạy 2-pass: Pass 1 lượt nhanh và Pass 2 lượt sâu cập nhật cho thế then chốt", async () => {
+    const searchCalls: { limits: EngineLimits; fen: string }[] = [];
+    globalForEngine.__enginePool = {
+      waiting: 0,
+      search: vi.fn(async (fen: string, limits: EngineLimits): Promise<EngineResult> => {
+        searchCalls.push({ limits, fen });
+        // Nếu là Pass 2 (lượt sâu)
+        if (limits.nodes === ANALYSIS_DEEP.nodes) {
+          return {
+            bestmove: "h2e2",
+            depth: 20,
+            cp: 80,
+            mate: null,
+            pv: ["h2e2", "b9c7", "b0c2"],
+          };
+        }
+        // Pass 1: Lượt nhanh
+        return {
+          bestmove: "h2e2",
+          depth: 10,
+          cp: searchCalls.length === 1 ? 400 : -300, // Tạo winDrop lớn giữa 2 thế cờ
+          mate: null,
+          pv: ["h2e2"],
+        };
+      }),
+    };
+
+    const fen1 = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w";
+    const fen2 = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR b";
+    const req = new Request("http://localhost/api/engine/batch", {
+      method: "POST",
+      body: JSON.stringify({ fens: [fen1, fen2] }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    const chunks = await readNdjson<{ index: number; total: number; eval?: PositionEval; phase?: string; isUpdate?: boolean }>(res);
+
+    // Chunks phải gồm Pass 1 (2 thế cờ) và ít nhất 1 chunk cập nhật của Pass 2
+    expect(chunks.length).toBeGreaterThan(2);
+    const deepChunks = chunks.filter((c) => c.phase === "deep" && c.isUpdate === true);
+    expect(deepChunks.length).toBeGreaterThanOrEqual(1);
+    expect(deepChunks[0].eval?.depth).toBe(20);
+
+    // Engine phải được gọi với cả ANALYSIS_FAST và ANALYSIS_DEEP
+    const fastCalls = searchCalls.filter((c) => c.limits.nodes === ANALYSIS_FAST.nodes);
+    const deepCalls = searchCalls.filter((c) => c.limits.nodes === ANALYSIS_DEEP.nodes);
+    expect(fastCalls.length).toBe(2);
+    expect(deepCalls.length).toBeGreaterThanOrEqual(1);
   });
 });

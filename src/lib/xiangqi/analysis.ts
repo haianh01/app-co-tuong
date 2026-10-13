@@ -12,6 +12,8 @@ export interface PositionEvalLine {
   depth?: number;
   pv?: Move[];
   line?: string[];
+  /** Tỉ lệ thắng/hòa/thua (phần nghìn) do engine tự báo: [thắng, hòa, thua] */
+  wdl?: [number, number, number];
 }
 
 /** Điểm AI của một thế cờ, tính theo phe đang đến lượt (dương = phe đó đang hơn), kèm nước tốt nhất. */
@@ -28,6 +30,8 @@ export interface PositionEval {
   lines?: PositionEvalLine[];
   /** Thế cờ (FEN) tương ứng nếu có. */
   fen?: string;
+  /** Tỉ lệ thắng/hòa/thua (phần nghìn) do engine tự báo: [thắng, hòa, thua] */
+  wdl?: [number, number, number];
 }
 
 export type MoveClass =
@@ -93,6 +97,32 @@ const MATE_THRESHOLD = 90_000;
 /** Hệ số logistic sigmoid hiệu chỉnh theo thang điểm Pikafish / Xiangqi (~250 cp ứng với ưu thế rõ). */
 export const PIKAFISH_K = 0.004;
 
+/**
+ * Hiệu chỉnh hệ số logistic k theo dải Elo của người chơi:
+ * - Elo thấp: ván đấu nhiều biến động, cần ưu thế lớn hơn để chuyển hóa thắng lợi (k nhỏ hơn).
+ * - Elo cao / Kiện tướng: khai thác ưu thế cực tốt, chỉ cần hơn 150-200 cp là xác suất thắng đã áp đảo (k lớn hơn).
+ */
+export function getPikafishK(elo?: number): number {
+  if (typeof elo !== "number" || Number.isNaN(elo)) return PIKAFISH_K;
+  if (elo < 1200) return 0.0030;
+  if (elo < 1500) return 0.0036;
+  if (elo < 1800) return 0.0042;
+  if (elo < 2100) return 0.0048;
+  return 0.0055;
+}
+
+/**
+ * Chuyển tỉ lệ [thắng, hòa, thua] (phần nghìn do engine tự báo qua UCI_ShowWDL) thành xác suất kỳ vọng (0.0 đến 1.0).
+ * Công thức: (win + 0.5 * draw) / 1000.
+ */
+export function winChanceFromWdl(wdl: [number, number, number]): number {
+  const [win, draw, loss] = wdl;
+  const total = win + draw + loss;
+  if (total <= 0) return 0.5;
+  const score = (win + 0.5 * draw) / total;
+  return Math.max(0, Math.min(1, score));
+}
+
 export interface WinLossThresholds {
   inaccuracy: number;
   mistake: number;
@@ -108,11 +138,13 @@ export const WIN_LOSS_THRESHOLDS: WinLossThresholds = {
 
 /**
  * Đổi điểm centipawn sang xác suất thắng (0.0 đến 1.0) theo hàm logistic sigmoid:
- * W(s) = 1 / (1 + e^(-k * s))
+ * W(s) = 1 / (1 + e^(-k * s)).
+ * Tham số thứ hai có thể là hệ số k (k < 1) hoặc điểm Elo (>= 100).
  */
-export function winChance(score: number, k: number = PIKAFISH_K): number {
+export function winChance(score: number, kOrElo: number = PIKAFISH_K): number {
   if (score >= MATE_THRESHOLD) return 1;
   if (score <= -MATE_THRESHOLD) return 0;
+  const k = kOrElo >= 100 ? getPikafishK(kOrElo) : kOrElo;
   const clamped = Math.max(-10000, Math.min(10000, score));
   return 1 / (1 + Math.exp(-k * clamped));
 }
@@ -252,8 +284,8 @@ export function reviewMove(
 
   const beforeScore = clamp(before.score);
   const afterScore = after;
-  const wBefore = winChance(beforeScore);
-  const wAfter = winChance(afterScore);
+  const wBefore = before.wdl ? winChanceFromWdl(before.wdl) : winChance(beforeScore);
+  const wAfter = afterEval?.wdl ? 1 - winChanceFromWdl(afterEval.wdl) : winChance(afterScore);
 
   const playedBest = before.best?.from === m.move.from && before.best?.to === m.move.to;
   const loss = playedBest ? 0 : Math.max(0, beforeScore - afterScore);
@@ -268,8 +300,8 @@ export function reviewMove(
     if (before.lines && before.lines.length >= 2) {
       const line1Score = before.lines[0]?.score ?? before.score;
       const line2Score = before.lines[1]?.score ?? -CAP;
-      const wLine1 = winChance(line1Score);
-      const wLine2 = winChance(line2Score);
+      const wLine1 = before.lines[0]?.wdl ? winChanceFromWdl(before.lines[0].wdl) : winChance(line1Score);
+      const wLine2 = before.lines[1]?.wdl ? winChanceFromWdl(before.lines[1].wdl) : winChance(line2Score);
       const deltaW12 = wLine1 - wLine2;
 
       // Nước duy nhất (only): nước 1 giữ được thế cờ trong khi nước 2 thua thảm bại

@@ -56,3 +56,8 @@ next-env.d.ts
 
 # Engine Pikafish (tải bằng scripts/fetch-engine.mjs; file NNUE không được dùng thương mại khi chưa xin phép)
 /engine/
+
+# Bản sao lưu CSDL
+/backups/
+*.dump
+

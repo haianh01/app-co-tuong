@@ -26,6 +26,7 @@ COPY --from=build /app/.next ./.next
 COPY --from=build /app/public ./public
 COPY --from=build /app/drizzle ./drizzle
 COPY --from=build /app/src ./src
+COPY --from=build /app/certs ./certs
 COPY --from=build /app/server.ts /app/next.config.ts /app/tsconfig.json ./
 COPY --from=engine /engine-build/engine ./engine
 # Chỉ dùng khi không đặt DATABASE_URL (PGlite ghi dữ liệu vào đây).

@@ -15,7 +15,8 @@
     "test:unit": "vitest run --project unit --project ui",
     "test:db": "vitest run --project db",
     "test:watch": "vitest --project unit --project ui",
-    "admin:promote": "tsx scripts/promote-admin.ts"
+    "admin:promote": "tsx scripts/promote-admin.ts",
+    "db:backup": "node scripts/backup-db.mjs"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",

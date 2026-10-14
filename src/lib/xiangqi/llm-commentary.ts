@@ -54,7 +54,7 @@ export function buildLlmCommentaryPrompt(options: LlmCommentaryOptions): LlmProm
     "Nhiệm vụ của bạn là viết một đoạn bình luận ngắn (từ 2 đến 3 câu tiếng Việt) phân tích nước cờ dựa trên các DỮ KIỆN KỲ LÝ (Facts JSON) được cung cấp.",
     "",
     "NGUYÊN TẮC BÌNH LUẬN:",
-    "1. Sử dụng thuật ngữ Cờ Tướng Việt Nam chuẩn xác (vd: 'chiếu rút', 'chiếu kép', 'ghim quân', 'cản chân Mã', 'quân bị treo/mất gốc', 'bắt đôi', 'bị vây khốn', 'khuyết Sĩ kỵ Mã', 'Sĩ Tượng toàn', 'tàn cuộc lý thuyết', v.v.).",
+    "1. Sử dụng thuật ngữ Cờ Tướng Việt Nam chuẩn xác (vd: 'chiếu rút', 'chiếu kép', 'ghim quân', 'cản chân Mã', 'quân bị treo/mất căn', 'bắt đôi', 'bị vây khốn', 'khuyết Sĩ kỵ Mã', 'Sĩ Tượng toàn', 'tàn cuộc lý thuyết', v.v.).",
     "2. Tuyệt đối bám sát các Fact được cung cấp trong JSON; KHÔNG tự bịa đặt nước đi hay vị trí quân không có trong dữ kiện.",
     "3. Chỉ rõ vì sao nước đã đi lại bị đánh giá như vậy (hậu quả trước mắt hoặc lâu dài) và giải thích ý đồ nước nên đi (nếu có).",
     `4. Phong cách: ${styleText}`,

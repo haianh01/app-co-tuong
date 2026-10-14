@@ -272,7 +272,7 @@ function evaluatePawns(features: Record<Side, SideFeatures>): { delta: number; p
   return { delta, pieces: delta > 0 ? r.pieces : b.pieces };
 }
 
-/** 7. Đánh giá quân sơ hở / mất gốc / bị đe dọa (quanKem). */
+/** 7. Đánh giá quân sơ hở / mất căn / bị đe dọa (quanKem). */
 function evaluateFlaws(features: Record<Side, SideFeatures>): { delta: number; pieces: PieceRef[] } {
   const evaluateSide = (s: Side): { penalty: number; pieces: PieceRef[] } => {
     let penalty = 0;

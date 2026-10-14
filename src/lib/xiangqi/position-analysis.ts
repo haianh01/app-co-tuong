@@ -2,14 +2,16 @@ import {
   type Board,
   type Move,
   type Side,
+  colOf,
   findKing,
   inCheck,
   legalMoves,
   opponent,
   play,
+  sideOf,
   toFen,
 } from "./engine";
-import { assessPosition, type FactorAssessment, type PositionAssessment, FACTOR_NAMES } from "./assess";
+import { assessPosition, type FactorAssessment, type PositionAssessment } from "./assess";
 import { detectIntent, type IntentFact, type Purpose, PURPOSE_NAMES } from "./intent";
 import { detectPatterns, type DetectedPattern } from "./patterns";
 import { detectTheoreticalEndgame, type TheoreticalEndgame } from "./endgame";
@@ -85,7 +87,7 @@ export interface Layer1Engine {
 export interface Layer2Assessment {
   assessment: PositionAssessment;
   displayText: string;
-  factors: FactorAssessment[];
+  factors: (FactorAssessment & { text: string })[];
   dynamic: boolean;
   summary?: string;
 }
@@ -191,31 +193,55 @@ export function formatScoreText(score: number): { text: string; isMate: boolean;
     }
     return { text: `Bị sát sau ${mateMoves} nước`, isMate: true, mateInPlies: matePlies };
   }
-  const sign = score > 0 ? "+" : "";
-  return { text: `${sign}${score} cp`, isMate: false };
+  return { text: formatPawnAdvantage(score), isMate: false };
+}
+
+/** Quy đổi điểm engine sang "hơn/kém N Tốt" cho người chơi dễ hiểu (100 điểm ≈ 1 Tốt). */
+export function formatPawnAdvantage(score: number): string {
+  const pawns = Math.abs(score) / 100;
+  if (pawns < 0.2) return "ngang nhau";
+  const amount = pawns.toFixed(1).replace(".", ",");
+  return `${score > 0 ? "hơn" : "kém"} ≈ ${amount} Tốt`;
+}
+
+/** Tên quân kèm số lộ theo góc nhìn bên cầm quân, ví dụ "Mã 3", "Xe 2". */
+function pieceLabel(p: PieceRef): string {
+  if (p.name.includes(" ")) return p.name;
+  const col = colOf(p.square);
+  const file = sideOf(p.piece) === "r" ? 9 - col : col + 1;
+  return `${p.name} ${file}`;
+}
+
+function pieceList(pieces: PieceRef[], max = 2): string {
+  return pieces.slice(0, max).map(pieceLabel).join(", ");
 }
 
 function formatFactorReason(f: FactorAssessment): string {
+  const side = f.side === "r" ? "Đỏ" : "Đen";
   const oppSide = f.side === "r" ? "Đen" : "Đỏ";
+  const names = pieceList(f.pieces);
+  const withPieces = (text: string) => (names ? `${text} (${names})` : text);
   switch (f.id) {
     case "vatChat":
-      return "hơn quân";
+      return `${side} hơn quân`;
     case "anToanTuong":
-      return "cung Tướng vững chắc";
+      return `cung Tướng ${side} vững hơn`;
     case "hoatDongXe":
-      return "Xe chiếm lộ thông, cơ động";
+      return withPieces(`Xe ${side} chiếm lộ thông, cơ động`);
     case "hoatDongMa":
-      return "Mã chiếm điểm cao, thoáng chân";
+      return withPieces(`Mã ${side} thoáng chân, chiếm điểm tốt`);
     case "phao":
-      return "sức ép Pháo đầu / Pháo cắm đáy";
+      return withPieces(`Pháo ${side} gây sức ép lên cung`);
     case "totQuaHa":
-      return "Tốt qua sông áp sát";
+      return withPieces(`Tốt ${side} qua sông áp sát`);
     case "quanKem":
-      return `${oppSide} có quân treo, sơ hở`;
+      return names ? `${oppSide} có quân không căn (${names})` : `${oppSide} có quân không căn, sơ hở`;
     case "sangKien":
-      return "nắm quyền chủ động ép liên tục";
+      return names
+        ? `${side} cầm tiên: ${names} liên tục chiếu, bắt quân, ${oppSide} phải chống đỡ`
+        : `${side} cầm tiên, ép ${oppSide} phải chống đỡ`;
     case "khuyetSiTuong":
-      return `${oppSide} khuyết Sĩ Tượng`;
+      return withPieces(`${oppSide} khuyết Sĩ Tượng, quân công ${side} dễ thâm nhập`);
   }
 }
 
@@ -328,7 +354,9 @@ export function analyzePosition(input: PositionAnalysisInput): PositionAnalysisR
 
   const bestLine = candidates[0];
   const overallEvalCp = bestLine ? bestLine.scoreCp : (engineResult?.score ?? 0);
-  const overallEvalText = formatScoreText(overallEvalCp).text;
+  const overallScore = formatScoreText(overallEvalCp);
+  // Ghi rõ bên nào hơn/kém để người chơi không phải đoán điểm theo góc nhìn bên nào
+  const overallEvalText = overallScore.isMate ? `${sideName(turn)}: ${overallScore.text}` : `${sideName(turn)} ${overallScore.text}`;
   const overallWdl = parseWdl(engineResult?.wdl) ?? bestLine?.wdl ?? null;
 
   const layer1: Layer1Engine = {
@@ -369,7 +397,9 @@ export function analyzePosition(input: PositionAnalysisInput): PositionAnalysisR
   // TẦNG 2: Đánh giá cục diện theo 9 yếu tố (assess.ts)
   // Quy đổi điểm cp từ góc nhìn của Đỏ để assessPosition xử lý chuẩn
   const redEvalCp = turn === "r" ? overallEvalCp : -overallEvalCp;
-  const winPct = overallWdl ? (turn === "r" ? overallWdl.win : overallWdl.loss) : Math.round(winChance(redEvalCp) * 100);
+  // % thắng cho người chơi tính theo đường cong winChance. WDL của Pikafish đo máy đấu máy nên rất dốc
+  // (ví dụ +440 điểm đã ra 1000/0/0), hiển thị "100% thắng" khi mới hơn ~3 Tốt là gây hiểu lầm.
+  const winPct = Math.round(winChance(redEvalCp) * 100);
 
   const assessment = assessPosition(board, {
     evalCp: redEvalCp,
@@ -386,9 +416,7 @@ export function analyzePosition(input: PositionAnalysisInput): PositionAnalysisR
     const absCp = Math.abs(assessment.evalCp);
     const leaderScore = assessment.leader === "r" ? assessment.evalCp : -assessment.evalCp;
     const scoreFormatted = formatScoreText(leaderScore);
-    const leaderWin = overallWdl
-      ? (assessment.leader === "r" ? overallWdl.win : overallWdl.loss)
-      : Math.round(winChance(assessment.leader === "r" ? assessment.evalCp : -assessment.evalCp) * 100);
+    const leaderWin = Math.round(winChance(leaderScore) * 100);
 
     const advLevel = absCp >= MATE_THRESHOLD || absCp >= 400 ? "ưu thế quyết định" : absCp >= 200 ? "ưu thế lớn" : "hơi ưu thế";
     const reasons = assessment.factors
@@ -398,14 +426,13 @@ export function analyzePosition(input: PositionAnalysisInput): PositionAnalysisR
     const reasonsStr = reasons.length > 0 ? ` nhờ: ${reasons.join(" · ")}` : "";
     displayText = `${leaderStr} ${advLevel} (${scoreFormatted.text}, ${leaderWin}% thắng)${reasonsStr}`;
   } else {
-    const balScore = formatScoreText(assessment.evalCp).text;
-    displayText = `Cục diện cân bằng (${balScore}, ${winPct}% thắng)`;
+    displayText = `Cục diện cân bằng (Đỏ ${winPct}% thắng)`;
   }
 
   const layer2: Layer2Assessment = {
     assessment,
     displayText,
-    factors: assessment.factors.slice(0, 3),
+    factors: assessment.factors.slice(0, 3).map((f) => ({ ...f, text: formatFactorReason(f) })),
     dynamic: assessment.dynamic,
     summary: assessment.summary,
   };

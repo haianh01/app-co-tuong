@@ -13,11 +13,11 @@ export type Principle =
   | "raQuan" // số quân lớn đã rời vị trí ban đầu
   | "apLuc" // số ô trong cung tướng đối phương bị quân mình khống chế
   | "anToan" // cung tướng mình ít bị khống chế, Sĩ Tượng đủ
-  | "matGoc" // ít quân lớn không có gốc (không được bảo vệ)
+  | "matGoc" // ít quân lớn không có căn (không được bảo vệ)
   | "phongToa" // Xe đối phương bị bó
   | "tot" // Tốt đã qua sông
   | "diemThenChot" // quân đứng ở điểm then chốt: Mã hà khẩu/ngọa tào/quải giác, Xe chiếm sườn, Pháo đầu
-  | "catLienLac" // quân lớn của đối phương không có gốc (liên lạc bị cắt)
+  | "catLienLac" // quân lớn của đối phương không có căn (liên lạc bị cắt)
   | "khongCheTuong" // đường ra của Tướng đối phương bị khống chế
   | "khuyetSi" // tận dụng đối phương khuyết Sĩ (khuyết Sĩ kỵ Mã)
   | "khuyetTuong" // tận dụng đối phương khuyết Tượng (khuyết Tượng kỵ Pháo)
@@ -231,14 +231,14 @@ export const GAIN_TEXT: Record<Principle, string[]> = {
     "gia tăng áp lực lên cung đối phương",
   ],
   anToan: ["cung tướng mình an toàn hơn", "cung tướng mình vững hơn", "củng cố cung tướng"],
-  matGoc: ["không để quân mất gốc", "giữ các quân đều có gốc", "quân nào cũng có gốc"],
+  matGoc: ["không để quân mất căn", "giữ các quân đều có căn", "quân nào cũng có căn"],
   phongToa: ["chặn đường Xe đối phương", "bó Xe đối phương", "hạn chế đường đi của Xe đối phương"],
   tot: ["có thêm Tốt qua sông", "đưa thêm Tốt qua sông", "tăng số Tốt qua sông"],
   diemThenChot: ["đưa quân vào điểm then chốt", "chiếm được điểm then chốt", "đặt quân vào vị trí đắc địa"],
   catLienLac: [
     "cắt liên lạc giữa các quân đối phương",
     "chia cắt quân đối phương",
-    "làm quân đối phương mất gốc",
+    "làm quân đối phương mất căn",
   ],
   khongCheTuong: [
     "khống chế đường ra của Tướng đối phương",
@@ -271,14 +271,14 @@ export const LOSS_TEXT: Record<Principle, string[]> = {
     "để cung đối phương dễ thở hơn",
   ],
   anToan: ["làm cung tướng hở ra", "làm cung tướng mình yếu đi", "để lộ sơ hở ở cung tướng"],
-  matGoc: ["để quân mất gốc", "để quân không có gốc", "bỏ quân không gốc"],
+  matGoc: ["để quân mất căn", "để quân không có căn", "bỏ quân không căn"],
   phongToa: ["mở đường cho Xe đối phương", "thả Xe đối phương ra", "để Xe đối phương hoạt động tự do hơn"],
   tot: ["chưa đưa Tốt qua sông", "chưa tận dụng được Tốt", "để Tốt dậm chân tại chỗ"],
   diemThenChot: ["rời điểm then chốt", "bỏ vị trí then chốt", "rời khỏi chỗ đứng quan trọng"],
   catLienLac: [
     "để quân đối phương nối lại liên lạc",
     "giúp quân đối phương liên kết lại",
-    "để quân đối phương có gốc trở lại",
+    "để quân đối phương có căn trở lại",
   ],
   khongCheTuong: [
     "nới đường ra cho Tướng đối phương",

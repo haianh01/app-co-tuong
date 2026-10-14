@@ -129,7 +129,7 @@ describe("giải thích nước đi bằng AI thật", () => {
 });
 
 describe("nguyên lý chiến lược", () => {
-  it("khai cuộc: lên Xe biên làm Mã mất gốc, đáng lẽ ra Pháo đầu", () => {
+  it("khai cuộc: lên Xe biên làm Mã mất căn, đáng lẽ ra Pháo đầu", () => {
     // Điểm AI dựng tay: nước đáp là một nước yên (không ăn, không bắt quân nào), nên lý do phải là chiến lược.
     const state = replayMoves([{ from: sq(9, 8), to: sq(8, 8) }]);
     const evals: PositionEval[] = [
@@ -142,7 +142,7 @@ describe("nguyên lý chiến lược", () => {
       { kind: "strategy", plan: "raQuan", played: "X1.1", better: "P2-5", gains: ["matGoc", "diemThenChot"], worsened: ["matGoc"], loose: ["Mã 2"] },
     ]);
     expect(explainText(m.facts, m.side)).toBe(
-      "Đang khai cuộc, việc chính là ra quân nhanh và cân đối. Nên đi P2-5: không để quân mất gốc và đưa quân vào điểm then chốt, còn X1.1 để Mã 2 mất gốc.",
+      "Đang khai cuộc, việc chính là ra quân nhanh và cân đối. Nên đi P2-5: không để quân mất căn và đưa quân vào điểm then chốt, còn X1.1 để Mã 2 mất căn.",
     );
   });
 });
@@ -278,11 +278,11 @@ describe("nhận xét chiến lược cho mọi nước (moveIdea)", () => {
 
   it("nước khai cuộc tốt vẫn có nhận xét theo kế hoạch ra quân", () => {
     expect(idea(2)).toBe("Kế hoạch: ra quân. M2.3 giúp đưa thêm quân ra trận.");
-    expect(idea(4)).toBe("Kế hoạch: ra quân. X1-2 giúp Xe thông đường hơn và quân có gốc hơn.");
+    expect(idea(4)).toBe("Kế hoạch: ra quân. X1-2 giúp Xe thông đường hơn và quân có căn hơn.");
   });
 
-  it("Xe qua hà: khen ra quân nhưng nhắc Xe mất gốc", () => {
-    expect(idea(6)).toBe("Kế hoạch: ra quân. X2.6 giúp đưa thêm quân ra trận và Xe thông đường hơn, nhưng để Xe 2 mất gốc.");
+  it("Xe qua hà: khen ra quân nhưng nhắc Xe mất căn", () => {
+    expect(idea(6)).toBe("Kế hoạch: ra quân. X2.6 giúp đưa thêm quân ra trận và Xe thông đường hơn, nhưng để Xe 2 mất căn.");
   });
 
   it("gắn tên khai cuộc vào kế hoạch khi được cung cấp", () => {
@@ -491,7 +491,7 @@ describe("đa dạng cách diễn đạt (explainText với seed)", () => {
     expectVariedButFaithful(r.facts, r.side, ["Đỏ", "X1-6", "M6/5", "chiếu bí"]);
   });
 
-  it("lỗi chiến lược khai cuộc: luôn nêu nước nên đi, nước đã đi và quân mất gốc", () => {
+  it("lỗi chiến lược khai cuộc: luôn nêu nước nên đi, nước đã đi và quân mất căn", () => {
     const state = replayMoves([{ from: sq(9, 8), to: sq(8, 8) }]);
     const evals: PositionEval[] = [
       { score: 20, best: { from: sq(7, 7), to: sq(7, 4) } },
@@ -501,7 +501,7 @@ describe("đa dạng cách diễn đạt (explainText với seed)", () => {
     expectVariedButFaithful(m.facts, m.side, ["P2-5", "X1.1", "Mã 2 "]);
   });
 
-  it("nhận xét kế hoạch cho Xe qua hà: luôn nhắc tên nước và quân mất gốc", () => {
+  it("nhận xét kế hoạch cho Xe qua hà: luôn nhắc tên nước và quân mất căn", () => {
     const line = [[7, 7, 7, 4], [0, 7, 2, 6], [9, 7, 7, 6], [0, 8, 0, 7], [9, 8, 9, 7], [0, 1, 2, 2], [9, 7, 3, 7]] as const;
     const state = replayMoves(line.map(([a, b, c, d]) => ({ from: sq(a, b), to: sq(c, d) })));
     const reply = findBestMove(state.history[7], 3, () => 0, { depth: 3, timeMs: 60_000, noise: 0 }).move;

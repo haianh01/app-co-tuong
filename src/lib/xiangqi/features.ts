@@ -309,7 +309,7 @@ function computePieceTags(
     }
   }
 
-  // Quân lớn mất gốc
+  // Quân lớn mất căn
   if ("rnc".includes(type) && !isDefended(board, square, side)) {
     tags.push("matGoc");
   }

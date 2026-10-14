@@ -451,7 +451,7 @@ function strategyFact(ctx: MoveContext, better: Move): Fact | null {
   };
 }
 
-/** Quân lớn của phe `mover` mất gốc sau nước đi (trước đó còn gốc), kèm tên. */
+/** Quân lớn của phe `mover` mất căn sau nước đi (trước đó còn căn), kèm tên. */
 function newlyLoose(before: Board, move: Move, after: Board, mover: Side): string[] {
   const isLoose = (b: Board, i: number) => !!b[i] && sideOf(b[i]!) === mover && "rnc".includes(typeOf(b[i]!)) && !isDefended(b, i, mover);
   const origin = (i: number) => (i === move.to ? move.from : i);
@@ -514,7 +514,7 @@ export function moveIdea(
     played: moveNotation(before, move),
     gains: deltas.filter((x) => x.d >= 1).sort((x, y) => y.d - x.d).slice(0, 2).map((x) => x.p),
     // Ngưỡng chê cao hơn ngưỡng khen: thay đổi nhỏ (vd. Xe đối phương thêm một ô) không đáng nhắc.
-    // Riêng quân mất gốc giữ ngưỡng thấp vì nói được đúng tên quân.
+    // Riêng quân mất căn giữ ngưỡng thấp vì nói được đúng tên quân.
     worsened: deltas.filter((x) => x.d <= (x.p === "matGoc" ? -1 : -1.5)).sort((x, y) => x.d - y.d).slice(0, 1).map((x) => x.p),
     loose: newlyLoose(before, move, after, mover),
     opening,
@@ -877,7 +877,7 @@ export function sentence(f: Fact, mover: Side = "r", seed?: number): string {
   const gain = (p: Principle) => v(`gain.${p}`, GAIN_TEXT[p]);
   const loss = (p: Principle, loose: string[]) =>
     p === "matGoc" && loose.length
-      ? v("loss.loose", [`để ${loose.join(", ")} mất gốc`, `khiến ${loose.join(", ")} không còn gốc`])
+      ? v("loss.loose", [`để ${loose.join(", ")} mất căn`, `khiến ${loose.join(", ")} không còn căn`])
       : v(`loss.${p}`, LOSS_TEXT[p]);
   switch (f.kind) {
     case "allowsMate":
@@ -1124,7 +1124,7 @@ export function sentence(f: Fact, mover: Side = "r", seed?: number): string {
               `Hướng chính lúc này: ${PLAN_NAME[f.plan]}.`,
               `Trọng tâm: ${PLAN_NAME[f.plan]}.`,
             ]);
-      const good = f.gains.map((p) => (p === "matGoc" ? "quân có gốc hơn" : gain(p))).join(" và ");
+      const good = f.gains.map((p) => (p === "matGoc" ? "quân có căn hơn" : gain(p))).join(" và ");
       const bad = f.worsened.length ? loss(f.worsened[0], f.loose) : "";
       if (good && bad) {
         return v("idea.mixed", [

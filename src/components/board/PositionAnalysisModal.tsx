@@ -5,7 +5,6 @@ import type {
   CandidateMoveAnalysis,
   PositionAnalysisResult,
 } from "@/lib/xiangqi/position-analysis";
-import { FACTOR_NAMES } from "@/lib/xiangqi/assess";
 import styles from "./PositionAnalysisModal.module.css";
 
 export interface PositionAnalysisModalProps {
@@ -133,7 +132,7 @@ export function PositionAnalysisModal({
               {analysis.layer1.wdl && (
                 <div className={styles.wdlSection}>
                   <div className={styles.wdlHeader}>
-                    <span>Ước lượng cơ hội (WDL):</span>
+                    <span>Theo engine (máy đấu máy):</span>
                     <strong className={styles.wdlScore}>
                       {analysis.layer1.evalText}
                     </strong>
@@ -173,10 +172,7 @@ export function PositionAnalysisModal({
                     {analysis.layer2.factors.map((f, i) => (
                       <div key={`factor-${i}`} className={styles.factorItem}>
                         <span className={styles.factorName}>
-                          #{i + 1}. {FACTOR_NAMES[f.id] ?? f.id}
-                        </span>
-                        <span className={styles.factorWeight}>
-                          Phe: {f.side === "r" ? "Đỏ" : "Đen"} (đóng góp +{f.weight} cp)
+                          #{i + 1}. {f.text}
                         </span>
                       </div>
                     ))}

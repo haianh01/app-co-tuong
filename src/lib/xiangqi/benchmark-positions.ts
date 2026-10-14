@@ -188,7 +188,7 @@ export const BENCHMARK_POSITIONS: BenchmarkPosition[] = [
   },
   {
     id: "tactics_15_hanging_piece",
-    name: "Chiến thuật: Quân bị treo mất gốc",
+    name: "Chiến thuật: Quân bị treo mất căn",
     fen: "4k4/9/4r4/p8/9/9/4R4/9/9/4K4 b - - 0 1",
     category: "tactics",
     description: "Xe đen đứng chơ vơ không có bảo vệ bị Xe đỏ ăn trực tiếp.",
@@ -211,7 +211,7 @@ export const BENCHMARK_POSITIONS: BenchmarkPosition[] = [
     name: "Chiến thuật: Bỏ qua đòn đe dọa (ignoredThreat)",
     fen: "4k4/9/4n4/p8/9/9/4R4/9/9/4K4 b - - 0 1",
     category: "tactics",
-    description: "Đỏ có Xe ở e3 đang đe dọa ăn Mã e7; Đen đi a6a5 bỏ mặc Mã e7 bị ăn mất gốc.",
+    description: "Đỏ có Xe ở e3 đang đe dọa ăn Mã e7; Đen đi a6a5 bỏ mặc Mã e7 bị ăn mất căn.",
     move: "a6a5",
     reply: "e3e7",
     expected: { tacticalKind: "ignoredThreat" },

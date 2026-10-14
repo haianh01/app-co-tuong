@@ -246,7 +246,7 @@ describe("position-analysis.ts - Phân tích hình cờ 6 tầng theo spec", () 
       // Điểm thường không bị nhầm thành thế sát
       const normal = formatScoreText(350);
       expect(normal.isMate).toBe(false);
-      expect(normal.text).toBe("+350 cp");
+      expect(normal.text).toBe("hơn ≈ 3,5 Tốt");
     });
 
     it("Lỗi 2: % thắng tính theo phe dẫn đầu khi Đen hơn và không có WDL", () => {
@@ -265,7 +265,7 @@ describe("position-analysis.ts - Phân tích hình cờ 6 tầng theo spec", () 
 
       expect(res.layer2.assessment.leader).toBe("b");
       // % thắng của Đen phải > 70% chứ không được là % thắng của Đỏ (~20%)
-      expect(res.layer2.displayText).toMatch(/Đen .+ \([+-]?\d+ cp, [789]\d% thắng\)/);
+      expect(res.layer2.displayText).toMatch(/Đen .+ \(hơn ≈ 3,5 Tốt, [789]\d% thắng\)/);
     });
 
     it("Lỗi 3: displayText không in cp thô khi ở thế sát", () => {

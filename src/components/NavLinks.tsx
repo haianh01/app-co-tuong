@@ -10,6 +10,7 @@ const LINKS = [
   { href: "/tournaments", label: "Giải đấu" },
   { href: "/play", label: "Chơi với máy" },
   { href: "/puzzle", label: "Cờ thế" },
+  { href: "/masters", label: "Ván đại sư" },
   { href: "/leaderboard", label: "Xếp hạng", also: ["/u/"] },
 ];
 

@@ -188,7 +188,7 @@ function buildPlan(result: PositionAnalysisResult): string {
     const intentStr = intentForSide ? ` — **ý đồ**: ${intentForSide}` : "";
     const nextBookLabels = layer6.nextBookMoves
       .slice(0, 2)
-      .map((m) => m.notation)
+      .map((m) => m.move)
       .join(", ");
     const bookHint = nextBookLabels ? ` Nước sách tiếp theo: **${nextBookLabels}**.` : "";
 

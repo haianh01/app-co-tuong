@@ -5,7 +5,7 @@
 
 import {
   type Board, type Move, type Side,
-  inCheck, legalMoves, opponent, play, sideOf, typeOf, findKing,
+  inCheck, legalMoves, hasAnyLegalMove, opponent, play, sideOf, typeOf, findKing,
   PIECE_VALUES,
 } from "./engine";
 import { exchangeGain, ref, type PieceRef } from "./explain";
@@ -14,7 +14,7 @@ import { detectPatterns } from "./patterns";
 import { detectTheoreticalEndgame } from "./endgame";
 import { narratePv } from "./narrate";
 import { moveNotation, PIECE_NAME } from "./notation";
-import { detectThreatMoveFacts, type ThreatData } from "./threats";
+import { detectThreatMoveFacts, threatGain, type ThreatData } from "./threats";
 import { analyzeForcingPlies, detectExchange } from "./middlegame";
 
 export type Purpose =
@@ -34,6 +34,7 @@ export interface IntentFact {
   move: string;
   side: Side;
   purposes: Purpose[];
+  primaryPurpose: Purpose;
   line: string[];
   summary: string;
   pieces: PieceRef[];
@@ -68,6 +69,7 @@ function materialBalance(board: Board, side: Side): number {
 
 interface PvPly {
   side: Side;
+  to: number;
   captured: number; // giá trị quân bị ăn ở nửa nước này (0 nếu không ăn)
   balance: number;  // cán cân vật chất theo bên đi gốc SAU nửa nước này
 }
@@ -84,6 +86,7 @@ function walkPv(board: Board, mover: Side, pv: Move[], maxPlies: number): PvPly[
     cur = play(cur, m);
     out.push({
       side: turn,
+      to: m.to,
       captured: victim ? PIECE_VALUES[typeOf(victim)] : 0,
       balance: materialBalance(cur, mover),
     });
@@ -133,6 +136,11 @@ export function detectIntent(
   const isSound = loss <= 60; // Nước đi không phải blunder lớn
 
   const purposes: Purpose[] = [];
+  // Mức tác động (cp) của từng mục đích, dùng để chọn ý chính thay vì thứ tự cố định
+  const impact: Partial<Record<Purpose, number>> = {};
+  const setImpact = (p: Purpose, cp: number) => {
+    impact[p] = Math.max(impact[p] ?? 0, cp);
+  };
   const involvedPieces: PieceRef[] = [movePieceRef];
   const pieceSqSet = new Set<number>([move.from, move.to]);
 
@@ -148,6 +156,9 @@ export function detectIntent(
   const pvToRun = fullPv[0]?.from === move.from && fullPv[0]?.to === move.to ? fullPv : [move, ...fullPv];
   const narration = narratePv(before, mover, pvToRun, { skipThreats: true });
 
+  const oppInCheckAfter = inCheck(after, opp);
+  const isCheckmateNow = oppInCheckAfter && !hasAnyLegalMove({ board: after, turn: opp });
+
   // ==========================================================
   // KIỂM TRA 1: THÍ QUÂN (thiQuan)
   // Nước làm mất quân ngay, nhưng cuối PV không thua vật chất hoặc có chiếu bí
@@ -159,27 +170,47 @@ export function detectIntent(
   const immediateMaterialLoss = pieceLostValue - pieceGainedValue;
 
   const immediateSacrifice =
+    !isCheckmateNow &&
     destGainByOpp > 0 &&
-    (immediateMaterialLoss >= 200 || (immediateMaterialLoss > 0 && "rn".includes(moveType)));
+    immediateMaterialLoss > 0;
 
   // Điểm engine của bên đi sau nước này (evalAfter tính theo đối phương nên đổi dấu)
-  const moverEvalAfter = options?.evalAfter ? -options.evalAfter.score : null;
+  const hasEngineEval = options?.evalAfter !== undefined && options?.evalAfter !== null;
+  const moverEvalAfter = hasEngineEval ? -options!.evalAfter!.score : null;
+
+  const balanceStart = materialBalance(before, mover);
+  let pvPliesCache: ReturnType<typeof walkPv> | null = null;
+  const getPvPlies = () => {
+    if (!pvPliesCache) pvPliesCache = walkPv(before, mover, pvToRun, 6);
+    return pvPliesCache;
+  };
 
   // Thí theo PV: vật chất hụt ≥ 200 sau khi đối phương đáp lại, nhưng engine vẫn chấm bên đi không kém.
   // Bắt được cả thí quân không nằm ở ô đến (bỏ quân bị treo để lấy nhịp) mà kiểm tra ô đến bỏ sót.
-  const pvPlies = walkPv(before, mover, pvToRun, 6);
-  const balanceStart = materialBalance(before, mover);
-  const lastReplyIdx = pvPlies.length % 2 === 0 ? pvPlies.length - 1 : pvPlies.length - 2;
-  const pvDeficit = lastReplyIdx >= 1 ? balanceStart - pvPlies[lastReplyIdx].balance : 0;
+  let pvDeficit = 0;
+  if (pvToRun.length > 1) {
+    const plies = getPvPlies();
+    const lastReplyIdx = plies.length % 2 === 0 ? plies.length - 1 : plies.length - 2;
+    pvDeficit = lastReplyIdx >= 1 ? balanceStart - plies[lastReplyIdx].balance : 0;
+  }
   const compensated = moverEvalAfter !== null && moverEvalAfter >= -50;
 
-  if ((immediateSacrifice || pvDeficit >= 200) && isSound) {
-    const finalAdvantage = narration.delta.advantageSide === mover && narration.delta.scoreDiff >= 200;
-    const leadsToMate = narration.isMate || (options?.evalAfter && options.evalAfter.score <= -99000);
-    const scoreFavorable = options?.evalAfter && options.evalAfter.score <= -150;
+  const leadsToMate = narration.isMate || (options?.evalAfter && options.evalAfter.score <= -99000);
+  const finalAdvantage = narration.delta.advantageSide === mover && narration.delta.scoreDiff >= 200;
+  const scoreFavorable = options?.evalAfter && options.evalAfter.score <= -150;
 
-    if (finalAdvantage || leadsToMate || scoreFavorable || (pvDeficit >= 200 && compensated)) {
+  const isCompensatedOrFavorable = compensated || scoreFavorable || finalAdvantage || leadsToMate;
+
+  // Thí ngay tại ô đến chỉ tính khi PV xác nhận đối phương thật sự ăn quân đó;
+  // exchangeGain tĩnh không thấy ghim/đòn chiến thuật nên tự nó không đủ.
+  const pvTakesMovedPiece =
+    pvToRun.length > 1 && getPvPlies()[1]?.to === move.to && (getPvPlies()[1]?.captured ?? 0) > 0;
+  const confirmedImmediate = immediateSacrifice && (pvTakesMovedPiece || Boolean(leadsToMate));
+
+  if (isSound && hasEngineEval) {
+    if ((confirmedImmediate || pvDeficit >= 200) && isCompensatedOrFavorable) {
       purposes.push("thiQuan");
+      setImpact("thiQuan", 300 + Math.max(confirmedImmediate ? immediateMaterialLoss : 0, pvDeficit));
     }
   }
 
@@ -187,8 +218,6 @@ export function detectIntent(
   // KIỂM TRA 2: ĐẠT SÁT (datSat)
   // Chiếu bí ngay lập tức, hoặc đe dọa sát cục tất thắng trong PV
   // ==========================================================
-  const oppInCheckAfter = inCheck(after, opp);
-  const isCheckmateNow = oppInCheckAfter && legalMoves({ board: after, turn: opp }).length === 0;
   const leadsToMateInPv = narration.isMate || (options?.evalAfter && options.evalAfter.score <= -99000);
 
   let createsMateThreat = false;
@@ -200,6 +229,7 @@ export function detectIntent(
 
   if (isCheckmateNow || leadsToMateInPv || createsMateThreat) {
     purposes.push("datSat");
+    setImpact("datSat", isCheckmateNow ? 100_000 : 5_000);
     const oppKing = findKing(after, opp);
     if (oppKing >= 0) addPiece(ref(after, oppKing));
   }
@@ -216,6 +246,7 @@ export function detectIntent(
       const formed = patternsAfter.find((pa) => !patternsBefore.some((pb) => pb.id === pa.id));
       if (formed) {
         purposes.push("lapHinh");
+        setImpact("lapHinh", 400);
         formedPatternName = formed.name;
         for (const sqIndex of formed.pieces) {
           if (after[sqIndex]) addPiece(ref(after, sqIndex));
@@ -233,12 +264,14 @@ export function detectIntent(
     if (netGain > 0) {
       if (!purposes.includes("thiQuan")) {
         purposes.push("anQuan");
+        setImpact("anQuan", netGain);
         addPiece(ref(before, move.to));
       }
     }
   } else if (narration.delta.advantageSide === mover && narration.delta.scoreDiff >= 200 && isSound) {
     if (!purposes.includes("thiQuan")) {
       purposes.push("anQuan");
+      setImpact("anQuan", narration.delta.scoreDiff);
     }
   }
 
@@ -256,12 +289,15 @@ export function detectIntent(
 
   // ==========================================================
   // KIỂM TRA 5: HÓA GIẢI (hoaGiai)
-  // Kịp thời hóa giải đòn đe dọa, thoát chiếu, hoặc cứu quân treo
+  // Kịp thời hóa giải đòn đe dọa hiểm, giải chiếu, hoặc cứu quân lớn bị treo
   // ==========================================================
   const wasInCheckBefore = inCheck(before, mover);
   let parriedThreatStr: string | null = null;
 
-  if (options?.threatBefore) {
+  if (wasInCheckBefore && isSound) {
+    purposes.push("hoaGiai");
+    setImpact("hoaGiai", 300);
+  } else if (options?.threatBefore && isSound) {
     const parried = detectThreatMoveFacts({
       before,
       move,
@@ -272,18 +308,31 @@ export function detectIntent(
     });
     const pFact = parried.find((f) => f.kind === "parried");
     if (pFact && pFact.kind === "parried") {
-      purposes.push("hoaGiai");
-      parriedThreatStr = pFact.threat;
+      // Chỉ gán hoaGiai khi đòn đe dọa sát cục hoặc nước đi trực tiếp phòng thủ / cứu ô bị dọa
+      const tb = options.threatBefore;
+      const isSevere = tb.isMate;
+      const isDefensivePiece = "abk".includes(moveType);
+      const isDirectDefense = Boolean(
+        tb.threatMove && (
+          move.from === tb.threatMove.to ||
+          move.to === tb.threatMove.to ||
+          move.to === tb.threatMove.from
+        )
+      );
+      if (isSevere || isDefensivePiece || isDirectDefense) {
+        purposes.push("hoaGiai");
+        setImpact("hoaGiai", tb.isMate ? 5_000 : threatGain(tb));
+        parriedThreatStr = pFact.threat;
+      }
     }
-  } else if (wasInCheckBefore && isSound) {
-    purposes.push("hoaGiai");
   } else if (isSound) {
-    // Kiểm tra cứu quân treo đang bị bắt: quân ở ô đi có exchangeGain > 0 (bị treo)
-    const hangingBefore = (exchangeGain(before, move.from, opp) ?? 0) > 0;
-    if (hangingBefore) {
+    // Kiểm tra cứu quân treo đang bị bắt: chỉ tính khi quân bị treo là quân lớn (Xe, Pháo, Mã) hoặc mất vật chất >= 200
+    const hangingBefore = (exchangeGain(before, move.from, opp) ?? 0);
+    if (hangingBefore >= 200) {
       const destHanging = (exchangeGain(after, move.to, opp) ?? 0) > 0;
       if (!destHanging) {
         purposes.push("hoaGiai");
+        setImpact("hoaGiai", hangingBefore);
       }
     }
   }
@@ -306,6 +355,7 @@ export function detectIntent(
 
     if (newBlockedHorse || newKimRook) {
       purposes.push("boQuan");
+      setImpact("boQuan", 150);
     }
   }
 
@@ -322,18 +372,20 @@ export function detectIntent(
 
     if (isEquivalentTrade) {
       purposes.push("doiQuan");
+      setImpact("doiQuan", Math.min(PIECE_VALUES[moveType], PIECE_VALUES[capType]) / 2);
       addPiece(ref(before, move.to));
     } else if ("ab".includes(capType)) {
       // Phá phòng tuyến Sĩ/Tượng của đối phương
       purposes.push("doiQuan");
+      setImpact("doiQuan", 150);
       addPiece(ref(before, move.to));
     }
   }
 
   // Đổi theo PV: trong 4 nửa nước đầu, cả hai bên cùng ăn quân và cán cân gần như không đổi.
   // Gồm mời đổi (đối phương ăn trước, ta ăn lại) và đổi binh mở đường.
-  if (!purposes.includes("doiQuan") && isSound) {
-    const early = pvPlies.slice(0, 4);
+  if (!purposes.includes("doiQuan") && isSound && pvToRun.length > 1) {
+    const early = getPvPlies().slice(0, 4);
     const firstCapture = early.findIndex((p) => p.captured > 0);
     if (firstCapture >= 0 && firstCapture <= 1) {
       const gainedByMover = early.filter((p) => p.side === mover).reduce((s, p) => s + p.captured, 0);
@@ -341,6 +393,7 @@ export function detectIntent(
       const endBalance = early[early.length - 1].balance;
       if (gainedByMover > 0 && gainedByOpp > 0 && Math.abs(endBalance - balanceStart) < 100) {
         purposes.push("doiQuan");
+        setImpact("doiQuan", Math.min(gainedByMover, gainedByOpp) / 2);
       }
     }
   }
@@ -371,6 +424,7 @@ export function detectIntent(
 
     if (gainedActiveTag || resolvedPassiveTag) {
       purposes.push("caiThienQuan");
+      setImpact("caiThienQuan", 60);
     }
   }
 
@@ -383,23 +437,31 @@ export function detectIntent(
   if (isSound && !purposes.includes("datSat")) {
     if (oppInCheckAfter) {
       tempoKind = "check";
+      setImpact("giuTien", 200);
     } else {
       // Quét thế sau trước (hiếm khi có mục tiêu), chỉ tra thế trước cho các ô đó
-      const newTarget = after.some((p, sq) => {
-        if (!p || sideOf(p) !== opp || typeOf(p) === "k" || sq === move.to) return false;
-        if ((exchangeGain(after, sq, mover) ?? 0) < 200) return false;
-        return (exchangeGain(before, sq, mover) ?? 0) <= 0;
+      let targetGain = 0;
+      after.forEach((p, sq) => {
+        if (!p || sideOf(p) !== opp || typeOf(p) === "k" || sq === move.to) return;
+        const g = exchangeGain(after, sq, mover) ?? 0;
+        if (g < 200 || g <= targetGain) return;
+        if ((exchangeGain(before, sq, mover) ?? 0) <= 0) targetGain = g;
       });
+      const newTarget = targetGain > 0;
       // Quân vừa đi không được bị ăn có lời, nếu không đó là thí chứ không phải tróc
       const movedPieceSafe = (exchangeGain(after, move.to, opp) ?? 0) <= 0;
       if (newTarget && movedPieceSafe) {
         tempoKind = "attack";
-      } else if (options?.pv) {
+        setImpact("giuTien", targetGain);
+      } else if (options?.pv && pvToRun.length > 1) {
         // Chuỗi ép phải có chiếu hoặc thu lợi vật chất thật; một pha đổi ngang không tính là giữ tiên
         const forcing = analyzeForcingPlies(before, mover, pvToRun);
-        const pvGain = lastReplyIdx >= 1 ? pvPlies[lastReplyIdx].balance - balanceStart : 0;
+        const plies = getPvPlies();
+        const lastIdx = plies.length % 2 === 0 ? plies.length - 1 : plies.length - 2;
+        const pvGain = lastIdx >= 1 ? plies[lastIdx].balance - balanceStart : 0;
         if (forcing.forcingPlies >= 2 && (forcing.checks >= 1 || pvGain >= 200)) {
           tempoKind = "forcing";
+          setImpact("giuTien", 250 + Math.max(0, pvGain));
         }
       }
     }
@@ -417,6 +479,7 @@ export function detectIntent(
   if ((eg !== null || totalMajorAfter <= 5) && isSound) {
     if (moveType === "k" || moveType === "p") {
       purposes.push("kyThuatTanCuoc");
+      setImpact("kyThuatTanCuoc", 120);
     }
   }
 
@@ -443,15 +506,19 @@ export function detectIntent(
     "kyThuatTanCuoc",
   ];
   purposes.sort((a, b) => PRIORITY_ORDER.indexOf(a) - PRIORITY_ORDER.indexOf(b));
+  // Ý chính = mục đích có tác động lớn nhất; hòa thì theo PRIORITY_ORDER (purposes đã sắp sẵn)
+  const primaryPurpose = purposes.reduce((best, p) => ((impact[p] ?? 30) > (impact[best] ?? 30) ? p : best), purposes[0]);
 
   // ==========================================================
   // SINH CÂU TÓM TẮT Ý ĐỒ (summary)
   // ==========================================================
   const pieceName = PIECE_NAME[moveType] ?? "Quân";
-  const primary = purposes[0];
+  const primary = primaryPurpose;
   let summary = "";
 
-  if (purposes.includes("thiQuan")) {
+  if (isCheckmateNow) {
+    summary = `Đi ${moveNotat} chiếu bí kết thúc ván cờ`;
+  } else if (purposes.includes("thiQuan")) {
     if (purposes.includes("datSat")) {
       summary = `Thí ${pieceName} mở đường sát cục quyết định`;
     } else if (purposes.includes("anQuan")) {
@@ -460,9 +527,7 @@ export function detectIntent(
       summary = `Thí ${pieceName} giành quyền chủ động tấn công`;
     }
   } else if (primary === "datSat") {
-    summary = isCheckmateNow
-      ? `Đi ${moveNotat} chiếu bí kết thúc ván cờ`
-      : `Đe dọa đòn sát cục kết liễu đối phương`;
+    summary = `Đe dọa đòn sát cục kết liễu đối phương`;
   } else if (primary === "lapHinh") {
     summary = formedPatternName
       ? `Lập thế sát cục ${formedPatternName}`
@@ -506,6 +571,7 @@ export function detectIntent(
     move: moveNotat,
     side: mover,
     purposes,
+    primaryPurpose,
     line: lineNotation,
     summary,
     pieces: involvedPieces,

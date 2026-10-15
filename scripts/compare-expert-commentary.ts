@@ -266,35 +266,62 @@ function normalizeNotation(not: string): string {
 }
 
 /**
+ * Tách và cô lập phần bình luận về chính nước cờ thực chiến vừa đi,
+ * loại bỏ các mệnh đề biến phụ giả định ("như sửa đi...", "nếucải...", "ngoài ra...", "thay vì đi...").
+ */
+export function isolatePlayedMoveComment(text: string): string {
+  // 1. Loại bỏ các câu mở đầu mang tính phủ định / giả định không thực hiện
+  if (/^nếu\s*như\s*không\s*(?:chịu\s*)?(?:thí|phế|bỏ)/i.test(text.trim())) {
+    return "";
+  }
+
+  // 2. Cắt từ điểm rẽ nhánh sang phân tích biến phụ / nước đi khác
+  const splitPattern = /(?:[\.\n\;\!\,]\s*|\s+)(?:như\s+sửa\s+đi|nếu\s*cải|nếu\s*đổi|sửa\s+đi|đổi\s+đi|thay\s+vì\s+đi|không\s+bằng\s+đi|không\s+bằng|ngoài\s+ra|đen\s+có\s+thể|đỏ\s+có\s+thể|đen\s+như|đỏ\s+như|như:\s*|如改走|不如改走|可改走|改走|如走|若走|赛后研究.*应|另有一变|不如)[\s\S]*$/i;
+
+  const m = text.match(splitPattern);
+  if (m && m.index !== undefined && m.index >= 5) {
+    return text.slice(0, m.index);
+  }
+  return text;
+}
+
+/**
  * Trích xuất các chủ đề chiến thuật trong lời bình của đại sư về nước cờ vừa đi.
  */
 export function extractExpertTacticalThemes(text: string): string[] {
-  const t = text.toLowerCase();
+  const fullTextLower = text.toLowerCase();
+  const mainText = isolatePlayedMoveComment(text);
+  const t = mainText.toLowerCase();
   const themes: string[] = [];
 
-  if (t.includes("khí tử") || t.includes("khí tốt") || t.includes("thí quân") || t.includes("thí tốt") || t.includes("phế quân") || t.includes("phế mã") || t.includes("phế xa") || text.includes("弃车") || text.includes("弃子") || text.includes("弃兵")) {
+  const isNegatedThi = /không\s*(?:chịu\s*)?(?:thí|phế|bỏ)\s*quân/i.test(t);
+  if (!isNegatedThi && (t.includes("khí tử") || t.includes("khí tốt") || t.includes("thí quân") || t.includes("thí tốt") || t.includes("phế quân") || t.includes("phế mã") || t.includes("phế xa") || mainText.includes("弃车") || mainText.includes("弃子") || mainText.includes("弃兵"))) {
     themes.push("Thí quân");
   }
-  if (t.includes("đặt sát") || t.includes("chiếu tướng") || t.includes("công sát") || t.includes("sát cục") || t.includes("chiếu bí") || text.includes("绝杀") || text.includes("杀局")) {
+  if (t.includes("đặt sát") || t.includes("chiếu tướng") || t.includes("công sát") || t.includes("sát cục") || t.includes("chiếu bí") || mainText.includes("绝杀") || mainText.includes("杀局")) {
     themes.push("Đặt sát");
   }
-  if (t.includes("tróc") || t.includes("bắt quân") || t.includes("ăn quân") || t.includes("ăn tượng") || t.includes("ăn tốt") || t.includes("ăn mã") || t.includes("đoạt quân") || text.includes("捉") || text.includes("吃去") || text.includes("吃子")) {
+  if (t.includes("tróc") || t.includes("bắt quân") || t.includes("ăn quân") || t.includes("ăn tượng") || t.includes("ăn tốt") || t.includes("ăn mã") || t.includes("đoạt quân") || mainText.includes("捉") || mainText.includes("吃去") || mainText.includes("吃子")) {
     themes.push("Ăn quân");
   }
-  if (t.includes("đổi xe") || t.includes("đổi pháo") || t.includes("đổi mã") || t.includes("đổi quân") || t.includes("mời đổi") || t.includes("diệu đoái") || text.includes("兑车") || text.includes("兑兵") || text.includes("交换")) {
+  if (t.includes("đổi xe") || t.includes("đổi pháo") || t.includes("đổi mã") || t.includes("đổi quân") || t.includes("mời đổi") || t.includes("diệu đoái") || mainText.includes("兑车") || mainText.includes("兑兵") || mainText.includes("交换")) {
     themes.push("Đổi quân");
   }
-  if (t.includes("gác sĩ") || t.includes("bay tượng") || t.includes("bảo toàn") || t.includes("phòng thủ") || t.includes("hóa giải") || text.includes("上士") || text.includes("补士") || text.includes("退象") || text.includes("固守")) {
+  if (t.includes("gác sĩ") || t.includes("bay tượng") || t.includes("bảo toàn") || t.includes("phòng thủ") || t.includes("hóa giải") || mainText.includes("上士") || mainText.includes("补士") || mainText.includes("退象") || mainText.includes("固守")) {
     themes.push("Hóa giải");
   }
-  if (t.includes("kiềm chế") || t.includes("khóa") || t.includes("bó quân") || t.includes("thụ chế") || t.includes("trói buộc") || text.includes("牵制") || text.includes("封锁") || text.includes("制住")) {
+  if (t.includes("kiềm chế") || t.includes("khóa") || t.includes("bó quân") || t.includes("thụ chế") || t.includes("trói buộc") || mainText.includes("牵制") || mainText.includes("封锁") || mainText.includes("制住")) {
     themes.push("Bó quân");
   }
-  if (t.includes("tiên thủ") || t.includes("tranh tiên") || t.includes("đoạt thế") || text.includes("先手") || text.includes("抢先")) {
+  if (t.includes("tiên thủ") || t.includes("tranh tiên") || t.includes("đoạt thế") || mainText.includes("先手") || mainText.includes("抢先")) {
     themes.push("Giữ tiên");
   }
 
-  if (/nước kém|sai lầm|nước hớ|quá gấp|không bằng|失着|败着|缓着|软着|劣着|欠妥|不如|不好/.test(t) || /失着|败着|缓着|软着|劣着|欠妥|不如|不好/.test(text)) {
+  // Dò "Nước kém" trên toàn văn (kể cả câu có chứa "không bằng", "不如" chỉ ra biến phụ khuyên đi)
+  if (
+    /nước kém|sai lầm|nước hớ|quá gấp|không bằng|失着|败着|缓着|软着|劣着|欠妥|不如|不好/.test(fullTextLower) ||
+    /失着|败着|缓着|软着|劣着|欠妥|不如|不好/.test(text)
+  ) {
     themes.push("Nước kém");
   }
 
@@ -330,7 +357,11 @@ async function runBenchmark() {
 
   let tacticalMatchCount = 0;
   let tacticalThemeCount = 0;
-  const perTheme: Record<string, { expert: number; hit: number; ai?: number }> = {};
+  let tacticalMatchAnyCount = 0;
+  // Mỗi chủ đề: đại sư nhắc / AI trúng (đa nhãn) / AI trúng (ý chính) / AI gán (đa nhãn) / AI gán (ý chính)
+  const perTheme: Record<string, { expert: number; hitAny: number; hitPrimary: number; aiAny: number; aiPrimary: number }> = {};
+  const themeRow = (k: string) => (perTheme[k] ??= { expert: 0, hitAny: 0, hitPrimary: 0, aiAny: 0, aiPrimary: 0 });
+  const sameTheme = (a: string, b: string) => a.toLowerCase().includes(b.toLowerCase()) || b.toLowerCase().includes(a.toLowerCase());
 
   await pool.withProcess(async (proc: UciProcess) => {
     // Warmup
@@ -524,32 +555,43 @@ async function runBenchmark() {
               threatBefore: threatRes ? { ...threatRes, baseScore: -bestScoreBefore } : null,
               threatAfter: threatAfterRes,
             });
-            const playedPurposes: string[] = (playedIntent?.purposes ?? []).map(
-              (p: Purpose) => PURPOSE_SHORT_LABELS[p] ?? PURPOSE_NAMES[p]
-            );
             // Nước kém: cùng ngưỡng với màn Review ván (classifyWinDrop)
             const winDrop = winChance(bestScoreBefore) - winChance(-scoreAfterOpp);
             const quality = classifyWinDrop(winDrop, undefined, playedLoss);
+
+            // BƯỚC 1: CHỌN ĐÚNG 1 Ý CHÍNH DUY NHẤT (Primary Intent)
+            // - Nếu nước đi là sai lầm rõ rệt (mistake/blunder), nhãn chính là "Nước kém"
+            // - Ngược lại, lấy nhãn chính duy nhất từ `playedIntent.primaryPurpose`
+            let dominantTheme: string | null = null;
+            if (quality === "mistake" || quality === "blunder") {
+              dominantTheme = "Nước kém";
+            } else if (playedIntent?.primaryPurpose) {
+              dominantTheme = PURPOSE_SHORT_LABELS[playedIntent.primaryPurpose] ?? PURPOSE_NAMES[playedIntent.primaryPurpose];
+            }
+
+            // Đa nhãn (recall): mọi purposes + "Nước kém". Ý chính (precision): đúng 1 nhãn dominantTheme.
+            const playedPurposes: string[] = (playedIntent?.purposes ?? []).map(
+              (p: Purpose) => PURPOSE_SHORT_LABELS[p] ?? PURPOSE_NAMES[p]
+            );
             if (quality === "mistake" || quality === "blunder") playedPurposes.push("Nước kém");
+            const primaryLabels: string[] = dominantTheme ? [dominantTheme] : [];
 
             const expertThemes = extractExpertTacticalThemes(expertComment);
             let themeMatched = false;
             if (expertThemes.length > 0) {
               tacticalThemeCount++;
-              themeMatched = expertThemes.some((t) =>
-                playedPurposes.some((p) => p.toLowerCase().includes(t.toLowerCase()) || t.toLowerCase().includes(p.toLowerCase()))
-              );
+              themeMatched = expertThemes.some((t) => primaryLabels.some((p) => sameTheme(p, t)));
               if (themeMatched) tacticalMatchCount++;
+              if (expertThemes.some((t) => playedPurposes.some((p) => sameTheme(p, t)))) tacticalMatchAnyCount++;
               for (const t of expertThemes) {
-                const row = (perTheme[t] ??= { expert: 0, hit: 0 });
+                const row = themeRow(t);
                 row.expert++;
-                if (playedPurposes.some((p) => p.toLowerCase().includes(t.toLowerCase()) || t.toLowerCase().includes(p.toLowerCase()))) row.hit++;
+                if (playedPurposes.some((p) => sameTheme(p, t))) row.hitAny++;
+                if (primaryLabels.some((p) => sameTheme(p, t))) row.hitPrimary++;
               }
             }
-            for (const p of playedPurposes) {
-              (perTheme[p] ??= { expert: 0, hit: 0 });
-              perTheme[p].ai = (perTheme[p].ai ?? 0) + 1;
-            }
+            for (const p of playedPurposes) themeRow(p).aiAny++;
+            for (const p of primaryLabels) themeRow(p).aiPrimary++;
 
             const comp: PlyComparison = {
               gameId: game.id,
@@ -587,7 +629,7 @@ async function runBenchmark() {
               console.log(`     [Nước gợi ý]: Đại sư="${suggestedMatch.extractedFromExpert}" => AI Top-3: ${suggestedMatch.matchedInTopCandidates ? `TRÙNG KHỚP (Top ${suggestedMatch.rank}) ✓` : "Khác biệt"} (Cơ hội ngẫu nhiên: ${(suggestedMatch.randomBaselineProb * 100).toFixed(1)}%)`);
             }
             if (expertThemes.length > 0) {
-              console.log(`     [Chiến thuật nước đi]: Đại sư=[${expertThemes.join(", ")}] | AI=[${playedPurposes.join(", ")}] => ${themeMatched ? "KHỚP ✓" : "Khác"}`);
+              console.log(`     [Chiến thuật nước đi]: Đại sư=[${expertThemes.join(", ")}] | AI=[${playedPurposes.join(", ")}] (chính: ${dominantTheme ?? "—"}) => ${themeMatched ? "KHỚP ✓" : "Khác"}`);
             }
           } catch (err) {
             console.error(`Lỗi phân tích tại ply ${ply}:`, err);
@@ -667,6 +709,7 @@ async function runBenchmark() {
       ratePct: Math.round(themeRate * 10) / 10,
       ciLowerPct: themeCI[0],
       ciUpperPct: themeCI[1],
+      perTheme,
     },
     agreedSamples,
     divergentSamples,
@@ -689,7 +732,16 @@ async function runBenchmark() {
   md += `| :--- | :---: | :---: | :---: | :---: | :---: | :--- |\n`;
   md += `| **Cán cân thế trận (Post-Move)** | ${report.evaluation.sampleCount} | ${report.evaluation.hitCount} | **${report.evaluation.ratePct}%** | [${report.evaluation.ciLowerPct}% – ${report.evaluation.ciUpperPct}%] | Lớp đa số (ZeroR): **${report.evaluation.majorityBaselinePct}%** (Đỏ: ${redGt}, Đen: ${blackGt}, Hòa: ${drawGt}) | Đo sau nước đi, chuẩn hóa độc lập 'r'/'b'/null. Không thể kết luận vượt trội nếu KTC bao trùm mốc cơ sở. |\n`;
   md += `| **Nước cờ gợi ý (Top-3 Pick)** | ${report.moveSuggestion.sampleCount} | ${report.moveSuggestion.hitCount} | **${report.moveSuggestion.ratePct}%** | [${report.moveSuggestion.ciLowerPct}% – ${report.moveSuggestion.ciUpperPct}%] | Ngẫu nhiên: **${report.moveSuggestion.avgRandomBaselinePct}%** (Lift: ${report.moveSuggestion.liftFactor}x) | **Chỉ đo năng lực tìm nước của Pikafish**, KHÔNG đo chất lượng hành văn của 5 khối bình luận. |\n`;
-  md += `| **Ý đồ chiến thuật nước đã đi** | ${report.tacticalTheme.sampleCount} | ${report.tacticalTheme.hitCount} | **${report.tacticalTheme.ratePct}%** | [${report.tacticalTheme.ciLowerPct}% – ${report.tacticalTheme.ciUpperPct}%] | — | Đo \`detectIntent\` trên chính nước cờ được đại sư nhận xét. Cho thấy mức độ nhạy của luật gán nhãn hiện tại. |\n\n`;
+  md += `| **Ý đồ chiến thuật nước đã đi** | ${report.tacticalTheme.sampleCount} | ${report.tacticalTheme.hitCount} | **${report.tacticalTheme.ratePct}%** | [${report.tacticalTheme.ciLowerPct}% – ${report.tacticalTheme.ciUpperPct}%] | — | Đo \`detectIntent\` trên chính nước cờ được đại sư nhận xét. Mỗi nước giữ đúng 1 ý chính (Dominant Intent). |\n\n`;
+
+  md += `Khớp đa nhãn (bất kỳ nhãn nào của AI trùng đại sư): **${tacticalMatchAnyCount}/${tacticalThemeCount}** · Khớp ý chính (1 nhãn): **${tacticalMatchCount}/${tacticalThemeCount}**\n\n`;
+  md += `### Phân Bố Theo Từng Chủ Đề Chiến Thuật\n\n`;
+  md += `| Chủ đề | Đại sư nhắc | Trúng (đa nhãn) | Trúng (ý chính) | AI gán (đa nhãn) | AI gán (ý chính) |\n`;
+  md += `| :--- | :---: | :---: | :---: | :---: | :---: |\n`;
+  for (const [k, v] of Object.entries(perTheme).sort((a, b) => b[1].expert - a[1].expert)) {
+    md += `| **${k}** | ${v.expert} | ${v.hitAny} | ${v.hitPrimary} | ${v.aiAny} | ${v.aiPrimary} |\n`;
+  }
+  md += `\n`;
 
   md += `> **Ghi chú phương pháp luận:**\n`;
   md += `> - Mốc ngẫu nhiên của nước gợi ý là null-hypothesis tối thiểu; trong thực tế nhiều nước hợp lệ là vô lý nên mốc này mang tính tham chiếu thô.\n`;
@@ -738,10 +790,10 @@ async function runBenchmark() {
   console.log(`- Nước biến gợi ý: ${report.moveSuggestion.ratePct}% [${report.moveSuggestion.ciLowerPct}% - ${report.moveSuggestion.ciUpperPct}%] (Khớp ${report.moveSuggestion.hitCount}/${report.moveSuggestion.sampleCount})`);
   console.log(`  -> Mốc ngẫu nhiên (Random Baseline): ${report.moveSuggestion.avgRandomBaselinePct}% | Lift Factor: ${report.moveSuggestion.liftFactor}x`);
   console.log(`- Chiến thuật nước đã đi: ${report.tacticalTheme.ratePct}% [${report.tacticalTheme.ciLowerPct}% - ${report.tacticalTheme.ciUpperPct}%] (Khớp ${report.tacticalTheme.hitCount}/${report.tacticalTheme.sampleCount})`);
-  console.log(`\nTheo từng chủ đề (đại sư nhắc / AI bắt trúng / AI gán tổng cộng):`);
+  console.log(`  -> Đa nhãn: ${tacticalMatchAnyCount}/${tacticalThemeCount} | Ý chính: ${tacticalMatchCount}/${tacticalThemeCount}`);
+  console.log(`\nTheo chủ đề: đại sư | trúng đa nhãn | trúng ý chính | AI gán đa nhãn | AI gán ý chính`);
   for (const [k, v] of Object.entries(perTheme).sort((a, b) => b[1].expert - a[1].expert)) {
-    const recall = v.expert > 0 ? `${Math.round((v.hit / v.expert) * 100)}%` : "—";
-    console.log(`  ${k.padEnd(16)} ${String(v.expert).padStart(4)} ${String(v.hit).padStart(4)} (${recall.padStart(4)})  AI gán: ${v.ai ?? 0}`);
+    console.log(`  ${k.padEnd(16)} ${[v.expert, v.hitAny, v.hitPrimary, v.aiAny, v.aiPrimary].map((n) => String(n).padStart(5)).join("")}`);
   }
   console.log(`- Đã xuất báo cáo JSON: ${outJsonPath}`);
   console.log(`- Đã xuất báo cáo Markdown: ${outMdPath}`);

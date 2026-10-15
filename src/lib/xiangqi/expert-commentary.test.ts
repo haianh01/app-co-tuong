@@ -97,4 +97,25 @@ describe("extractExpertTacticalThemes", () => {
     expect(extractExpertTacticalThemes("Gác sĩ củng cố trận hình")).toContain("Hóa giải");
     expect(extractExpertTacticalThemes("Trói buộc xe mã đối phương")).toContain("Bó quân");
   });
+
+  it("không gán nhãn cho nước thực chiến từ các nhánh biến phụ hoặc câu phủ định", () => {
+    // Không chịu thí quân
+    expect(extractExpertTacticalThemes("Nếu như không chịu thí quân, cả 2 bên đều có chỗ bất lợi")).not.toContain("Thí quân");
+    // Khí tử nằm trong biến phụ 'nếu cải'
+    expect(extractExpertTacticalThemes("xa chiếm sườn phải là ứng pháp thường gặp, nếucải xa 1 bình 6 thì Đỏ khí tử tranh tiên")).not.toContain("Thí quân");
+    // Khí tử nằm trong biến phụ 'Ngoài ra có cách khác'
+    expect(extractExpertTacticalThemes("Bay tượng canh giữ dọc theo sông. Ngoài ra có cách khác: Đen khí tử đoạt thế")).not.toContain("Thí quân");
+    // Nước thực chiến vẫn giữ đúng nhãn của nó
+    expect(extractExpertTacticalThemes("Bay tượng canh giữ dọc theo sông. Ngoài ra có cách khác: Đen khí tử đoạt thế")).toContain("Hóa giải");
+  });
+
+  it("nhận diện đúng chủ đề Nước kém khi đại sư dùng 'không bằng' hoặc '不如'", () => {
+    // Đại sư chê nước vừa đi và chỉ ra nước thay thế
+    const themesVN = extractExpertTacticalThemes("Đi Xe bình 2 không bằng đi Pháo 8 tiến 4");
+    expect(themesVN).toContain("Nước kém");
+
+    const themesCN = extractExpertTacticalThemes("走车二平四不如改走马四进六");
+    expect(themesCN).toContain("Nước kém");
+  });
 });
+

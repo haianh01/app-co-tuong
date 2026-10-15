@@ -61,3 +61,6 @@ next-env.d.ts
 /backups/
 *.dump
 
+# Python cache
+__pycache__/
+*.py[cod]

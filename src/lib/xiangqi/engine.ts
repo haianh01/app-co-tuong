@@ -247,6 +247,18 @@ export function legalMoves(pos: Position): Move[] {
   return out;
 }
 
+/** Kiểm tra nhanh xem bên `pos.turn` còn ít nhất một nước đi hợp lệ không (dừng ngay khi tìm thấy). */
+export function hasAnyLegalMove(pos: Position): boolean {
+  for (let i = 0; i < pos.board.length; i++) {
+    const p = pos.board[i];
+    if (p && sideOf(p) === pos.turn) {
+      const moves = legalMovesFrom(pos, i);
+      if (moves.length > 0) return true;
+    }
+  }
+  return false;
+}
+
 export function isLegal(pos: Position, m: Move): boolean {
   return legalMovesFrom(pos, m.from).some((x) => x.to === m.to);
 }

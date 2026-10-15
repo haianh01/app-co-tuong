@@ -31,6 +31,26 @@ describe("intent.ts - Trích xuất ý đồ nước đi và giải thích nư�
       expect(intent?.summary).toContain("sát cục");
     });
 
+    it("không gán nhãn thí quân (thiQuan) cho nước hớ/mất quân (Xe ăn Tốt có bảo vệ)", () => {
+      // Đỏ có Xe e2, Tướng e0. Đen có Tướng d9, Xe e8 bảo vệ Tốt e6.
+      // Xe đỏ e2e6 ăn Tốt e6 (bị Xe e8 ăn lại, mất Xe đổi Tốt: loss 800)
+      const pos = parseFen("3k5/4r4/4p4/9/9/9/9/4R4/9/4K4 w - - 0 1");
+      const blunderMove: Move = { from: sq(7, 4), to: sq(3, 4) }; // e2e6
+      const after = playMove(pos.board, blunderMove);
+
+      // 1. Khi không truyền options (không có dữ liệu engine): không được coi là thí quân
+      const intentNoOpt = detectIntent(pos.board, blunderMove, after);
+      expect(intentNoOpt?.purposes).not.toContain("thiQuan");
+
+      // 2. Khi có engine eval: đối phương ưu +700 (score = 700 từ góc nhìn opp), loss 800
+      // Nước hớ không có mục đích kỳ lý hợp lệ nên trả về null (không gán nhãn thí quân)
+      const intentWithLoss = detectIntent(pos.board, blunderMove, after, {
+        evalAfter: { score: 700 },
+        loss: 800,
+      });
+      expect(intentWithLoss).toBeNull();
+    });
+
     it("nhận diện đạt sát (datSat) khi nước đi chiếu bí ngay lập tức", () => {
       // Thế Bạch diện tướng: X1-6 chiếu bí ngay
       const pos = parseFen("3k1a3/9/8R/9/P6c1/5n3/p7p/6N2/9/3AKAB2 w - - 0 1");
@@ -164,6 +184,26 @@ describe("intent.ts - Trích xuất ý đồ nước đi và giải thích nư�
       expect(intent?.purposes).toContain("giuTien");
     });
 
+    it("không gán thí quân khi PV không xác nhận đối phương ăn quân vừa đi", () => {
+      // Pháo đỏ đi vào ô bị Xe đen ăn được, nhưng biến chính của engine đối phương lại đi nước khác
+      const pos = parseFen("5k3/9/9/r8/9/9/9/4C4/9/3K5 w - - 0 1");
+      const move: Move = { from: sq(7, 4), to: sq(3, 4) };
+      const after = playMove(pos.board, move);
+      const pv: Move[] = [move, { from: sq(0, 5), to: sq(1, 5) }];
+
+      const intent = detectIntent(pos.board, move, after, { pv, evalAfter: { score: 0 }, loss: 0 });
+      expect(intent?.purposes ?? []).not.toContain("thiQuan");
+    });
+
+    it("chọn ý chính theo mức tác động, không theo thứ tự cố định", () => {
+      // Xe tróc Mã: tác động ≈ giá trị Mã, lớn hơn mọi nhãn phụ như cải thiện quân
+      const pos = parseFen("3k5/9/9/9/9/n8/9/9/9/1R2K4 w - - 0 1");
+      const attack: Move = { from: sq(9, 1), to: sq(5, 1) };
+      const intent = detectIntent(pos.board, attack, playMove(pos.board, attack), { loss: 0 });
+      expect(intent?.primaryPurpose).toBe("giuTien");
+      expect(intent?.summary).toContain("Tróc quân");
+    });
+
     it("nhận diện kỹ thuật tàn cuộc (kyThuatTanCuoc) trong thế cờ tàn", () => {
       // Tàn cuộc Đơn Tốt áp sát
       const pos = parseFen("4k4/4P4/9/9/9/9/9/9/9/4K4 w - - 0 50");
@@ -183,6 +223,7 @@ describe("intent.ts - Trích xuất ý đồ nước đi và giải thích nư�
         move: "X5.7",
         side: "r",
         purposes: ["thiQuan", "datSat"],
+        primaryPurpose: "thiQuan",
         line: ["X5.7", "Tg5.1"],
         summary: "Thí Xe mở đường sát cục quyết định",
         pieces: [],

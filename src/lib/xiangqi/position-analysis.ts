@@ -453,7 +453,11 @@ export function analyzePosition(input: PositionAnalysisInput): PositionAnalysisR
       description: "Đang bị chiếu tướng",
     };
   } else {
-    const threatFact = detectThreat(board, turn, threatResult);
+    // Đo đòn dọa bằng mức tăng so với điểm hiện tại, không phải điểm tuyệt đối sau null-move
+    const threatData = threatResult && threatResult.baseScore === undefined && engineResult
+      ? { ...threatResult, baseScore: -engineResult.score }
+      : threatResult;
+    const threatFact = detectThreat(board, turn, threatData);
     if (threatFact) {
       layer3 = {
         inCheck: false,

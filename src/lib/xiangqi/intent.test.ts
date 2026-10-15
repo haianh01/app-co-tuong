@@ -125,6 +125,45 @@ describe("intent.ts - Trích xuất ý đồ nước đi và giải thích nư�
       expect(intent?.purposes.some((p) => p === "giuTien" || p === "datSat")).toBe(true);
     });
 
+    it("nhận diện đổi binh theo PV (doiQuan) khi Tốt ăn Tốt rồi bị ăn lại", () => {
+      const pos = parseFen("4k4/9/9/9/r3p4/4P4/9/9/9/3K5 w - - 0 1");
+      const pxp: Move = { from: sq(5, 4), to: sq(4, 4) };
+      const rxp: Move = { from: sq(4, 0), to: sq(4, 4) };
+      const after = playMove(pos.board, pxp);
+
+      const intent = detectIntent(pos.board, pxp, after, { pv: [pxp, rxp], loss: 0 });
+      expect(intent?.purposes).toContain("doiQuan");
+      expect(intent?.purposes).not.toContain("anQuan");
+    });
+
+    it("nhận diện thí quân theo PV (thiQuan) khi bỏ Pháo treo mà engine vẫn chấm cân bằng", () => {
+      const pos = parseFen("3k5/9/9/9/9/9/2r1C4/9/9/R3K4 w - - 0 1");
+      const quiet: Move = { from: sq(9, 0), to: sq(8, 0) };
+      const pv: Move[] = [
+        quiet,
+        { from: sq(6, 2), to: sq(6, 4) }, // Xe đen ăn Pháo
+        { from: sq(8, 0), to: sq(7, 0) },
+        { from: sq(0, 3), to: sq(1, 3) },
+      ];
+      const after = playMove(pos.board, quiet);
+
+      const ok = detectIntent(pos.board, quiet, after, { pv, evalAfter: { score: 0 }, loss: 0 });
+      expect(ok?.purposes).toContain("thiQuan");
+
+      // Không có bù đắp (engine chấm Đen hơn 4 Tốt) thì chỉ là mất quân, không phải thí
+      const bad = detectIntent(pos.board, quiet, after, { pv, evalAfter: { score: 400 }, loss: 0 });
+      expect(bad?.purposes ?? []).not.toContain("thiQuan");
+    });
+
+    it("nhận diện giữ tiên (giuTien) khi tróc quân không được bảo vệ", () => {
+      const pos = parseFen("3k5/9/9/9/9/n8/9/9/9/1R2K4 w - - 0 1");
+      const attack: Move = { from: sq(9, 1), to: sq(5, 1) }; // Xe tróc Mã
+      const after = playMove(pos.board, attack);
+
+      const intent = detectIntent(pos.board, attack, after, { loss: 0 });
+      expect(intent?.purposes).toContain("giuTien");
+    });
+
     it("nhận diện kỹ thuật tàn cuộc (kyThuatTanCuoc) trong thế cờ tàn", () => {
       // Tàn cuộc Đơn Tốt áp sát
       const pos = parseFen("4k4/4P4/9/9/9/9/9/9/9/4K4 w - - 0 50");

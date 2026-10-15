@@ -5,7 +5,7 @@
 
 import {
   type Board, type Move, type Side,
-  inCheck, legalMoves, opponent, sideOf, typeOf, findKing,
+  inCheck, legalMoves, opponent, play, sideOf, typeOf, findKing,
   PIECE_VALUES,
 } from "./engine";
 import { exchangeGain, ref, type PieceRef } from "./explain";
@@ -15,7 +15,7 @@ import { detectTheoreticalEndgame } from "./endgame";
 import { narratePv } from "./narrate";
 import { moveNotation, PIECE_NAME } from "./notation";
 import { detectThreatMoveFacts, type ThreatData } from "./threats";
-import { detectExchange } from "./middlegame";
+import { analyzeForcingPlies, detectExchange } from "./middlegame";
 
 export type Purpose =
   | "datSat"          // Đe dọa hoặc thực hiện sát cục (chiếu bí)
@@ -52,8 +52,44 @@ export interface DetectIntentOptions {
   ply?: number;
   /** Đòn đe dọa trước nước đi của đối phương */
   threatBefore?: ThreatData | null;
-  /** Đòn đe dọa sau nước đi của bên đi */
+  /** Đòn đe dọa sau nước đi của bên đi (`opponent` phải là bên đi, nếu không sẽ bị bỏ qua khi xét đặt sát) */
   threatAfter?: ThreatData | null;
+}
+
+/** Chênh lệch vật chất (không tính Tướng) theo góc nhìn `side`. */
+function materialBalance(board: Board, side: Side): number {
+  let bal = 0;
+  for (const p of board) {
+    if (!p || typeOf(p) === "k") continue;
+    bal += sideOf(p) === side ? PIECE_VALUES[typeOf(p)] : -PIECE_VALUES[typeOf(p)];
+  }
+  return bal;
+}
+
+interface PvPly {
+  side: Side;
+  captured: number; // giá trị quân bị ăn ở nửa nước này (0 nếu không ăn)
+  balance: number;  // cán cân vật chất theo bên đi gốc SAU nửa nước này
+}
+
+/** Đi lần lượt `pv` từ `board`, dừng khi gặp nước không khớp lượt. Tối đa `maxPlies` nửa nước. */
+function walkPv(board: Board, mover: Side, pv: Move[], maxPlies: number): PvPly[] {
+  const out: PvPly[] = [];
+  let cur = board;
+  let turn = mover;
+  for (const m of pv.slice(0, maxPlies)) {
+    const piece = cur[m.from];
+    if (!piece || sideOf(piece) !== turn) break;
+    const victim = cur[m.to];
+    cur = play(cur, m);
+    out.push({
+      side: turn,
+      captured: victim ? PIECE_VALUES[typeOf(victim)] : 0,
+      balance: materialBalance(cur, mover),
+    });
+    turn = opponent(turn);
+  }
+  return out;
 }
 
 /** Tên tiếng Việt hiển thị của từng mục đích nước cờ. */
@@ -126,12 +162,23 @@ export function detectIntent(
     destGainByOpp > 0 &&
     (immediateMaterialLoss >= 200 || (immediateMaterialLoss > 0 && "rn".includes(moveType)));
 
-  if (immediateSacrifice && isSound) {
+  // Điểm engine của bên đi sau nước này (evalAfter tính theo đối phương nên đổi dấu)
+  const moverEvalAfter = options?.evalAfter ? -options.evalAfter.score : null;
+
+  // Thí theo PV: vật chất hụt ≥ 200 sau khi đối phương đáp lại, nhưng engine vẫn chấm bên đi không kém.
+  // Bắt được cả thí quân không nằm ở ô đến (bỏ quân bị treo để lấy nhịp) mà kiểm tra ô đến bỏ sót.
+  const pvPlies = walkPv(before, mover, pvToRun, 6);
+  const balanceStart = materialBalance(before, mover);
+  const lastReplyIdx = pvPlies.length % 2 === 0 ? pvPlies.length - 1 : pvPlies.length - 2;
+  const pvDeficit = lastReplyIdx >= 1 ? balanceStart - pvPlies[lastReplyIdx].balance : 0;
+  const compensated = moverEvalAfter !== null && moverEvalAfter >= -50;
+
+  if ((immediateSacrifice || pvDeficit >= 200) && isSound) {
     const finalAdvantage = narration.delta.advantageSide === mover && narration.delta.scoreDiff >= 200;
     const leadsToMate = narration.isMate || (options?.evalAfter && options.evalAfter.score <= -99000);
     const scoreFavorable = options?.evalAfter && options.evalAfter.score <= -150;
 
-    if (finalAdvantage || leadsToMate || scoreFavorable) {
+    if (finalAdvantage || leadsToMate || scoreFavorable || (pvDeficit >= 200 && compensated)) {
       purposes.push("thiQuan");
     }
   }
@@ -145,7 +192,7 @@ export function detectIntent(
   const leadsToMateInPv = narration.isMate || (options?.evalAfter && options.evalAfter.score <= -99000);
 
   let createsMateThreat = false;
-  if (!isCheckmateNow && isSound && options?.threatAfter) {
+  if (!isCheckmateNow && isSound && options?.threatAfter && options.threatAfter.opponent === mover) {
     if (options.threatAfter.isMate) {
       createsMateThreat = true;
     }
@@ -283,6 +330,21 @@ export function detectIntent(
     }
   }
 
+  // Đổi theo PV: trong 4 nửa nước đầu, cả hai bên cùng ăn quân và cán cân gần như không đổi.
+  // Gồm mời đổi (đối phương ăn trước, ta ăn lại) và đổi binh mở đường.
+  if (!purposes.includes("doiQuan") && isSound) {
+    const early = pvPlies.slice(0, 4);
+    const firstCapture = early.findIndex((p) => p.captured > 0);
+    if (firstCapture >= 0 && firstCapture <= 1) {
+      const gainedByMover = early.filter((p) => p.side === mover).reduce((s, p) => s + p.captured, 0);
+      const gainedByOpp = early.filter((p) => p.side === opp).reduce((s, p) => s + p.captured, 0);
+      const endBalance = early[early.length - 1].balance;
+      if (gainedByMover > 0 && gainedByOpp > 0 && Math.abs(endBalance - balanceStart) < 100) {
+        purposes.push("doiQuan");
+      }
+    }
+  }
+
   // ==========================================================
   // KIỂM TRA 8: CẢI THIỆN VỊ TRÍ QUÂN (caiThienQuan)
   // Tăng tính cơ động, chiếm lộ thông, hà khẩu, hoặc áp sát cung
@@ -316,7 +378,33 @@ export function detectIntent(
   // KIỂM TRA 9: GIỮ TIÊN / TRANH TIÊN (giuTien)
   // Chiếu tướng ép buộc hoặc đe dọa tạo đòn liên tục
   // ==========================================================
-  if (oppInCheckAfter && isSound && !purposes.includes("datSat")) {
+  // Ngoài chiếu tướng: tróc quân (tạo đòn bắt quân mới đáng giá) hoặc mở đầu chuỗi ≥ 2 nước ép trong PV.
+  let tempoKind: "check" | "attack" | "forcing" | null = null;
+  if (isSound && !purposes.includes("datSat")) {
+    if (oppInCheckAfter) {
+      tempoKind = "check";
+    } else {
+      // Quét thế sau trước (hiếm khi có mục tiêu), chỉ tra thế trước cho các ô đó
+      const newTarget = after.some((p, sq) => {
+        if (!p || sideOf(p) !== opp || typeOf(p) === "k" || sq === move.to) return false;
+        if ((exchangeGain(after, sq, mover) ?? 0) < 200) return false;
+        return (exchangeGain(before, sq, mover) ?? 0) <= 0;
+      });
+      // Quân vừa đi không được bị ăn có lời, nếu không đó là thí chứ không phải tróc
+      const movedPieceSafe = (exchangeGain(after, move.to, opp) ?? 0) <= 0;
+      if (newTarget && movedPieceSafe) {
+        tempoKind = "attack";
+      } else if (options?.pv) {
+        // Chuỗi ép phải có chiếu hoặc thu lợi vật chất thật; một pha đổi ngang không tính là giữ tiên
+        const forcing = analyzeForcingPlies(before, mover, pvToRun);
+        const pvGain = lastReplyIdx >= 1 ? pvPlies[lastReplyIdx].balance - balanceStart : 0;
+        if (forcing.forcingPlies >= 2 && (forcing.checks >= 1 || pvGain >= 200)) {
+          tempoKind = "forcing";
+        }
+      }
+    }
+  }
+  if (tempoKind) {
     purposes.push("giuTien");
   }
 
@@ -396,7 +484,11 @@ export function detectIntent(
   } else if (primary === "caiThienQuan") {
     summary = `Cải thiện vị trí ${pieceName}, gia tăng tầm khống chế`;
   } else if (primary === "giuTien") {
-    summary = `Chiếu tướng giữ quyền chủ động (tranh tiên)`;
+    summary = tempoKind === "attack"
+      ? `Tróc quân, buộc đối phương phải đối phó (giữ tiên)`
+      : tempoKind === "forcing"
+        ? `Mở đầu chuỗi nước ép liên tiếp, nắm quyền chủ động`
+        : `Chiếu tướng giữ quyền chủ động (tranh tiên)`;
   } else if (primary === "kyThuatTanCuoc") {
     summary = `Vận dụng kỹ thuật chuẩn xác trong tàn cuộc`;
   } else {

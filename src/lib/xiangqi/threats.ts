@@ -29,6 +29,17 @@ export interface ThreatData {
   opponent: Side;
   /** Bên bị đe dọa hiện đang bị chiếu sẵn hay không. */
   inCheck?: boolean;
+  /**
+   * Điểm của bên đe dọa khi KHÔNG được đi thêm (= -điểm của bên đang đi). Có giá trị này thì đòn dọa
+   * được đo bằng mức tăng `score - baseScore`; thiếu thì dùng `score` tuyệt đối như cũ — khi đó bên
+   * vốn đã hơn ≥ 2 Tốt sẽ luôn bị coi là "đang dọa".
+   */
+  baseScore?: number;
+}
+
+/** Mức lợi mà đòn dọa mang lại cho bên đe dọa so với khi không được đi thêm. */
+export function threatGain(t: ThreatData): number {
+  return t.baseScore !== undefined ? t.score - t.baseScore : t.score;
 }
 
 export interface ThreatFact {
@@ -96,7 +107,7 @@ export function detectThreat(
   if (threatData !== undefined && threatData !== null) {
     if (threatData.inCheck) return null;
     if (!threatData.threatMove) return null;
-    if (!threatData.isMate && threatData.score < THREAT_GAIN_THRESHOLD) return null;
+    if (!threatData.isMate && threatGain(threatData) < THREAT_GAIN_THRESHOLD) return null;
 
     const by = threatData.opponent ?? opp;
     const pv = threatData.pv && threatData.pv.length > 0 ? threatData.pv : [threatData.threatMove];
@@ -253,9 +264,10 @@ export function detectThreatMoveFacts(
   if (loss <= 50) {
     let threatStillExists = false;
 
-    if (ctx.threatAfter !== undefined && ctx.threatAfter !== null) {
-      threatStillExists =
-        ctx.threatAfter.isMate || ctx.threatAfter.score >= THREAT_GAIN_THRESHOLD;
+    // threatAfter chỉ dùng được khi nó là đòn của chính bên đã dọa trước đó (không phải đòn của bên vừa đi)
+    const lingering = ctx.threatAfter && ctx.threatAfter.opponent === opponent(mover) ? ctx.threatAfter : null;
+    if (lingering) {
+      threatStillExists = lingering.isMate || threatGain(lingering) >= THREAT_GAIN_THRESHOLD;
     } else {
       const tAfter = detectThreat(after, mover);
       if (tAfter) {

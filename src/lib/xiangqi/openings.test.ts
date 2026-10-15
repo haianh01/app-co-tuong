@@ -9,6 +9,7 @@ import {
   detectOpeningFromMoves,
   findNextBookMoves,
   getOpeningGuide,
+  OPENING_BOOK_LINES,
 } from "./openings";
 
 const start = initialPosition();
@@ -156,5 +157,24 @@ describe("huy hiệu", () => {
     expect(earned({ puzzlesSolved: 44 })).not.toContain("puzzle-all");
     expect(earned({ puzzlesSolved: 45 })).toContain("puzzle-all");
     expect(earned({ puzzlesTotal: 0 })).not.toContain("puzzle-all");
+  });
+});
+
+describe("OPENING_BOOK_LINES", () => {
+  it.each(OPENING_BOOK_LINES.map((l) => [l.id ?? l.name, l.moves] as const))(
+    "biến %s đi được trên bàn cờ",
+    (_id, moves) => {
+      let pos = initialPosition();
+      for (const n of moves) {
+        const m = legalMoves(pos).find((x) => moveNotation(pos.board, x) === n);
+        expect(m, `nước ${n} không hợp lệ`).toBeDefined();
+        pos = applyMove(pos, m!);
+      }
+    },
+  );
+
+  it("id không trùng nhau", () => {
+    const ids = OPENING_BOOK_LINES.map((l) => l.id).filter(Boolean);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });

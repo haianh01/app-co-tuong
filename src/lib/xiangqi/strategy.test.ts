@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { START_FEN, parseFen } from "./engine";
+import { START_FEN, legalMoves, parseFen, play, type Move, type Side } from "./engine";
+import { moveNotation } from "./notation";
 import { choosePlan, coordination, detectOpeningFault, linkedGuards, principleScores, wingImbalance } from "./strategy";
 
 const board = (fen: string) => parseFen(fen).board;
@@ -119,6 +120,28 @@ describe("ba nguyên tắc khai cuộc và bổ Sĩ (bài 2, 14, 47)", () => {
     // Đen: Xe góc còn ở nhà, bổ Sĩ 6 tiến 5 (ô 5 → 13).
     const f = detectOpeningFault(board(START_FEN), { from: 5, to: 13 }, 3, "b", []);
     expect(f?.fault).toBe("advisorBlocksRook");
+  });
+
+  it("bổ Sĩ theo sách khai cuộc không bị chê", () => {
+    // Biến sách trong openings.ts: Đen đi S4.5 ở nửa nước thứ 10 khi Xe góc còn ở nhà.
+    const line = ["P2-5", "M8.7", "M2.3", "X9-8", "X1-2", "M2.3", "B7.1", "B7.1", "X2.4", "S4.5"];
+    let cur = board(START_FEN);
+    const moves: Move[] = [];
+    line.forEach((n, i) => {
+      const turn: Side = i % 2 === 0 ? "r" : "b";
+      const m = legalMoves({ board: cur, turn }).find((x) => moveNotation(cur, x) === n);
+      if (!m) throw new Error(`không đi được ${n}`);
+      moves.push(m);
+      if (i < line.length - 1) cur = play(cur, m);
+    });
+    const last = moves[moves.length - 1];
+    expect(detectOpeningFault(cur, last, line.length - 1, "b", moves.slice(0, -1))).toBeNull();
+  });
+
+  it("bổ Sĩ để đỡ chiếu không bị chê", () => {
+    // Xe Đỏ chiếu theo cột Tướng Đen, Đen bổ Sĩ 6 tiến 5 (ô 5 → 13) để chặn.
+    const b = board("rnbak1bnr/9/1c5c1/p1p1R1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABN1 b");
+    expect(detectOpeningFault(b, { from: 5, to: 13 }, 5, "b", [])).toBeNull();
   });
 
 });

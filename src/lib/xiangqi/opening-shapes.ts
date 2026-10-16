@@ -215,7 +215,8 @@ export const OPENING_TYPE_INFO: Record<OpeningType, { name: string; note: string
  */
 export function classifyOpeningType(firstMove: string | undefined, board: Board): OpeningType | null {
   if (!firstMove) return null;
-  if (/^P[28]-5$/.test(firstMove) || firstMove === "B5.1") {
+  // Trung binh (B5.1) là khai cuộc riêng (xem openings.ts), không xếp vào Pháo đầu.
+  if (/^P[28]-5$/.test(firstMove)) {
     return own(board, "r", "r").some((r) => advance(r, "r") >= 5) ? "capCong" : "hoanCong";
   }
   if (/^B[37]\.1$/.test(firstMove)) return "linhHoat";

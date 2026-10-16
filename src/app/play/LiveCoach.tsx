@@ -3,7 +3,7 @@
 // Huấn luyện khi đánh với máy: chấm ngay từng nước của người chơi bằng một AI riêng (worker thứ hai,
 // không tranh với máy đang đánh). Điểm được nhớ theo thế cờ (FEN) nên "Đi lại" rồi đi nước khác vẫn đúng.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useEngine } from "@/hooks/useEngine";
 import { CLASS_NAME, reviewMove, type MoveReview, type PositionEval } from "@/lib/xiangqi/analysis";
 import { toFen, type Side } from "@/lib/xiangqi/engine";
@@ -27,12 +27,15 @@ interface CachedCoachItem {
 
 export function LiveCoach({ state, player }: { state: GameState; player: Side }) {
   const think = useEngine();
-  const [commentaryStyle, setCommentaryStyle] = useState<CommentaryStyle>("zhaoXinxin");
+  const [commentaryStyle, setCommentaryStyle] = useState<CommentaryStyle>("default");
   const [cache, setCache] = useState<Record<string, PositionEval>>({});
   // Cache kết quả theo cặp FEN trước - sau để tránh tính lại toàn bộ ván cờ
-  const coachCache = useRef<Map<string, CachedCoachItem>>(new Map());
-  // Nước của máy cũng được chấm (không hiển thị) để biết máy có sai và bạn có trừng phạt được không
-  const machineCache = useRef<Map<string, MoveReview>>(new Map());
+  // Nước của máy cũng được chấm (không hiển thị) để biết máy có sai và bạn có trừng phạt được không.
+  // Cache chỉ để nhớ kết quả tính, không gây render lại: giữ cùng một object suốt vòng đời component.
+  const [{ coachCache, machineCache }] = useState(() => ({
+    coachCache: new Map<string, CachedCoachItem>(),
+    machineCache: new Map<string, MoveReview>(),
+  }));
   const fens = useMemo(() => state.history.map((p) => toFen(p)), [state.history]);
 
   // Thế cần chấm: trước và sau mỗi nước của người chơi, kể cả thế hiện tại khi đến lượt người chơi (chấm sẵn).
@@ -97,7 +100,7 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
 
       // Khóa cache theo cặp FEN trước và sau nước đi
       const fenPairKey = `${fens[i]}->${fens[i + 1]}`;
-      let cached = coachCache.current.get(fenPairKey);
+      let cached = coachCache.get(fenPairKey);
 
       if (!cached) {
         // Chỉ tính nước mới chưa có trong cache
@@ -121,7 +124,7 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
           i + 1,
         );
         cached = { review, scoreLoss, accuracy: moveAcc, best, idea };
-        coachCache.current.set(fenPairKey, cached);
+        coachCache.set(fenPairKey, cached);
       }
 
       items.push({
@@ -151,10 +154,10 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
       const after = cache[fens[i + 1]];
       if (m.side === player || !before || !after) return stub;
       const key = `${fens[i]}->${fens[i + 1]}`;
-      let r = machineCache.current.get(key);
+      let r = machineCache.get(key);
       if (!r) {
         r = reviewMove(m, i, state, before, after, opening).review;
-        machineCache.current.set(key, r);
+        machineCache.set(key, r);
       }
       return r;
     });
@@ -167,7 +170,7 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
 
     const avg = accScores.length ? Math.round(accScores.reduce((a, b) => a + b, 0) / accScores.length) : null;
     return { mine: items.reverse(), accuracy: avg };
-  }, [state, player, fens, cache, opening]);
+  }, [state, player, fens, cache, opening, coachCache, machineCache]);
 
   return (
     <div className={`card ${styles.panel}`} aria-live="polite">
@@ -178,6 +181,14 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
       <div className={game.personaBar} style={{ margin: "6px 0 10px" }}>
         <span className={game.personaLabel}>Góc nhìn:</span>
         <div className={game.personaButtons}>
+          <button
+            type="button"
+            className={`${game.personaBtn} ${commentaryStyle === "default" ? game.personaActiveDefault : ""}`}
+            onClick={() => setCommentaryStyle("default")}
+            title="Lời bình trung tính, không theo phong cách đại sư nào"
+          >
+            <span>Trung tính</span>
+          </button>
           <button
             type="button"
             className={`${game.personaBtn} ${commentaryStyle === "zhaoXinxin" ? game.personaActiveZhao : ""}`}
@@ -217,11 +228,10 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
                   {m.better && <span className="muted"> · nên đi {m.better}</span>}
                 </span>
               </div>
-              {m.facts.length > 0 && (
-                <p className={game.reviewNote}>
-                  {explainText(m.facts, m.side, m.ply, commentaryStyle)}
-                </p>
-              )}
+              {(() => {
+                const note = explainText(m.facts, m.side, m.ply, commentaryStyle);
+                return note && <p className={game.reviewNote}>{note}</p>;
+              })()}
               {m.line && m.line.length > 1 && (
                 <p className={game.reviewLine}>
                   Biến AI dự tính: {m.line.join(" ➔ ")}

@@ -10,7 +10,6 @@ import { FACTOR_NAMES } from "@/lib/xiangqi/assess";
 import {
   CLASS_NAME,
   findTurningPoints,
-  type MoveClass,
   type MoveReview,
   type PositionEval,
   type ReviewResult,
@@ -79,7 +78,7 @@ export function AnalysisPanel({
 
   const runReview = useAnalysisWorker();
   const [review, setReview] = useState<ReviewResult | null>(null);
-  const [commentaryStyle, setCommentaryStyle] = useState<CommentaryStyle>("zhaoXinxin");
+  const [commentaryStyle, setCommentaryStyle] = useState<CommentaryStyle>("default");
 
   // State đi thử biến tiếp diễn (interactive preview)
   const [previewLine, setPreviewLine] = useState<{
@@ -89,11 +88,15 @@ export function AnalysisPanel({
     step: number;
   } | null>(null);
 
+  // Bỏ kết quả cũ ngay khi mất dữ liệu đánh giá (điều chỉnh state lúc render thay vì trong effect)
+  const [prevEvals, setPrevEvals] = useState(evals);
+  if (evals !== prevEvals) {
+    setPrevEvals(evals);
+    if (!evals) setReview(null);
+  }
+
   useEffect(() => {
-    if (!evals) {
-      setReview(null);
-      return;
-    }
+    if (!evals) return;
     let cancelled = false;
     runReview(state, evals).then((res) => {
       if (!cancelled) setReview(res);
@@ -104,11 +107,11 @@ export function AnalysisPanel({
   }, [state, evals, runReview]);
 
   // Nếu người dùng chọn nước khác ở ngoài, tự động thoát đi thử
-  useEffect(() => {
-    if (previewLine && previewLine.basePly !== ply) {
-      setPreviewLine(null);
-    }
-  }, [ply, previewLine]);
+  const [prevPly, setPrevPly] = useState(ply);
+  if (ply !== prevPly) {
+    setPrevPly(ply);
+    if (previewLine && previewLine.basePly !== ply) setPreviewLine(null);
+  }
 
   // Tính toán bàn cờ tạm thời khi đi thử biến tiếp diễn
   const previewData = useMemo(() => {
@@ -571,6 +574,14 @@ export function AnalysisPanel({
                 <div className={styles.personaButtons}>
                   <button
                     type="button"
+                    className={`${styles.personaBtn} ${commentaryStyle === "default" ? styles.personaActiveDefault : ""}`}
+                    onClick={() => setCommentaryStyle("default")}
+                    title="Lời bình trung tính, không theo phong cách đại sư nào"
+                  >
+                    <span>Trung tính</span>
+                  </button>
+                  <button
+                    type="button"
                     className={`${styles.personaBtn} ${commentaryStyle === "zhaoXinxin" ? styles.personaActiveZhao : ""}`}
                     onClick={() => setCommentaryStyle("zhaoXinxin")}
                     title="Phong cách 'Lục Mạch Thần Kiếm' Triệu Hâm Hâm: Công sát vũ bão, phá thành chém tướng, thí quân đoạt thế"
@@ -625,9 +636,10 @@ export function AnalysisPanel({
                               ))}
                           </div>
                         )}
-                        <p className={styles.reviewNote}>
-                          {explainText(m.facts, m.side, m.ply, commentaryStyle)}
-                        </p>
+                        {(() => {
+                          const note = explainText(m.facts, m.side, m.ply, commentaryStyle);
+                          return note && <p className={styles.reviewNote}>{note}</p>;
+                        })()}
                       </>
                     )}
                     {m.ply === ply && m.line && m.line.length > 1 && (

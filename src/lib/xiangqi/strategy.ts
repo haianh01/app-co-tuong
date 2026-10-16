@@ -4,8 +4,10 @@
 // 3. Nguyên lý: các chỉ số đo được trên bàn cờ; kế hoạch quyết định trọng số của từng chỉ số.
 // Giải thích một nước = so chỉ số của thế sau nước đã đi với thế sau nước nên đi, lấy nguyên lý chênh nhiều nhất.
 
-import { Board, Move, Side, colOf, opponent, pseudoMoves, rowOf, sideOf, typeOf, inPalaceSq as inPalace } from "./engine";
+import { Board, Move, Side, colOf, opponent, pseudoMoves, rowOf, sideOf, typeOf, inPalaceSq as inPalace, inCheck, initialPosition, play } from "./engine";
 import { extractFeatures } from "./features";
+import { moveNotation } from "./notation";
+import { isBookMove } from "./openings";
 
 export type Principle =
   | "xe" // Xe thông đường (số ô Xe đi được)
@@ -392,6 +394,23 @@ export interface OpeningFault {
   pieceSquare: number;
 }
 
+/**
+ * Lịch sử + nước `move` có nằm trong sách khai cuộc không. Chỉ xét được khi ván bắt đầu từ thế chuẩn:
+ * đi lại lịch sử từ thế đầu phải ra đúng `board`, nếu không coi như ngoài sách.
+ */
+function inOpeningBook(board: Board, move: Move, historyMoves: Move[]): boolean {
+  let cur = initialPosition().board;
+  const notations: string[] = [];
+  for (const m of historyMoves) {
+    if (!cur[m.from]) return false;
+    notations.push(moveNotation(cur, m));
+    cur = play(cur, m);
+  }
+  if (cur.some((p, i) => p !== board[i])) return false;
+  notations.push(moveNotation(board, move));
+  return isBookMove(notations);
+}
+
 /** Nhận diện các lỗi khai cuộc căn bản: đi một quân nhiều lần, ra Xe chậm trễ, phi Tượng ra biên, hai Mã cùng ra biên. */
 export function detectOpeningFault(
   board: Board,
@@ -446,7 +465,11 @@ export function detectOpeningFault(
   if (square === move.from && wingImbalance(board, mover) === 3 && !homePieces(board, mover).includes(move.from)) {
     return { fault: "oneWing", pieceSquare: square };
   }
-  if (square === move.from && pType === "a" && ply <= 12) {
+  // Bổ Sĩ để đỡ chiếu hoặc theo đúng sách khai cuộc thì không phải lỗi.
+  if (
+    square === move.from && pType === "a" && ply <= 12 &&
+    !inCheck(board, mover) && !(historyMoves && inOpeningBook(board, move, historyMoves))
+  ) {
     // Sĩ lên giữa cung chặn hàng 2: Xe còn ở góc hoặc mới lên một bước không đi hoành sang cánh kia được.
     const center = mover === "r" ? 76 : 13;
     const rookNeedsRank = pieces(board, mover, "r").some((i) => advance(i, mover) <= 1 && (colOf(i) === 0 || colOf(i) === 8));

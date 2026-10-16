@@ -1291,6 +1291,24 @@ export function sentence(f: Fact, mover: Side = "r", seed?: number): string {
 export type CommentaryStyle = "default" | "zhaoXinxin" | "xuYinchuan";
 
 /**
+ * Dữ kiện kỳ lý trung cuộc của nước đi theo hai phong cách đại sư (B6, B7).
+ * Luôn rút cả hai; explainText chỉ hiện dữ kiện khớp với phong cách đang chọn.
+ */
+export function personaFacts(
+  before: Board,
+  move: Move,
+  after: Board,
+  options?: ZhaoTacticsOptions & XuTacticsOptions,
+): Fact[] {
+  const out: Fact[] = [];
+  const zhao = detectZhaoTactics(before, move, after, options);
+  if (zhao) out.push(zhao);
+  const xu = detectXuTactics(before, move, after, options);
+  if (xu) out.push(xu);
+  return out;
+}
+
+/**
  * Lời giải thích hoàn chỉnh cho một nước của phe `mover`.
  * `seed` (thường là số nửa nước) đổi cách diễn đạt giữa các nước; bỏ trống thì dùng câu chuẩn.
  * `style`: tùy chọn phong cách bình luận ("zhaoXinxin" hoặc "xuYinchuan").
@@ -1301,13 +1319,21 @@ export function explainText(
   seed?: number,
   style?: CommentaryStyle,
 ): string {
-  const base = facts.map((f) => capitalize(sentence(f, mover, seed))).join(" ");
-  if (!style || style === "default") return base;
+  // Dữ kiện của mỗi đại sư chỉ hiện khi chọn đúng góc nhìn đó.
+  const visible = facts.filter((f) =>
+    f.kind === "zhaoMiddlegame" ? style === "zhaoXinxin" : f.kind === "xuMiddlegame" ? style === "xuYinchuan" : true,
+  );
+  const base = visible.map((f) => capitalize(sentence(f, mover, seed))).join(" ");
+  if (!style || style === "default" || !base) return base;
 
   if (style === "zhaoXinxin") {
-    const hasZhao = facts.some((f) => f.kind === "zhaoMiddlegame");
-    const hasAggressive = facts.some(
-      (f) => f.kind === "initiative" || f.kind === "threat" || f.kind === "pattern",
+    const hasZhao = visible.some((f) => f.kind === "zhaoMiddlegame");
+    // Chỉ khen tấn công khi chính bên đi tạo thế công, không phải khi đối phương đe dọa / lập hình.
+    const hasAggressive = visible.some(
+      (f) =>
+        (f.kind === "initiative" && f.side === mover) ||
+        (f.kind === "threat" && f.by === mover) ||
+        (f.kind === "pattern" && f.side === mover && f.action === "formed"),
     );
     if (hasZhao) return `[Triệu Hâm Hâm - Công sát]: ${base}`;
     if (hasAggressive) return `[Triệu Hâm Hâm]: Tận dụng thời cơ tung đòn hỏa lực bão táp! ${base}`;
@@ -1315,9 +1341,12 @@ export function explainText(
   }
 
   if (style === "xuYinchuan") {
-    const hasXu = facts.some((f) => f.kind === "xuMiddlegame");
-    const hasDefensive = facts.some(
-      (f) => f.kind === "parried" || f.kind === "endgame" || f.kind === "openFile" || f.kind === "exchange",
+    const hasXu = visible.some((f) => f.kind === "xuMiddlegame");
+    const hasDefensive = visible.some(
+      (f) =>
+        f.kind === "parried" ||
+        f.kind === "endgame" ||
+        ((f.kind === "openFile" || f.kind === "exchange") && f.side === mover),
     );
     if (hasXu) return `[Hứa Ngân Xuyên - Thái cực]: ${base}`;
     if (hasDefensive) return `[Hứa Ngân Xuyên]: Điềm tĩnh tích lũy ưu thế, dĩ nhu khắc cương. ${base}`;

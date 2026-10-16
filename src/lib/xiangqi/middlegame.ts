@@ -62,6 +62,8 @@ export interface DetectExchangeOptions {
 }
 
 const fileNumber = (col: number, s: Side) => (s === "r" ? 9 - col : col + 1);
+/** Ô `target` có bị phe `by` tấn công không, xét mọi loại quân (isAttacked chỉ đúng cho ô của Tướng). */
+const underAttack = (board: Board, target: number, by: Side) => attackersOf(board, target, by).length > 0;
 
 // ============================================================================
 // 1. TRANH TIÊN (Initiative): Đếm số nước ép buộc liên tiếp trong PV
@@ -447,7 +449,8 @@ export function detectPalaceBreaker(
 
   if (!isHeavySacrifice && !isPawnBreaker) return null;
 
-  const defended = isDefended(before, move.to, opp);
+  // Xét sau khi ăn: quân bắt đã rời move.from nên không còn làm ngòi Pháo hay chặn đường của đối phương.
+  const defended = underAttack(after, move.to, opp);
   const victimName = PIECE_NAME[capType] ?? "quân thủ";
   const moverPieceName = PIECE_NAME[moveType] ?? "quân";
   const moveNotat = moveNotation(before, move);
@@ -494,13 +497,15 @@ export function detectSacrificeForInitiative(
   const immediateMaterialLoss = moveVal - capVal;
   if (immediateMaterialLoss < 200) return null;
 
-  // Ô đến bị đối phương tấn công
-  const attackedAtDest = isAttacked(after, move.to, opp) || attackersOf(after, move.to, opp).length > 0;
-  if (!attackedAtDest) return null;
+  // Đối phương ăn lại thật sự có lời (đã tính đổi quân), không chỉ là ô bị tấn công
+  if ((exchangeGain(after, move.to, opp) ?? 0) < 200) return null;
 
-  // Đổi lại phải đoạt thế chủ động: chiếu tướng hoặc chuỗi ép buộc trong PV
+  // Đổi lại phải đoạt thế chủ động: chiếu tướng hoặc chuỗi ép buộc trong PV.
+  // PV có thể bắt đầu bằng chính nước vừa đi (tính từ thế trước) — bỏ nó đi để chạy tiếp từ `after`.
   const check = inCheck(after, opp);
-  const forcing = options?.pv ? analyzeForcingPlies(after, mover, options.pv) : null;
+  const pv = options?.pv;
+  const pvAfter = pv && pv[0]?.from === move.from && pv[0]?.to === move.to ? pv.slice(1) : pv;
+  const forcing = pvAfter ? analyzeForcingPlies(after, mover, pvAfter) : null;
   const hasInitiative = check || (forcing !== null && forcing.forcingPlies >= 2);
 
   if (!hasInitiative) return null;
@@ -546,8 +551,7 @@ export function detectCounterThreat(
     for (let i = 0; i < before.length; i++) {
       const p = before[i];
       if (p && sideOf(p) === mover && "rnc".includes(typeOf(p))) {
-        const attacked = isAttacked(before, i, opp) || attackersOf(before, i, opp).length > 0;
-        if (attacked && !isDefended(before, i, mover)) {
+        if (underAttack(before, i, opp) && !isDefended(before, i, mover)) {
           underHeavyAttack = true;
           break;
         }
@@ -557,14 +561,14 @@ export function detectCounterThreat(
 
   if (!underHeavyAttack) return null;
 
-  // Sau khi đi: Tung đòn phản kích (chiếu tướng đối phương hoặc trực tiếp tấn công quân lớn đối phương)
+  // Sau khi đi: Tung đòn phản kích (chiếu tướng đối phương hoặc tấn công một quân lớn đối phương
+  // mà trước nước đi chưa bị tấn công — đe dọa phải do chính nước này tạo ra)
   const counterCheck = inCheck(after, opp);
   let attacksEnemyMajor = false;
   for (let i = 0; i < after.length; i++) {
     const p = after[i];
-    if (p && sideOf(p) === opp && "rnck".includes(typeOf(p))) {
-      const attacked = isAttacked(after, i, mover) || attackersOf(after, i, mover).length > 0;
-      if (attacked) {
+    if (p && sideOf(p) === opp && "rnc".includes(typeOf(p))) {
+      if (underAttack(after, i, mover) && !(before[i] === p && underAttack(before, i, mover))) {
         attacksEnemyMajor = true;
         break;
       }
@@ -619,28 +623,30 @@ export function detectFlankOverload(
   }
 
   let myAttackers = 0;
+  let enemyDefenders = 0;
   const attackerTypes: string[] = [];
 
   for (let r = 0; r < ROWS; r++) {
     for (const c of flankCols) {
       const p = after[sq(r, c)];
       if (!p) continue;
-      const s = sideOf(p);
       const t = typeOf(p);
 
-      if (s === mover) {
+      if (sideOf(p) === mover) {
+        // Chỉ tính quân đã dâng lên (tới bờ sông mình trở đi); quân còn nằm nhà chưa tham gia tấn công
         const isAdvanced = crossedRiver(r, mover) || (mover === "r" ? r <= 5 : r >= 4);
-        if (["r", "n", "c"].includes(t) || (t === "p" && crossedRiver(r, mover))) {
-          if (isAdvanced || t === "r" || t === "c") {
-            myAttackers++;
-            attackerTypes.push(PIECE_NAME[t] ?? "quân");
-          }
+        if (isAdvanced && "rncp".includes(t) && (t !== "p" || crossedRiver(r, mover))) {
+          myAttackers++;
+          attackerTypes.push(PIECE_NAME[t] ?? "quân");
         }
+      } else if ("rnc".includes(t) || t === "a" || t === "b") {
+        // Lực lượng phòng thủ cục bộ của đối phương trên cánh này (nửa sân của họ)
+        if (!crossedRiver(r, sideOf(p))) enemyDefenders++;
       }
     }
   }
 
-  if (myAttackers < 3) return null;
+  if (myAttackers < 3 || myAttackers <= enemyDefenders) return null;
 
   const fromCol = colOf(move.from);
   const enteredFlank = !flankCols.includes(fromCol) || crossedRiver(rowOf(move.to), mover);
@@ -743,8 +749,8 @@ export function detectSolidDefense(
     }
   }
 
-  const wasThreatened = isAttacked(before, move.from, opp) || attackersOf(before, move.from, opp).length > 0;
-  const isSafeNow = !isAttacked(after, move.to, opp) && attackersOf(after, move.to, opp).length === 0;
+  const wasThreatened = underAttack(before, move.from, opp);
+  const isSafeNow = !underAttack(after, move.to, opp);
   const retreated = mover === "r" ? rowOf(move.to) > rowOf(move.from) : rowOf(move.to) < rowOf(move.from);
 
   if (wasThreatened && isSafeNow && retreated && "rnc".includes(mType)) {

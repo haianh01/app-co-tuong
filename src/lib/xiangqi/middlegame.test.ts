@@ -159,6 +159,17 @@ describe("middlegame.ts - Khái niệm trung cuộc cờ tướng (B5)", () => {
       expect(fact?.details).toContain("Xe trảm Sĩ");
     });
 
+    it("detectPalaceBreaker xét căn sau khi ăn: quân bắt không còn làm ngòi cho Pháo đối phương", () => {
+      // Xe Đỏ d4 (sq(5, 3)) là ngòi giữa Pháo Đen d1 (sq(8, 3)) và Sĩ Đen d7 (sq(2, 3)).
+      // Ăn Sĩ xong Xe rời ngòi, Pháo không ăn lại được: Sĩ bị ăn không, không phải phế Xe.
+      const pos = parseFen("5k3/9/3a5/9/9/3R5/9/9/3c5/4K4 w - - 0 1");
+      const move: Move = { from: sq(5, 3), to: sq(2, 3) };
+      const after = playMove(pos.board, move);
+
+      const fact = detectPalaceBreaker(pos.board, move, after, { loss: 0 });
+      expect(fact?.summary).toContain("Công phá phòng tuyến");
+    });
+
     it("detectSacrificeForInitiative phát hiện đòn Khí tử tranh tiên táo bạo", () => {
       // Đen có Tướng e9 (sq(0, 4)), Xe a9 (sq(0, 0))
       // Đỏ có Xe d7 (sq(2, 3)). Đỏ tiến Xe d7 lên d9 (sq(0, 3)) chiếu ngang Tướng e9 vào tầm ăn của Xe Đen a9
@@ -173,16 +184,42 @@ describe("middlegame.ts - Khái niệm trung cuộc cờ tướng (B5)", () => {
     });
 
     it("detectCounterThreat phát hiện đòn Dĩ công vi thủ khi đang bị đe dọa", () => {
-      // Đỏ có Xe e3 (sq(6, 4)) đang bị Pháo Đen e7 (sq(2, 4)) nhắm ăn trực tiếp không căn
-      // Thay vì chạy Xe, Đỏ tung Mã c7 (sq(2, 2)) nhảy d9 (sq(0, 3)) phản chiếu Tướng e9!
-      const pos = parseFen("4k4/9/2N1c4/9/9/9/4R4/9/9/4K4 w - - 0 1");
-      const move: Move = { from: sq(2, 2), to: sq(0, 3) };
+      // Mã Đỏ a3 (sq(6, 0)) bị Xe Đen a7 (sq(2, 0)) bắt, không có căn.
+      // Thay vì cứu Mã, Đỏ tiến Xe i0 (sq(9, 8)) lên i7 (sq(2, 8)) phản công Xe Đen theo hàng ngang.
+      const pos = parseFen("4k4/9/r8/9/9/9/N8/9/9/3K4R w - - 0 1");
+      const move: Move = { from: sq(9, 8), to: sq(2, 8) };
       const after = playMove(pos.board, move);
 
       const fact = detectCounterThreat(pos.board, move, after, { loss: 0 });
       expect(fact).not.toBeNull();
       expect(fact?.tactic).toBe("diCongViThu");
       expect(fact?.summary).toContain("Dĩ công vi thủ");
+    });
+
+    it("detectCounterThreat bỏ qua nước không tự tạo đe dọa mới", () => {
+      // Xe Đỏ i7 đã bắt Xe Đen a7 từ trước; Đỏ chỉ đi Tướng nên không phải phản công.
+      const pos = parseFen("4k4/9/r7R/9/9/9/N8/9/9/3K5 w - - 0 1");
+      const move: Move = { from: sq(9, 3), to: sq(8, 3) };
+      const after = playMove(pos.board, move);
+
+      expect(detectCounterThreat(pos.board, move, after, { loss: 0 })).toBeNull();
+    });
+
+    it("detectSacrificeForInitiative bỏ qua nước đổi quân ngang (đối phương ăn lại không lời)", () => {
+      // Như trên nhưng Mã Đỏ c7 (sq(2, 2)) giữ ô d9: Xe Đen ăn Xe thì bị Mã ăn lại.
+      const pos = parseFen("r3k4/9/2NR5/9/9/9/9/9/9/4K4 w - - 0 1");
+      const move: Move = { from: sq(2, 3), to: sq(0, 3) };
+      const after = playMove(pos.board, move);
+
+      expect(detectSacrificeForInitiative(pos.board, move, after, { loss: 0 })).toBeNull();
+    });
+
+    it("detectFlankOverload không tính quân còn nằm nhà (bình Pháo nước đầu)", () => {
+      const pos = parseFen("rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1");
+      const move: Move = { from: sq(7, 7), to: sq(7, 2) };
+      const after = playMove(pos.board, move);
+
+      expect(detectFlankOverload(pos.board, move, after, { loss: 0 })).toBeNull();
     });
 
     it("detectFlankOverload phát hiện thế Tụ binh đột kích áp đảo 1 cánh", () => {
@@ -349,6 +386,31 @@ describe("middlegame.ts - Khái niệm trung cuộc cờ tướng (B5)", () => {
 
       const defaultText = explainText(facts, "r", 1, "default");
       expect(defaultText).not.toContain("[");
+    });
+
+    it("explainText chỉ khen tấn công khi chính bên đi tạo thế công", () => {
+      const facts: Fact[] = [
+        {
+          kind: "pattern",
+          patternId: "ma_hau_phao",
+          patternName: "Mã hậu Pháo",
+          side: "b",
+          action: "allowed",
+          reply: "M2.3",
+        },
+      ];
+      const text = explainText(facts, "r", 1, "zhaoXinxin");
+      expect(text).toContain("[Triệu Hâm Hâm]");
+      expect(text).not.toContain("hỏa lực bão táp");
+    });
+
+    it("explainText chỉ hiện dữ kiện đại sư khớp góc nhìn đang chọn", () => {
+      const zhao: Fact = { kind: "zhaoMiddlegame", side: "r", tactic: "tramSiPhaTuong", move: "X6.3", summary: "Câu Triệu." };
+      const xu: Fact = { kind: "xuMiddlegame", side: "r", tactic: "tichLuyUuThe", move: "X6.3", summary: "Câu Hứa." };
+
+      expect(explainText([zhao, xu], "r", 1, "default")).toBe("");
+      expect(explainText([zhao, xu], "r", 1, "zhaoXinxin")).toBe("[Triệu Hâm Hâm - Công sát]: Câu Triệu.");
+      expect(explainText([zhao, xu], "r", 1, "xuYinchuan")).toBe("[Hứa Ngân Xuyên - Thái cực]: Câu Hứa.");
     });
   });
 

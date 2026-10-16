@@ -110,5 +110,7 @@ describe("classifyOpeningType (bài 2)", () => {
   it("Tiên nhân chỉ lộ là linh hoạt, Phi Tượng là tán thủ", () => {
     expect(classifyOpeningType("B3.1", start)).toBe("linhHoat");
     expect(classifyOpeningType("T3.5", start)).toBe("tanThu");
+    // Trung binh là khai cuộc riêng, không phải Pháo đầu
+    expect(classifyOpeningType("B5.1", start)).toBe("tanThu");
   });
 });

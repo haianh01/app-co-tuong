@@ -1,7 +1,7 @@
 import { findBestMove } from "./ai";
 import { assessPosition, type PositionAssessment } from "./assess";
 import { inCheck, legalMoves, opponent, play, type Board, type Move, type Side } from "./engine";
-import { explainMove, type Fact } from "./explain";
+import { explainMove, personaFacts, type Fact } from "./explain";
 import { detectIntent, type IntentFact } from "./intent";
 import type { GameState } from "./game";
 import { moveNotation } from "./notation";
@@ -438,6 +438,15 @@ export function reviewMove(
       facts.push(intent);
     }
   }
+
+  // Kỳ lý trung cuộc theo phong cách đại sư (B6, B7); explainText chỉ hiện khi chọn góc nhìn tương ứng
+  facts.push(
+    ...personaFacts(state.history[i].board, m.move, state.history[i + 1].board, {
+      pv: afterEval?.pv,
+      loss,
+      evalBefore: before,
+    }),
+  );
 
   // 2. Ý đồ của nước AI đề xuất tốt hơn nếu nước đi bị chấm lỗi (B4)
   let betterIntent: IntentFact | null = null;

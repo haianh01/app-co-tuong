@@ -21,11 +21,16 @@ export type Principle =
   | "khongCheTuong" // đường ra của Tướng đối phương bị khống chế
   | "khuyetSi" // tận dụng đối phương khuyết Sĩ (khuyết Sĩ kỵ Mã)
   | "khuyetTuong" // tận dụng đối phương khuyết Tượng (khuyết Tượng kỵ Pháo)
-  | "totVaoCung"; // Tốt áp sát uy hiếp cung tướng đối phương
+  | "totVaoCung" // Tốt áp sát uy hiếp cung tướng đối phương
+  | "maBien" // "Mã đi biên là Mã chết": Mã đứng cột biên ít chỗ nhảy
+  | "lienHoan" // Sĩ liên hoàn, Tượng liên hoàn: phòng tuyến tự bảo vệ nhau
+  | "loThong" // Xe chiếm lộ thông (cột không còn Tốt mình chắn)
+  | "phoiHop" // hợp đồng tác chiến: nhiều loại quân cùng ép cung, không đánh một mình
+  | "totLienHoan"; // Tốt qua sông phải nối nhau mới có sức
 
 export const PRINCIPLES: Principle[] = [
   "xe", "ma", "raQuan", "apLuc", "anToan", "matGoc", "phongToa", "tot", "diemThenChot", "catLienLac", "khongCheTuong",
-  "khuyetSi", "khuyetTuong", "totVaoCung",
+  "khuyetSi", "khuyetTuong", "totVaoCung", "maBien", "lienHoan", "loThong", "phoiHop", "totLienHoan",
 ];
 
 export type Plan = "raQuan" | "tanCong" | "phongThu" | "donGianHoa" | "tanCuoc" | "canBang";
@@ -57,6 +62,20 @@ export function palacePressure(board: Board, target: Side): number {
 /** Số hàng phe `s` đã tiến khỏi hàng đáy của mình (0–9). */
 export const advance = (i: number, s: Side) => (s === "r" ? 9 - rowOf(i) : rowOf(i));
 
+/**
+ * Như `palacePressure` nhưng chỉ tính quân ĐÃ QUA SÔNG. Dùng để chọn kế hoạch: Xe ở hàng đáy hay Pháo
+ * bên phần sân mình nhìn dọc lộ mở vào cung chỉ là lộ thông, chưa phải đang tấn công.
+ */
+export function attackPressure(board: Board, target: Side): number {
+  const by = opponent(target);
+  const hit = new Set<number>();
+  for (const i of pieces(board, by, "rncp")) {
+    if (advance(i, by) < 5) continue;
+    for (const to of pseudoMoves(board, i)) if (inPalace(to, target)) hit.add(to);
+  }
+  return hit.size;
+}
+
 /** Quân phe `s` đứng ở điểm then chốt. */
 export function keySquares(board: Board, s: Side): number {
   let n = 0;
@@ -87,6 +106,27 @@ export function kingControl(board: Board, s: Side): number {
   return covered + (covered === steps.length ? 1 : 0);
 }
 
+/** Số cặp Sĩ liên hoàn và Tượng liên hoàn (che nhau được) của phe `s`. */
+export function linkedGuards(board: Board, s: Side): number {
+  let n = 0;
+  const [a1, a2] = pieces(board, s, "a");
+  if (a2 !== undefined && Math.abs(rowOf(a1) - rowOf(a2)) === 1 && Math.abs(colOf(a1) - colOf(a2)) === 1) n++;
+  const [b1, b2] = pieces(board, s, "b");
+  if (b2 !== undefined && Math.abs(rowOf(b1) - rowOf(b2)) === 2 && Math.abs(colOf(b1) - colOf(b2)) === 2) {
+    const eye = ((rowOf(b1) + rowOf(b2)) / 2) * 9 + (colOf(b1) + colOf(b2)) / 2;
+    if (!board[eye]) n++; // mắt Tượng bị chèn thì không che nhau được
+  }
+  return n;
+}
+
+/** Số loại quân lớn (Xe, Mã, Pháo) của phe `s` cùng khống chế cung tướng đối phương. */
+export function coordination(board: Board, s: Side): number {
+  const o = opponent(s);
+  const types = new Set<string>();
+  for (const i of pieces(board, s, "rnc")) if (pseudoMoves(board, i).some((to) => inPalace(to, o))) types.add(typeOf(board[i]!));
+  return types.size >= 2 ? types.size : 0; // một quân đơn độc chưa phải phối hợp
+}
+
 /** Chỉ số nguyên lý của phe `s` (càng cao càng tốt cho `s`), đã quy về cùng thang. */
 export function principleScores(board: Board, s: Side): Record<Principle, number> {
   const o = opponent(s);
@@ -114,6 +154,11 @@ export function principleScores(board: Board, s: Side): Record<Principle, number
     khuyetSi: pieces(board, s, "n").length > 0 && pieces(board, o, "a").length <= 1 ? (2 - pieces(board, o, "a").length) * 1.5 : 0,
     khuyetTuong: pieces(board, s, "c").length > 0 && pieces(board, o, "b").length <= 1 ? (2 - pieces(board, o, "b").length) * 1.5 : 0,
     totVaoCung: (myFeat.byTag.totVaoCung?.length ?? 0) * 2,
+    maBien: -(myFeat.byTag.maBien?.length ?? 0),
+    lienHoan: linkedGuards(board, s),
+    loThong: myFeat.byTag.xeLoThong?.length ?? 0,
+    phoiHop: coordination(board, s),
+    totLienHoan: myFeat.pieces.filter((p) => p.tags.includes("totQuaHa") && p.tags.includes("totLienHoan")).length,
   };
 }
 
@@ -126,21 +171,21 @@ export function choosePlan(board: Board, s: Side, ply: number): Plan {
   const undeveloped = HOME[s].filter((i) => board[i] && sideOf(board[i]!) === s && "rnc".includes(typeOf(board[i]!))).length;
   if (ply < 20 && undeveloped >= 2) return "raQuan";
   if (majors <= 5) return "tanCuoc";
-  if (palacePressure(board, s) >= 3) return "phongThu";
-  // Đối phương trơ Sĩ Tượng hoặc cung đang bị ép thì tấn công, kể cả khi đang hơn quân.
-  if (palacePressure(board, o) >= 3 || pieces(board, o, "ab").length <= 2) return "tanCong";
+  if (attackPressure(board, s) >= 3) return "phongThu";
+  // Đối phương trơ Sĩ Tượng hoặc cung đang bị quân qua sông ép thì tấn công, kể cả khi đang hơn quân.
+  if (attackPressure(board, o) >= 3 || pieces(board, o, "ab").length <= 2) return "tanCong";
   if (material(board, s) - material(board, o) >= 300) return "donGianHoa";
   return "canBang";
 }
 
 /** Trọng số nguyên lý theo kế hoạch. Đây là bảng cần người hiểu cờ (và lời bình cao thủ) để chỉnh. */
 export const WEIGHTS: Record<Plan, Record<Principle, number>> = {
-  raQuan: { xe: 1.5, ma: 0.3, raQuan: 3, apLuc: 0.5, anToan: 1, matGoc: 1, phongToa: 1, tot: 0, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 0, khuyetTuong: 0, totVaoCung: 0 },
-  tanCong: { xe: 0.7, ma: 0.2, raQuan: 0.5, apLuc: 3, anToan: 1, matGoc: 1, phongToa: 0.7, tot: 0.5, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 1.5, khuyetTuong: 1.5, totVaoCung: 2 },
-  phongThu: { xe: 0.3, ma: 0.1, raQuan: 0.3, apLuc: 0.5, anToan: 3, matGoc: 1.5, phongToa: 1, tot: 0, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 0.5, khuyetTuong: 0.5, totVaoCung: 0 },
-  donGianHoa: { xe: 0.5, ma: 0.2, raQuan: 0, apLuc: 0.5, anToan: 2, matGoc: 2, phongToa: 1, tot: 1, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 1, khuyetTuong: 1, totVaoCung: 1 },
-  tanCuoc: { xe: 0.7, ma: 0.2, raQuan: 0, apLuc: 1, anToan: 1, matGoc: 1, phongToa: 1, tot: 3, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 3, khuyetTuong: 3, totVaoCung: 3.5 },
-  canBang: { xe: 1.5, ma: 0.3, raQuan: 0.5, apLuc: 1, anToan: 1, matGoc: 1, phongToa: 1.5, tot: 0.5, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 1, khuyetTuong: 1, totVaoCung: 1 },
+  raQuan: { xe: 1.5, ma: 0.3, raQuan: 3, apLuc: 0.5, anToan: 1, matGoc: 1, phongToa: 1, tot: 0, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 0, khuyetTuong: 0, totVaoCung: 0, maBien: 1, lienHoan: 0.5, loThong: 1, phoiHop: 0.3, totLienHoan: 0 },
+  tanCong: { xe: 0.7, ma: 0.2, raQuan: 0.5, apLuc: 3, anToan: 1, matGoc: 1, phongToa: 0.7, tot: 0.5, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 1.5, khuyetTuong: 1.5, totVaoCung: 2, maBien: 0.7, lienHoan: 0.3, loThong: 1, phoiHop: 1.5, totLienHoan: 0.5 },
+  phongThu: { xe: 0.3, ma: 0.1, raQuan: 0.3, apLuc: 0.5, anToan: 3, matGoc: 1.5, phongToa: 1, tot: 0, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 0.5, khuyetTuong: 0.5, totVaoCung: 0, maBien: 0.3, lienHoan: 1.5, loThong: 0.3, phoiHop: 0.3, totLienHoan: 0 },
+  donGianHoa: { xe: 0.5, ma: 0.2, raQuan: 0, apLuc: 0.5, anToan: 2, matGoc: 2, phongToa: 1, tot: 1, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 1, khuyetTuong: 1, totVaoCung: 1, maBien: 0.5, lienHoan: 1, loThong: 0.5, phoiHop: 0.5, totLienHoan: 1 },
+  tanCuoc: { xe: 0.7, ma: 0.2, raQuan: 0, apLuc: 1, anToan: 1, matGoc: 1, phongToa: 1, tot: 3, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 3, khuyetTuong: 3, totVaoCung: 3.5, maBien: 0.7, lienHoan: 1, loThong: 0.5, phoiHop: 1, totLienHoan: 1.5 },
+  canBang: { xe: 1.5, ma: 0.3, raQuan: 0.5, apLuc: 1, anToan: 1, matGoc: 1, phongToa: 1.5, tot: 0.5, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 1, khuyetTuong: 1, totVaoCung: 1, maBien: 1, lienHoan: 0.5, loThong: 1, phoiHop: 1, totLienHoan: 0.5 },
 };
 
 /** Điểm chiến lược tổng của phe `s` trên một thế cờ, theo kế hoạch `plan`. */
@@ -258,6 +303,14 @@ export const GAIN_TEXT: Record<Principle, string[]> = {
     "đưa Tốt tiến sát cung tướng đối phương",
     "dùng Tốt uy hiếp sát cung",
   ],
+  maBien: ["kéo Mã khỏi biên (Mã đi biên là Mã chết)", "đưa Mã vào trung tâm, tránh Mã biên"],
+  lienHoan: ["giữ Sĩ Tượng liên hoàn", "nối liên hoàn Sĩ Tượng cho phòng tuyến vững", "để Sĩ Tượng che nhau được"],
+  loThong: ["đưa Xe chiếm lộ thông", "cho Xe chiếm cột mở", "đặt Xe lên lộ thông"],
+  phoiHop: [
+    "phối hợp nhiều quân cùng ép cung (hợp đồng tác chiến)",
+    "để các quân hỗ trợ nhau tấn công thay vì đánh đơn độc",
+  ],
+  totLienHoan: ["giữ Tốt qua sông nối liên hoàn", "nối các Tốt qua sông với nhau"],
 };
 
 /** Câu cho việc nước đã đi làm nguyên lý kém đi (đứng được sau tên nước, "nhưng" hoặc dấu hai chấm). */
@@ -294,16 +347,21 @@ export const LOSS_TEXT: Record<Principle, string[]> = {
     "bỏ qua chỗ khuyết Tượng của đối phương",
   ],
   totVaoCung: ["chưa đưa được Tốt áp sát cung tướng", "để Tốt đứng xa cung tướng đối phương"],
+  maBien: ["đưa Mã ra biên (Mã đi biên là Mã chết)", "để Mã lạc ra biên"],
+  lienHoan: ["phá thế liên hoàn của Sĩ Tượng", "làm Sĩ Tượng mất liên hoàn", "để Sĩ Tượng không che được nhau"],
+  loThong: ["để Xe rời lộ thông", "bỏ cột mở cho Xe", "đưa Xe khỏi lộ thông"],
+  phoiHop: ["để quân tấn công đơn độc, thiếu phối hợp", "làm rời rạc thế phối hợp tấn công"],
+  totLienHoan: ["làm Tốt qua sông rời nhau", "để Tốt qua sông đơn độc"],
 };
 
-export type OpeningFaultType = "repeatPiece" | "lateRook";
+export type OpeningFaultType = "repeatPiece" | "lateRook" | "edgeElephant" | "doubleEdgeHorse";
 
 export interface OpeningFault {
   fault: OpeningFaultType;
   pieceSquare: number;
 }
 
-/** Nhận diện các lỗi khai cuộc căn bản: đi một quân nhiều lần, ra Xe chậm trễ. */
+/** Nhận diện các lỗi khai cuộc căn bản: đi một quân nhiều lần, ra Xe chậm trễ, phi Tượng ra biên, hai Mã cùng ra biên. */
 export function detectOpeningFault(
   board: Board,
   move: Move,
@@ -349,6 +407,18 @@ export function detectOpeningFault(
 
     if (bothRooksHome && pType !== "r") {
       return { fault: "lateRook", pieceSquare: square };
+    }
+  }
+
+  // Các lỗi hình cờ chỉ xét được khi biết ô đến (bàn cờ trước nước đi).
+  if (square === move.from) {
+    const edge = (i: number) => colOf(i) === 0 || colOf(i) === 8;
+    // 3. Phi Tượng ra biên: Tượng rời nhau, mất liên hoàn ("phi Tượng loạn là cờ kém").
+    if (pType === "b" && edge(move.to)) return { fault: "edgeElephant", pieceSquare: square };
+    // 4. Mã thứ hai cũng ra biên: cả hai Mã ít chỗ nhảy ("Mã đi biên là Mã chết").
+    if (pType === "n" && edge(move.to) && !edge(move.from)) {
+      const otherOnEdge = pieces(board, mover, "n").some((i) => i !== move.from && edge(i));
+      if (otherOnEdge) return { fault: "doubleEdgeHorse", pieceSquare: square };
     }
   }
 

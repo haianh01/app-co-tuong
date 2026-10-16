@@ -156,23 +156,48 @@ describe("intent.ts - Trích xuất ý đồ nước đi và giải thích nư�
       expect(intent?.purposes).not.toContain("anQuan");
     });
 
-    it("nhận diện thí quân theo PV (thiQuan) khi bỏ Pháo treo mà engine vẫn chấm cân bằng", () => {
-      const pos = parseFen("3k5/9/9/9/9/9/2r1C4/9/9/R3K4 w - - 0 1");
-      const quiet: Move = { from: sq(9, 0), to: sq(8, 0) };
+    it("thí quân: đối phương ăn đúng quân vừa đi, thiếu quân còn ở cuối biến, engine vẫn chấm cân bằng", () => {
+      const pos = parseFen("3k5/9/9/9/9/9/2r6/4C4/9/R3K4 w - - 0 1");
+      const sac: Move = { from: sq(7, 4), to: sq(6, 4) }; // Pháo đi vào tầm Xe đen
       const pv: Move[] = [
-        quiet,
+        sac,
         { from: sq(6, 2), to: sq(6, 4) }, // Xe đen ăn Pháo
-        { from: sq(8, 0), to: sq(7, 0) },
+        { from: sq(9, 0), to: sq(8, 0) },
         { from: sq(0, 3), to: sq(1, 3) },
       ];
-      const after = playMove(pos.board, quiet);
+      const intent = detectIntent(pos.board, sac, playMove(pos.board, sac), { pv, evalAfter: { score: 0 }, loss: 0 });
+      expect(intent?.purposes).toContain("thiQuan");
+      expect(intent?.summary).toBe("Thí Pháo, chấp nhận thiếu quân để đổi lấy thế cờ");
+    });
 
-      const ok = detectIntent(pos.board, quiet, after, { pv, evalAfter: { score: 0 }, loss: 0 });
-      expect(ok?.purposes).toContain("thiQuan");
+    it("không phải thí khi mình ăn lại được ở cuối biến (đó là đổi quân)", () => {
+      const pos = parseFen("3k5/9/9/9/9/9/2r6/4C4/4R4/3K5 w - - 0 1");
+      const move: Move = { from: sq(7, 4), to: sq(6, 4) };
+      const pv: Move[] = [
+        move,
+        { from: sq(6, 2), to: sq(6, 4) }, // Xe đen ăn Pháo
+        { from: sq(8, 4), to: sq(6, 4) }, // Xe đỏ ăn lại Xe
+        { from: sq(0, 3), to: sq(1, 3) },
+      ];
+      const intent = detectIntent(pos.board, move, playMove(pos.board, move), { pv, evalAfter: { score: -400 }, loss: 0 });
+      expect(intent?.purposes ?? []).not.toContain("thiQuan");
+    });
 
-      // Không có bù đắp (engine chấm Đen hơn 4 Tốt) thì chỉ là mất quân, không phải thí
-      const bad = detectIntent(pos.board, quiet, after, { pv, evalAfter: { score: 400 }, loss: 0 });
-      expect(bad?.purposes ?? []).not.toContain("thiQuan");
+    it("bỏ mặc quân bị treo bằng một nước khác không phải thí", () => {
+      const pos = parseFen("3k5/9/9/9/9/9/2r1C4/9/9/R3K4 w - - 0 1");
+      const quiet: Move = { from: sq(9, 0), to: sq(8, 0) };
+      const pv: Move[] = [quiet, { from: sq(6, 2), to: sq(6, 4) }, { from: sq(8, 0), to: sq(7, 0) }, { from: sq(0, 3), to: sq(1, 3) }];
+      const intent = detectIntent(pos.board, quiet, playMove(pos.board, quiet), { pv, evalAfter: { score: 0 }, loss: 0 });
+      expect(intent?.purposes ?? []).not.toContain("thiQuan");
+    });
+
+    it("nước Tướng không bị gọi là thí khi quân mất ở các nước sau trong biến (hồi quy 'Thí Tướng')", () => {
+      const pos = parseFen("3k5/9/9/9/9/9/2r1C4/9/9/R3K4 w - - 0 1");
+      const kingUp: Move = { from: sq(9, 4), to: sq(8, 4) };
+      const pv: Move[] = [kingUp, { from: sq(6, 2), to: sq(6, 4) }, { from: sq(9, 0), to: sq(8, 0) }, { from: sq(0, 3), to: sq(1, 3) }];
+      const intent = detectIntent(pos.board, kingUp, playMove(pos.board, kingUp), { pv, evalAfter: { score: 0 }, loss: 0 });
+      expect(intent?.purposes ?? []).not.toContain("thiQuan");
+      expect(intent?.summary ?? "").not.toContain("Thí");
     });
 
     it("nhận diện giữ tiên (giuTien) khi tróc quân không được bảo vệ", () => {
@@ -202,6 +227,25 @@ describe("intent.ts - Trích xuất ý đồ nước đi và giải thích nư�
       const intent = detectIntent(pos.board, attack, playMove(pos.board, attack), { loss: 0 });
       expect(intent?.primaryPurpose).toBe("giuTien");
       expect(intent?.summary).toContain("Tróc quân");
+    });
+
+    it("đối phương đổi một cặp quân khác ở chỗ khác: không phải đổi quân của nước này", () => {
+      // Đỏ đi Xe; trong biến, Tốt đen ăn Tốt đỏ ở cột a rồi Xe đỏ ăn lại — không liên quan nước Xe
+      const pos = parseFen("4k4/9/9/9/p8/P8/9/9/9/3K1R3 w - - 0 1");
+      const move: Move = { from: sq(9, 5), to: sq(8, 5) };
+      const pv: Move[] = [move, { from: sq(4, 0), to: sq(5, 0) }, { from: sq(8, 5), to: sq(8, 0) }, { from: sq(0, 4), to: sq(1, 4) }];
+      const intent = detectIntent(pos.board, move, playMove(pos.board, move), { pv, evalAfter: { score: 0 }, loss: 0 });
+      expect(intent?.purposes ?? []).not.toContain("doiQuan");
+    });
+
+    it("tróc quân mà đối phương bỏ mặc thì không tính giữ tiên", () => {
+      const pos = parseFen("3k5/9/9/9/9/n8/9/9/9/1R2K4 w - - 0 1");
+      const attack: Move = { from: sq(9, 1), to: sq(5, 1) }; // Xe tróc Mã
+      const ignored: Move[] = [attack, { from: sq(0, 3), to: sq(1, 3) }]; // Đen đi Tướng, bỏ mặc Mã
+      const answered: Move[] = [attack, { from: sq(5, 0), to: sq(3, 1) }]; // Đen chạy Mã
+      const after = playMove(pos.board, attack);
+      expect(detectIntent(pos.board, attack, after, { pv: ignored, loss: 0 })?.purposes ?? []).not.toContain("giuTien");
+      expect(detectIntent(pos.board, attack, after, { pv: answered, loss: 0 })?.purposes).toContain("giuTien");
     });
 
     it("nhận diện kỹ thuật tàn cuộc (kyThuatTanCuoc) trong thế cờ tàn", () => {

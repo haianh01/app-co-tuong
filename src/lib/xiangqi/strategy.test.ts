@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { START_FEN, parseFen } from "./engine";
-import { choosePlan, principleScores } from "./strategy";
+import { choosePlan, coordination, detectOpeningFault, linkedGuards, principleScores } from "./strategy";
 
 const board = (fen: string) => parseFen(fen).board;
 
@@ -11,6 +11,17 @@ describe("choosePlan", () => {
 
   it("còn ít quân lớn: tàn cuộc", () => {
     expect(choosePlan(board("3k5/9/9/4p4/9/2P6/9/4B4/4A4/3AK1B2 w"), "r", 60)).toBe("tanCuoc");
+  });
+
+  it("lộ mở vào cung từ phần sân mình chưa phải tấn công (hồi quy B7.1)", () => {
+    // Pháo đỏ bên sân mình và Xe ở hàng đáy nhìn dọc lộ trống vào cung Đen: không có quân nào qua sông ép cung
+    const fen = "2bakabr1/3r5/4c1n2/p1p1n1p1p/9/4c1P2/P1P1N3P/2NCB3C/4A4/1RBAKR3 w";
+    expect(choosePlan(board(fen), "r", 22)).not.toBe("tanCong");
+  });
+
+  it("Xe và Mã qua sông khống chế cung: tấn công", () => {
+    const fen = "1rbakab2/9/1c5c1/3N5/4R4/9/9/1C5C1/9/2BAKABN1 w";
+    expect(choosePlan(board(fen), "r", 40)).toBe("tanCong");
   });
 
   it("đối phương mất hết Sĩ Tượng giữa ván: tấn công", () => {
@@ -47,5 +58,42 @@ describe("nguyên lý mới", () => {
     const free = principleScores(board("4k4/9/9/9/9/9/9/9/9/3K5 w"), "r").khongCheTuong;
     const held = principleScores(board("4k4/R8/9/9/9/9/9/9/9/3K5 w"), "r").khongCheTuong;
     expect(held).toBeGreaterThan(free);
+  });
+});
+
+describe("nguyên lý kỳ lý bổ sung", () => {
+  it("Mã đi biên bị trừ điểm", () => {
+    const center = principleScores(board("4k4/9/9/9/9/9/9/2N6/9/4K4 w"), "r").maBien;
+    const edge = principleScores(board("4k4/9/9/9/9/9/9/N8/9/4K4 w"), "r").maBien;
+    expect(edge).toBeLessThan(center);
+  });
+
+  it("Sĩ Tượng liên hoàn: thế đầu ván có Tượng liên hoàn, chèn mắt Tượng thì mất", () => {
+    expect(linkedGuards(board("4k4/9/9/9/9/9/9/4B4/9/2B1K4 w"), "r")).toBe(1);
+    expect(linkedGuards(board("4k4/9/9/9/9/9/9/4B4/3N5/2B1K4 w"), "r")).toBe(0);
+    expect(linkedGuards(board("4k4/9/9/9/9/9/9/9/4A4/3AK4 w"), "r")).toBe(1);
+  });
+
+  it("phối hợp: Xe một mình chưa tính, Xe cùng Mã ép cung thì tính", () => {
+    expect(coordination(board("4k4/9/9/9/9/3R5/9/9/9/4K4 w"), "r")).toBe(0);
+    expect(coordination(board("4k4/9/9/5N3/9/3R5/9/9/9/4K4 w"), "r")).toBe(2);
+  });
+});
+
+describe("detectOpeningFault: lỗi hình cờ", () => {
+  it("phi Tượng ra biên", () => {
+    // Tượng đỏ cột 2 hàng 9 bay lên cột 0 hàng 7.
+    const f = detectOpeningFault(board(START_FEN), { from: 83, to: 63 }, 2, "r", []);
+    expect(f?.fault).toBe("edgeElephant");
+  });
+
+  it("phi Tượng về giữa không bị bắt lỗi", () => {
+    expect(detectOpeningFault(board(START_FEN), { from: 83, to: 67 }, 2, "r", [])).toBeNull();
+  });
+
+  it("Mã thứ hai cũng ra biên", () => {
+    // Mã đỏ trái đã ở biên (cột 0 hàng 7); Mã phải cột 7 nhảy ra cột 8 hàng 7.
+    const fen = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/NC5C1/9/R1BAKABNR w";
+    expect(detectOpeningFault(board(fen), { from: 88, to: 71 }, 4, "r", [])?.fault).toBe("doubleEdgeHorse");
   });
 });

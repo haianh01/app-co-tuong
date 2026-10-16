@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { findBestMove } from "./ai";
 import { reviewGame, type PositionEval } from "./analysis";
-import { parseFen, sq, type Position, type Side } from "./engine";
-import { exchangeGain, explainMove, explainText, formatPoints, hangingPieces, moveIdea, pickVariant, type Fact } from "./explain";
+import { applyMove, legalMoves, parseFen, sq, START_FEN, type Position, type Side } from "./engine";
+import { exchangeGain, explainMove, explainText, formatPoints, hangingPieces, moveIdea, pickVariant, withoutCriticism, type Fact } from "./explain";
 import { replayMoves } from "./game";
+import { moveNotation } from "./notation";
 import { detectOpeningFault, principleScores } from "./strategy";
 
 /** Cùng độ sâu với màn phân tích ván (3), bỏ giới hạn thời gian để kết quả không phụ thuộc tốc độ máy. */
@@ -282,7 +283,35 @@ describe("nhận xét chiến lược cho mọi nước (moveIdea)", () => {
   });
 
   it("Xe qua hà: khen ra quân nhưng nhắc Xe mất căn", () => {
-    expect(idea(6)).toBe("Kế hoạch: ra quân. X2.6 giúp đưa thêm quân ra trận và Xe thông đường hơn, nhưng để Xe 2 mất căn.");
+    // "Xe thông đường hơn" trước đây là nhờ nước đáp B7.1 của Đen; ngay sau X2.6 Xe chưa thoáng hơn đáng kể
+    expect(idea(6)).toBe("Kế hoạch: ra quân. X2.6 giúp đưa thêm quân ra trận, nhưng để Xe 2 mất căn.");
+  });
+
+  it("không quy việc đối phương chặn đường vào cung cho nước vừa đi (hồi quy B7.1)", () => {
+    // Ván người dùng báo: sau 12. B7.1 X4.5 áp lực lên cung giảm là do X4.5 của Đen, không phải do B7.1
+    const seq = "B3.1 P8-5 M2.3 M8.7 T3.5 X9-8 P2-1 B5.1 S4.5 M2.3 X1-4 M3.5 P8-6 B5.1 B5.1 P5.3 M8.7 X1.1 X9-8 P2-5 M3.5 X1-4 B7.1 X4.5".split(" ");
+    let pos = parseFen(START_FEN);
+    const boards = [];
+    const moves = [];
+    for (const n of seq) {
+      const m = legalMoves(pos).find((x) => moveNotation(pos.board, x) === n)!;
+      expect(m, n).toBeDefined();
+      boards.push(pos.board);
+      moves.push(m);
+      pos = applyMove(pos, m);
+    }
+    const fact = moveIdea(boards[22], moves[22], moves[23], 22);
+    expect(fact.kind).toBe("idea");
+    expect(fact.kind === "idea" && fact.worsened).not.toContain("apLuc");
+    expect(explainText([fact], "r")).not.toContain("dễ thở");
+  });
+
+  it("withoutCriticism bỏ phần chê, giữ phần khen", () => {
+    const f: Fact = { kind: "idea", plan: "tanCong", played: "B7.1", gains: ["tot"], worsened: ["apLuc"], loose: ["Mã 7"] };
+    const g = withoutCriticism(f);
+    expect(g.kind === "idea" && g.worsened).toEqual([]);
+    expect(g.kind === "idea" && g.loose).toEqual([]);
+    expect(g.kind === "idea" && g.gains).toEqual(["tot"]);
   });
 
   it("gắn tên khai cuộc vào kế hoạch khi được cung cấp", () => {

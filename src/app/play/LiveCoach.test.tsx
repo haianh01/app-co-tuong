@@ -30,7 +30,9 @@ describe("LiveCoach", () => {
     render(<LiveCoach state={state} player="r" />);
     expect(await screen.findByText("Nước hớ", {}, { timeout: 10_000 })).toBeTruthy();
     expect(screen.getByText(note("Pháo", "Xe đen", "X1.1", "ăn"))).toBeTruthy();
-    expect(screen.queryByText(/B5\.1/)).toBeNull();
+    // Nước của máy không có mục chấm riêng, chỉ xuất hiện như nước đáp thực tế để đối chiếu với biến AI dự tính
+    expect(screen.queryByText(/\d+\.\s*B5\.1/)).toBeNull();
+    expect(screen.getByText(/thực tế đối phương đi/).textContent).toContain("B5.1");
   });
 
   it("đi đúng nước AI chọn thì được khen là nước tốt nhất", async () => {
@@ -59,5 +61,19 @@ describe("LiveCoach", () => {
 
     // Nước cũ vẫn hiển thị đúng từ cache
     expect(screen.getByText(note("Pháo", "Xe đen", "X1.1", "ăn"))).toBeTruthy();
+  });
+
+  it("máy đi hớ mà bạn ăn ngay: ghi nhận bạn đã trừng phạt sai lầm của máy", async () => {
+    // 1. Tốt đỏ tiến; 2. Xe đen chạy vào ngay trước mặt Tốt; 3. Tốt đỏ ăn Xe.
+    const state = replayMoves(
+      [
+        { from: sq(6, 4), to: sq(5, 4) },
+        { from: sq(4, 0), to: sq(4, 4) },
+        { from: sq(5, 4), to: sq(4, 4) },
+      ],
+      "2bakab2/9/9/9/r8/9/4P4/C8/9/2BAKAB2 w",
+    );
+    render(<LiveCoach state={state} player="r" />);
+    expect(await screen.findByText(/Bạn trừng phạt ngay sai lầm/, {}, { timeout: 20_000 })).toBeTruthy();
   });
 });

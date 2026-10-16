@@ -565,7 +565,8 @@ async function runBenchmark() {
             let dominantTheme: string | null = null;
             if (quality === "mistake" || quality === "blunder") {
               dominantTheme = "Nước kém";
-            } else if (playedIntent?.primaryPurpose) {
+            } else if (playedIntent?.primaryPurpose && playedIntent.primaryPurpose !== "caiThienQuan") {
+              // caiThienQuan làm ý chính = nước không có ý đáng nói → không gán nhãn chính
               dominantTheme = PURPOSE_SHORT_LABELS[playedIntent.primaryPurpose] ?? PURPOSE_NAMES[playedIntent.primaryPurpose];
             }
 

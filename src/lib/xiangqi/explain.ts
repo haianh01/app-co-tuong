@@ -402,38 +402,41 @@ export function explainMove(ctx: MoveContext): Fact[] {
   return facts;
 }
 
-/** Thế cờ sau một nước và nước đáp mạnh nhất của đối phương (để việc đổi quân dở dang không làm lệch chỉ số). */
-function settle(board: Board, m: Move, reply?: Move | null, pv?: Move[]): Board {
-  if (pv && pv.length > 0) {
-    let current = board;
-    const movesToPlay = pv[0]?.from === m.from && pv[0]?.to === m.to ? pv : [m, ...pv];
-    for (const step of movesToPlay) {
-      if (current[step.from]) {
-        current = play(current, step);
-      }
-    }
-    return current;
-  }
+/**
+ * Thế cờ để đo nguyên lý vị trí của nước `m`: ngay sau nước đi, trừ khi nước đáp đầu tiên của đối phương
+ * ăn quân mình (khi đó đo sau nước ăn đó để không khen quân sắp mất). Không đi hết PV: việc đối phương
+ * chặn đường hay đổi quân ở các nước sau không phải do nước `m` gây ra.
+ */
+function positionAfterMove(board: Board, m: Move, reply?: Move | null, pv?: Move[]): Board {
   const after = play(board, m);
-  if (reply !== undefined) return reply ? play(after, reply) : after;
-  const turn = opponent(sideOf(board[m.from]!));
-  // Tìm phản đòn nhanh 1 nửa nước (< 1ms) để giải quyết nước ăn lại quân, tránh block main thread
-  const r = findBestMove({ board: after, turn }, 1, () => 0, { depth: 1, timeMs: 30, noise: 0 }).move;
-  return r ? play(after, r) : after;
+  const mover = sideOf(board[m.from]!);
+  let first: Move | null | undefined = reply;
+  if (pv && pv.length > 0) first = pv[0]?.from === m.from && pv[0]?.to === m.to ? (pv[1] ?? null) : pv[0];
+  if (first === undefined) {
+    first = findBestMove({ board: after, turn: opponent(mover) }, 1, () => 0, { depth: 1, timeMs: 30, noise: 0 }).move;
+  }
+  if (!first || !after[first.from] || sideOf(after[first.from]!) === mover) return after;
+  const victim = after[first.to];
+  return victim && sideOf(victim) === mover ? play(after, first) : after;
+}
+
+/** Nước được chấm tốt thì bỏ phần chê trong nhận xét chiến lược: engine đã xác nhận nước đi ổn. */
+export function withoutCriticism(f: Fact): Fact {
+  return f.kind === "idea" ? { ...f, worsened: [], loose: [] } : f;
 }
 
 function strategyFact(ctx: MoveContext, better: Move): Fact | null {
   const { before, move, evalAfter, evalBefore } = ctx;
   const mover = sideOf(before[move.from]!);
   const plan = choosePlan(before, mover, ctx.ply ?? 40);
-  const played = settle(before, move, evalAfter?.best ?? null);
+  const played = positionAfterMove(before, move, evalAfter?.best ?? null);
   const betterReply =
     evalBefore?.pv !== undefined
       ? evalBefore.pv[1] ?? null
       : evalBefore?.lines?.[0]?.pv !== undefined
         ? evalBefore.lines[0].pv[1] ?? null
         : undefined;
-  const gaps = comparePrinciples(before, played, settle(before, better, betterReply), mover, plan);
+  const gaps = comparePrinciples(before, played, positionAfterMove(before, better, betterReply), mover, plan);
   if (gaps.length === 0) return null;
   const top = gaps.slice(0, 2);
   const isLoose = (b: Board, i: number) => !!b[i] && sideOf(b[i]!) === mover && "rnc".includes(typeOf(b[i]!)) && !isDefended(b, i, mover);
@@ -460,7 +463,7 @@ function newlyLoose(before: Board, move: Move, after: Board, mover: Side): strin
 
 /**
  * Nhận xét chiến lược cho mọi nước (kể cả nước tốt): kế hoạch hiện tại và nước này làm được / làm hỏng gì
- * so với trước khi đi (đã tính nước đáp `reply` của đối phương hoặc chuỗi PV nếu có).
+ * so với trước khi đi. Đo ngay sau nước đi; chỉ tính thêm nước đáp khi nước đó ăn quân mình (xem positionAfterMove).
  */
 export function moveIdea(
   before: Board,
@@ -469,6 +472,7 @@ export function moveIdea(
   ply: number,
   opening?: string,
   historyMoves?: Move[],
+  /** Engine đã chấp nhận nước này (tốt nhất hoặc không bị chấm lỗi): bỏ qua kiểm tra lỗi khai cuộc. */
   isBest?: boolean,
   pv?: Move[],
   intentOptions?: DetectIntentOptions,
@@ -504,7 +508,7 @@ export function moveIdea(
   }
 
   const plan = choosePlan(before, mover, ply);
-  const after = settle(before, move, reply, pv);
+  const after = positionAfterMove(before, move, reply, pv);
   const b0 = principleScores(before, mover);
   const a = principleScores(after, mover);
   const deltas = PRINCIPLES.map((p) => ({ p, d: WEIGHTS[plan][p] * (a[p] - b0[p]) }));
@@ -938,7 +942,7 @@ export function sentence(f: Fact, mover: Side = "r", seed?: number): string {
       const names = f.checkers.map((c) => `${c.name} ${o}`).join(" và ");
       return v("doubleCheck", [
         `${O} đáp ${f.reply}, ${names} cùng lúc chiếu tướng (chiếu kép), buộc Tướng phải chạy.`,
-        `${O} đi ${f.reply} tạo thế chiếu kép: ${names} cùng chiếu, Tướng buộc phải chạy.`,
+        `${O} có thể đi ${f.reply} tạo thế chiếu kép: ${names} cùng chiếu, Tướng buộc phải chạy.`,
         `Sau ${f.reply} của ${O}, ${names} cùng chiếu tướng (chiếu kép); không thể chặn cả hai nên Tướng phải chạy.`,
       ]);
     }
@@ -949,13 +953,13 @@ export function sentence(f: Fact, mover: Side = "r", seed?: number): string {
         return v("discoveredCheckTarget", [
           `${O} đáp ${f.reply}, rút ${moved} mở đường cho ${checker} chiếu tướng (chiếu rút), đồng thời đe dọa ăn ${f.target.name}.`,
           `${O} có đòn chiếu rút ${f.reply}: ${moved} rút đi để ${checker} chiếu tướng, đồng thời nhắm ăn ${f.target.name}.`,
-          `Sau nước này, ${O} đi ${f.reply} rút ${moved} cho ${checker} chiếu tướng (chiếu rút); vừa phải đỡ chiếu vừa khó giữ ${f.target.name}.`,
+          `Sau nước này, ${O} có thể đi ${f.reply} rút ${moved} cho ${checker} chiếu tướng (chiếu rút); vừa phải đỡ chiếu vừa khó giữ ${f.target.name}.`,
         ]);
       }
       return v("discoveredCheck", [
         `${O} đáp ${f.reply}, rút ${moved} mở đường cho ${checker} chiếu tướng (chiếu rút).`,
         `${O} có đòn chiếu rút ${f.reply}: ${moved} rút đi để ${checker} chiếu tướng.`,
-        `${O} đi ${f.reply}, ${moved} dạt ra mở đường cho ${checker} chiếu tướng (chiếu rút).`,
+        `${O} có thể đi ${f.reply}, ${moved} dạt ra mở đường cho ${checker} chiếu tướng (chiếu rút).`,
       ]);
     }
     case "pin": {
@@ -966,7 +970,7 @@ export function sentence(f: Fact, mover: Side = "r", seed?: number): string {
       const leave = f.absolute ? "không thể rời đi vì sẽ lộ Tướng" : `rời đi là mất ${target}`;
       return v("pin", [
         `${O} đáp ${f.reply}, ${pinner} ghim chặt ${pinned} ở trước ${target} (${guard}).`,
-        `${O} đi ${f.reply} ghim ${pinned}: ${pinned} đứng giữa ${pinner} và ${target} nên ${leave}.`,
+        `${O} có thể đi ${f.reply} ghim ${pinned}: ${pinned} đứng giữa ${pinner} và ${target} nên ${leave}.`,
         `Sau ${f.reply} của ${O}, ${pinned} bị ${pinner} ghim trước ${target}, ${leave}.`,
       ]);
     }
@@ -975,7 +979,7 @@ export function sentence(f: Fact, mover: Side = "r", seed?: number): string {
       if (f.byOpponent) {
         return v("horseBlockOpp", [
           `${O} đáp ${f.reply}, ngáng chân ${horse}, khiến ${horse} bị bó và không thể hoạt động.`,
-          `${O} đi ${f.reply} chặn đúng chân ${horse}, Mã mất đường nhảy và dễ bị bắt.`,
+          `${O} có thể đi ${f.reply} chặn đúng chân ${horse}, Mã mất đường nhảy và dễ bị bắt.`,
           `Sau ${f.reply} của ${O}, ${horse} bị ngáng chân nên khó xoay xở.`,
         ]);
       }
@@ -1053,19 +1057,19 @@ export function sentence(f: Fact, mover: Side = "r", seed?: number): string {
         return v("threatensCheck", [
           `${O} đáp ${f.reply}, vừa chiếu tướng vừa đe dọa ăn ${names}.`,
           `${O} có ${f.reply} chiếu tướng, kèm theo đòn bắt ${names}.`,
-          `Sau nước này, ${O} đi ${f.reply} vừa chiếu vừa bắt ${names}.`,
+          `Sau nước này, ${O} có thể đi ${f.reply} vừa chiếu vừa bắt ${names}.`,
         ]);
       }
       if (f.targets.length >= 2) {
         return v("threatensFork", [
           `${O} đáp ${f.reply}, cùng lúc bắt ${names}.`,
           `${O} có đòn bắt đôi ${f.reply}, nhắm cả ${names}.`,
-          `${O} đi ${f.reply} bắt đôi ${names}, khó giữ được cả hai.`,
+          `${O} có thể đi ${f.reply} bắt đôi ${names}, khó giữ được cả hai.`,
         ]);
       }
       return v("threatens", [
         `${O} đáp ${f.reply}, đe dọa ăn ${names}.`,
-        `${O} đi ${f.reply} bắt ${names}.`,
+        `${O} có thể đi ${f.reply} bắt ${names}.`,
         `Sau nước này, ${O} có ${f.reply} tấn công ${names}.`,
       ]);
     }
@@ -1090,6 +1094,18 @@ export function sentence(f: Fact, mover: Side = "r", seed?: number): string {
           `${head}${pName} đã đi nhiều lần trong khai cuộc khi các quân lớn khác chưa ra trận.${betterPart}`,
           `${head}khai cuộc kỵ đi một quân nhiều lần: ${pName} lại đi tiếp trong khi các quân lớn khác còn nằm nhà.${betterPart}`,
           `${head}${pName} đi đi lại lại, làm chậm nhịp ra quân của cả thế trận.${betterPart}`,
+        ]);
+      }
+      if (f.fault === "edgeElephant") {
+        return v("openingFault.edgeElephant", [
+          `${head}phi Tượng ra biên làm hai Tượng rời nhau, mất liên hoàn, cung tướng yếu đi.${betterPart}`,
+          `${head}Tượng biên không che được Tượng kia, khai cuộc kỵ phi Tượng loạn.${betterPart}`,
+        ]);
+      }
+      if (f.fault === "doubleEdgeHorse") {
+        return v("openingFault.doubleEdgeHorse", [
+          `${head}cả hai Mã đều ra biên, ít chỗ nhảy ("Mã đi biên là Mã chết").${betterPart}`,
+          `${head}Mã thứ hai cũng ra biên, hai Mã đều kém linh hoạt; khai cuộc nên ra Chính Mã.${betterPart}`,
         ]);
       }
       return v("openingFault.lateRook", [

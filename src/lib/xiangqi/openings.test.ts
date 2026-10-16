@@ -178,3 +178,10 @@ describe("OPENING_BOOK_LINES", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 });
+
+describe("Kim câu pháo", () => {
+  it("Pháo 2 bình 7 và Pháo 8 bình 3", () => {
+    expect(openingOf("P2-7").id).toBe("goldHook");
+    expect(openingOf("P8-3").id).toBe("goldHook");
+  });
+});

@@ -4,7 +4,7 @@
 // Hoạt động thuần hàm, tất định (deterministic), không gọi engine bên trong.
 
 import {
-  type Board, type Move, type Side,
+  type Board, type Move, type PieceType, type Side,
   inCheck, legalMoves, hasAnyLegalMove, opponent, play, sideOf, typeOf, findKing,
   PIECE_VALUES,
 } from "./engine";
@@ -71,6 +71,7 @@ interface PvPly {
   side: Side;
   to: number;
   captured: number; // giá trị quân bị ăn ở nửa nước này (0 nếu không ăn)
+  victim: PieceType | null; // loại quân bị ăn ở nửa nước này
   balance: number;  // cán cân vật chất theo bên đi gốc SAU nửa nước này
 }
 
@@ -88,6 +89,7 @@ function walkPv(board: Board, mover: Side, pv: Move[], maxPlies: number): PvPly[
       side: turn,
       to: m.to,
       captured: victim ? PIECE_VALUES[typeOf(victim)] : 0,
+      victim: victim ? typeOf(victim) : null,
       balance: materialBalance(cur, mover),
     });
     turn = opponent(turn);
@@ -185,33 +187,32 @@ export function detectIntent(
     return pvPliesCache;
   };
 
-  // Thí theo PV: vật chất hụt ≥ 200 sau khi đối phương đáp lại, nhưng engine vẫn chấm bên đi không kém.
-  // Bắt được cả thí quân không nằm ở ô đến (bỏ quân bị treo để lấy nhịp) mà kiểm tra ô đến bỏ sót.
+  // Thiếu vật chất ở CUỐI biến (sau cả nước ăn lại của mình nếu có), không phải ngay sau nước đáp của đối phương:
+  // Mã ăn Tượng, bị ăn lại rồi mình ăn tiếp Pháo là đổi quân có lời, không phải thí.
   let pvDeficit = 0;
   if (pvToRun.length > 1) {
     const plies = getPvPlies();
-    const lastReplyIdx = plies.length % 2 === 0 ? plies.length - 1 : plies.length - 2;
-    pvDeficit = lastReplyIdx >= 1 ? balanceStart - plies[lastReplyIdx].balance : 0;
+    if (plies.length >= 2) pvDeficit = balanceStart - plies[plies.length - 1].balance;
   }
   const compensated = moverEvalAfter !== null && moverEvalAfter >= -50;
 
   const leadsToMate = narration.isMate || (options?.evalAfter && options.evalAfter.score <= -99000);
   const finalAdvantage = narration.delta.advantageSide === mover && narration.delta.scoreDiff >= 200;
-  const scoreFavorable = options?.evalAfter && options.evalAfter.score <= -150;
+  const scoreFavorable = Boolean(options?.evalAfter && options.evalAfter.score <= -150);
 
   const isCompensatedOrFavorable = compensated || scoreFavorable || finalAdvantage || leadsToMate;
 
-  // Thí ngay tại ô đến chỉ tính khi PV xác nhận đối phương thật sự ăn quân đó;
-  // exchangeGain tĩnh không thấy ghim/đòn chiến thuật nên tự nó không đủ.
+  // Thí = đối phương thật sự ăn QUÂN VỪA ĐI ở nước đáp (PV xác nhận) và thiếu quân còn nguyên ở cuối biến,
+  // trong khi engine vẫn chấm bên đi không kém. Quân mất ở các nước sau trong PV (vd. sau một nước Tướng)
+  // không liên quan tới nước đi nên không tính. Riêng thí dẫn tới sát thì không cần chờ PV ăn quân.
   const pvTakesMovedPiece =
     pvToRun.length > 1 && getPvPlies()[1]?.to === move.to && (getPvPlies()[1]?.captured ?? 0) > 0;
-  const confirmedImmediate = immediateSacrifice && (pvTakesMovedPiece || Boolean(leadsToMate));
+  const sacrificeConfirmed =
+    (pvTakesMovedPiece && pvDeficit >= 100) || (immediateSacrifice && Boolean(leadsToMate));
 
-  if (isSound && hasEngineEval) {
-    if ((confirmedImmediate || pvDeficit >= 200) && isCompensatedOrFavorable) {
-      purposes.push("thiQuan");
-      setImpact("thiQuan", 300 + Math.max(confirmedImmediate ? immediateMaterialLoss : 0, pvDeficit));
-    }
+  if (isSound && hasEngineEval && sacrificeConfirmed && isCompensatedOrFavorable) {
+    purposes.push("thiQuan");
+    setImpact("thiQuan", 300 + Math.max(immediateMaterialLoss, pvDeficit));
   }
 
   // ==========================================================
@@ -257,7 +258,8 @@ export function detectIntent(
 
   // ==========================================================
   // KIỂM TRA 4: ĂN QUÂN (anQuan)
-  // Ăn quân có lời ngay hoặc chuỗi PV thu về lợi thế vật chất >= 200 điểm
+  // Chỉ nước THẬT SỰ ăn quân có lời. Nhánh "PV về sau lời vật chất" đã bỏ: người chấm đánh sai 3/3 ca
+  // vì câu "Ăn quân của đối phương" cho một nước không ăn quân nào.
   // ==========================================================
   if (capturedAtDest && sideOf(capturedAtDest) === opp) {
     const netGain = exchangeGain(before, move.to, mover) ?? 0;
@@ -267,11 +269,6 @@ export function detectIntent(
         setImpact("anQuan", netGain);
         addPiece(ref(before, move.to));
       }
-    }
-  } else if (narration.delta.advantageSide === mover && narration.delta.scoreDiff >= 200 && isSound) {
-    if (!purposes.includes("thiQuan")) {
-      purposes.push("anQuan");
-      setImpact("anQuan", narration.delta.scoreDiff);
     }
   }
 
@@ -372,7 +369,7 @@ export function detectIntent(
 
     if (isEquivalentTrade) {
       purposes.push("doiQuan");
-      setImpact("doiQuan", Math.min(PIECE_VALUES[moveType], PIECE_VALUES[capType]) / 2);
+      setImpact("doiQuan", Math.max(150, Math.min(PIECE_VALUES[moveType], PIECE_VALUES[capType]) / 2));
       addPiece(ref(before, move.to));
     } else if ("ab".includes(capType)) {
       // Phá phòng tuyến Sĩ/Tượng của đối phương
@@ -383,17 +380,18 @@ export function detectIntent(
   }
 
   // Đổi theo PV: trong 4 nửa nước đầu, cả hai bên cùng ăn quân và cán cân gần như không đổi.
-  // Gồm mời đổi (đối phương ăn trước, ta ăn lại) và đổi binh mở đường.
+  // Pha đổi phải do CHÍNH nước này khởi đầu: nước đi tự ăn quân, hoặc quân vừa đi bị ăn ngay (mời đổi).
+  // Đối phương đổi một cặp quân khác ở chỗ khác thì không phải ý đồ của nước này.
   if (!purposes.includes("doiQuan") && isSound && pvToRun.length > 1) {
     const early = getPvPlies().slice(0, 4);
-    const firstCapture = early.findIndex((p) => p.captured > 0);
-    if (firstCapture >= 0 && firstCapture <= 1) {
+    const startsHere = early[0]?.captured > 0 || (early[1]?.to === move.to && early[1].captured > 0);
+    if (startsHere) {
       const gainedByMover = early.filter((p) => p.side === mover).reduce((s, p) => s + p.captured, 0);
       const gainedByOpp = early.filter((p) => p.side === opp).reduce((s, p) => s + p.captured, 0);
       const endBalance = early[early.length - 1].balance;
       if (gainedByMover > 0 && gainedByOpp > 0 && Math.abs(endBalance - balanceStart) < 100) {
         purposes.push("doiQuan");
-        setImpact("doiQuan", Math.min(gainedByMover, gainedByOpp) / 2);
+        setImpact("doiQuan", Math.max(150, Math.min(gainedByMover, gainedByOpp) / 2));
       }
     }
   }
@@ -441,13 +439,19 @@ export function detectIntent(
     } else {
       // Quét thế sau trước (hiếm khi có mục tiêu), chỉ tra thế trước cho các ô đó
       let targetGain = 0;
+      const targets: number[] = [];
       after.forEach((p, sq) => {
         if (!p || sideOf(p) !== opp || typeOf(p) === "k" || sq === move.to) return;
         const g = exchangeGain(after, sq, mover) ?? 0;
-        if (g < 200 || g <= targetGain) return;
-        if ((exchangeGain(before, sq, mover) ?? 0) <= 0) targetGain = g;
+        if (g < 200 || (exchangeGain(before, sq, mover) ?? 0) > 0) return;
+        targets.push(sq);
+        targetGain = Math.max(targetGain, g);
       });
-      const newTarget = targetGain > 0;
+      // Có PV thì đòi đối phương phải phản ứng với đòn tróc (chạy quân bị tróc hoặc ăn quân đang tróc);
+      // đối phương bỏ mặc để đi nước khác nghĩa là đòn tróc không thật (người chấm đánh sai 3/3 ca như vậy).
+      const reply = pvToRun.length > 1 ? pvToRun[1] : null;
+      const answered = !reply || targets.includes(reply.from) || reply.to === move.to;
+      const newTarget = targetGain > 0 && answered;
       // Quân vừa đi không được bị ăn có lời, nếu không đó là thí chứ không phải tróc
       const movedPieceSafe = (exchangeGain(after, move.to, opp) ?? 0) <= 0;
       if (newTarget && movedPieceSafe) {
@@ -507,12 +511,15 @@ export function detectIntent(
   ];
   purposes.sort((a, b) => PRIORITY_ORDER.indexOf(a) - PRIORITY_ORDER.indexOf(b));
   // Ý chính = mục đích có tác động lớn nhất; hòa thì theo PRIORITY_ORDER (purposes đã sắp sẵn)
-  const primaryPurpose = purposes.reduce((best, p) => ((impact[p] ?? 30) > (impact[best] ?? 30) ? p : best), purposes[0]);
+  // caiThienQuan là nhãn nền (nước "không có gì đặc biệt"), chỉ làm ý chính khi không còn nhãn nào khác
+  const contenders = purposes.length > 1 ? purposes.filter((p) => p !== "caiThienQuan") : purposes;
+  const primaryPurpose = contenders.reduce((best, p) => ((impact[p] ?? 30) > (impact[best] ?? 30) ? p : best), contenders[0]);
 
   // ==========================================================
   // SINH CÂU TÓM TẮT Ý ĐỒ (summary)
   // ==========================================================
   const pieceName = PIECE_NAME[moveType] ?? "Quân";
+
   const primary = primaryPurpose;
   let summary = "";
 
@@ -524,7 +531,9 @@ export function detectIntent(
     } else if (purposes.includes("anQuan")) {
       summary = `Thí ${pieceName} đoạt quân lớn, giành ưu thế vật chất`;
     } else {
-      summary = `Thí ${pieceName} giành quyền chủ động tấn công`;
+      summary = scoreFavorable
+        ? `Thí ${pieceName} để giành ưu thế`
+        : `Thí ${pieceName}, chấp nhận thiếu quân để đổi lấy thế cờ`;
     }
   } else if (primary === "datSat") {
     summary = `Đe dọa đòn sát cục kết liễu đối phương`;

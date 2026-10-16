@@ -394,6 +394,62 @@
   line-height: 1.3;
 }
 
+/* Diễn biến ván: dòng thời gian các thời điểm đáng kể */
+.storySummary {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.storyList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.storyItem {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-left: 2px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0 6px 6px 0;
+  cursor: pointer;
+}
+
+.storyItem:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.storyItem[aria-current="step"] {
+  background: rgba(217, 164, 65, 0.12);
+}
+
+/* Thời điểm then chốt (trừng phạt, bỏ lỡ, đổi chiều) được nhấn bằng viền vàng */
+.storyItem[data-kind="punished"],
+.storyItem[data-kind="unpunished"],
+.storyItem[data-kind="swing"] {
+  border-left-color: var(--gold);
+}
+
+.storyPly {
+  flex: 0 0 auto;
+  min-width: 52px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Khối đi thử biến tiếp diễn (interactive preview) */
 .previewBox {
   margin-top: 14px;

@@ -9,6 +9,7 @@ const OPENINGS = {
   center: { id: "center", name: "Pháo đầu (Trung pháo)" },
   corner: { id: "corner", name: "Sĩ giác pháo" },
   cross: { id: "cross", name: "Quá cung pháo" },
+  goldHook: { id: "goldHook", name: "Kim câu pháo" },
   cannon: { id: "cannon", name: "Pháo khác" },
   horse: { id: "horse", name: "Khởi mã" },
   elephant: { id: "elephant", name: "Phi tượng" },
@@ -29,6 +30,8 @@ export function openingOf(notation: string): Opening {
       // Pháo cột 2 sang cột 4 (hay cột 8 sang 6) là đứng góc sĩ cùng bên; sang hẳn bên kia cung là quá cung.
       if ((file === "2" && to === "4") || (file === "8" && to === "6")) return OPENINGS.corner;
       if ((file === "2" && to === "6") || (file === "8" && to === "4")) return OPENINGS.cross;
+      // Pháo vượt hẳn qua cung sang lộ 7 (hay lộ 3) bên kia: dồn quân về một cánh.
+      if ((file === "2" && to === "7") || (file === "8" && to === "3")) return OPENINGS.goldHook;
       return OPENINGS.cannon;
     case "M":
       return OPENINGS.horse;

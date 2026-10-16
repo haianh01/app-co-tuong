@@ -21,6 +21,7 @@ import { explainText, type Fact } from "@/lib/xiangqi/explain";
 import type { GameState } from "@/lib/xiangqi/game";
 import type { GamePhase } from "@/lib/xiangqi/phases";
 import { PLAN_NAME } from "@/lib/xiangqi/strategy";
+import { buildStory, summarizeGame, type StoryNote } from "@/lib/xiangqi/story";
 import play from "@/app/play/play.module.css";
 import { ScoreChart } from "./ScoreChart";
 import styles from "./game.module.css";
@@ -201,6 +202,10 @@ export function AnalysisPanel({
     if (!review?.moves || review.moves.length === 0) return [];
     return findTurningPoints(review.moves, 3);
   }, [review]);
+
+  // Diễn biến ván: các thời điểm đáng kể theo ngữ cảnh cả ván (đổi kế hoạch, trừng phạt sai lầm, đổi chiều...)
+  const storyNotes = useMemo<StoryNote[]>(() => (review ? buildStory(review, state) : []), [review, state]);
+  const storySummary = useMemo(() => (review ? summarizeGame(review, state) : ""), [review, state]);
 
   // Nếu có gameId và chưa có evals, tự động kiểm tra xem ván đã được phân tích trước đó chưa
   useEffect(() => {
@@ -398,6 +403,29 @@ export function AnalysisPanel({
             </div>
           )}
 
+          {(storyNotes.length > 0 || storySummary) && (
+            <div className={styles.turningContainer}>
+              <h3 className={styles.turningTitle}>📖 Diễn biến ván</h3>
+              {storySummary && <p className={styles.storySummary}>{storySummary}</p>}
+              <ol className={styles.storyList}>
+                {storyNotes.map((n, idx) => (
+                  <li key={`story-${n.ply}-${idx}`}>
+                    <button
+                      type="button"
+                      className={styles.storyItem}
+                      data-kind={n.kind}
+                      aria-current={n.ply === ply ? "step" : undefined}
+                      onClick={() => onSelect(n.ply)}
+                    >
+                      <span className={styles.storyPly}>Nước {Math.max(1, Math.ceil(n.ply / 2))}</span>
+                      <span>{n.text}</span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
           {/* Thẻ phân tích kỳ lý chuyên gia toàn diện cho nước đang chọn (B1 - B7) */}
           {currentReview && (
             <div className={styles.expertCard}>
@@ -578,8 +606,11 @@ export function AnalysisPanel({
                     {m.ply === ply && m.line && m.line.length > 1 && (
                       <div className={styles.reviewLineContainer}>
                         <p className={styles.reviewLine}>
-                          <span className="muted">Biến tiếp diễn: </span>
+                          <span className="muted">Biến AI dự tính: </span>
                           <strong>{m.line.join(" ➔ ")}</strong>
+                          {review.moves[m.ply] && review.moves[m.ply].notation !== m.line[0] && (
+                            <span className="muted"> · thực tế đối phương đi {review.moves[m.ply].notation}</span>
+                          )}
                         </p>
                         {m.pvMoves && m.pvMoves.length > 0 && !previewLine && (
                           <button

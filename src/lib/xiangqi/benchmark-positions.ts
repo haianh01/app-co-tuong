@@ -21,7 +21,7 @@ export interface BenchmarkPosition {
   expected: {
     plan?: Plan;
     openingName?: string;
-    openingFault?: "repeatPiece" | "lateRook";
+    openingFault?: "repeatPiece" | "lateRook" | "edgeElephant" | "doubleEdgeHorse";
     tacticalKind?: string;
     facts?: string[];
     intent?: string[];

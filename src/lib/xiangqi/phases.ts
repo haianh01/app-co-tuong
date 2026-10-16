@@ -199,20 +199,11 @@ function getWinChanceAtPly(
 }
 
 /**
- * Phân tích và chia ván cờ thành các giai đoạn: Khai cuộc, Trung cuộc, Tàn cuộc (`PhaseSummary`).
- *
- * @param state Trạng thái ván đấu hoàn chỉnh (history, moves)
- * @param options Tùy chọn hỗ trợ từ engine evaluations và cấu hình ranh giới
+ * Kế hoạch đã làm mượt của mỗi bên theo từng nửa nước (chỉ số 0..số nước đã đi).
+ * Kế hoạch thô tính ở mỗi lượt Đỏ rồi giữ nguyên cho nửa nước của Đen để hai bên cùng nhịp.
  */
-export function detectPhases(
-  state: GameState,
-  options?: DetectPhasesOptions,
-): PhaseSummary[] {
+export function planSeries(state: GameState, windowSize: number = 6): Record<Side, Plan[]> {
   const totalPlies = state.moves.length;
-  const maxOpeningPly = options?.maxOpeningPly ?? 24;
-  const windowSize = options?.windowSize ?? 6;
-
-  // Tính kế hoạch thô và làm mượt cho cả 2 bên theo từng ply
   const rawPlansR: Plan[] = [];
   const rawPlansB: Plan[] = [];
 
@@ -229,8 +220,24 @@ export function detectPhases(
     rawPlansB.push(lastPlanB);
   }
 
-  const smoothedPlansR = smoothPlans(rawPlansR, windowSize);
-  const smoothedPlansB = smoothPlans(rawPlansB, windowSize);
+  return { r: smoothPlans(rawPlansR, windowSize), b: smoothPlans(rawPlansB, windowSize) };
+}
+
+/**
+ * Phân tích và chia ván cờ thành các giai đoạn: Khai cuộc, Trung cuộc, Tàn cuộc (`PhaseSummary`).
+ *
+ * @param state Trạng thái ván đấu hoàn chỉnh (history, moves)
+ * @param options Tùy chọn hỗ trợ từ engine evaluations và cấu hình ranh giới
+ */
+export function detectPhases(
+  state: GameState,
+  options?: DetectPhasesOptions,
+): PhaseSummary[] {
+  const totalPlies = state.moves.length;
+  const maxOpeningPly = options?.maxOpeningPly ?? 24;
+  const windowSize = options?.windowSize ?? 6;
+
+  const { r: smoothedPlansR, b: smoothedPlansB } = planSeries(state, windowSize);
 
   // 1. TÌM RANH GIỚI GIAI ĐOẠN
   let outOfBookPly: number | null = null;

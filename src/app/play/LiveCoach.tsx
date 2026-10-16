@@ -7,9 +7,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useEngine } from "@/hooks/useEngine";
 import { CLASS_NAME, reviewMove, type MoveReview, type PositionEval } from "@/lib/xiangqi/analysis";
 import { toFen, type Side } from "@/lib/xiangqi/engine";
-import { explainText, moveIdea } from "@/lib/xiangqi/explain";
+import { explainText, moveIdea, withoutCriticism } from "@/lib/xiangqi/explain";
 import type { GameState } from "@/lib/xiangqi/game";
 import { openingOf } from "@/lib/xiangqi/openings";
+import { punishmentNotes } from "@/lib/xiangqi/story";
 import game from "@/app/game/[id]/game.module.css";
 import styles from "./play.module.css";
 
@@ -29,6 +30,8 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
   const [cache, setCache] = useState<Record<string, PositionEval>>({});
   // Cache kết quả theo cặp FEN trước - sau để tránh tính lại toàn bộ ván cờ
   const coachCache = useRef<Map<string, CachedCoachItem>>(new Map());
+  // Nước của máy cũng được chấm (không hiển thị) để biết máy có sai và bạn có trừng phạt được không
+  const machineCache = useRef<Map<string, MoveReview>>(new Map());
   const fens = useMemo(() => state.history.map((p) => toFen(p)), [state.history]);
 
   // Thế cần chấm: trước và sau mỗi nước của người chơi, kể cả thế hiện tại khi đến lượt người chơi (chấm sẵn).
@@ -64,7 +67,7 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
   }, [state.moves]);
 
   const { mine, accuracy } = useMemo(() => {
-    const items: (MoveReview & { ready: boolean; best: boolean; idea: string })[] = [];
+    const items: (MoveReview & { ready: boolean; best: boolean; idea: string; actualReply?: string; story?: string[] })[] = [];
     const accScores: number[] = [];
 
     state.moves.forEach((m, i) => {
@@ -100,18 +103,19 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
         const { review, scoreLoss, accuracy: moveAcc } = reviewMove(m, i, state, beforeEval, afterEval, opening);
         const best = sameMove(beforeEval?.best, m.move);
         const historyMoves = state.moves.slice(0, i).map((x) => x.move);
+        // Nước không bị chấm lỗi thì không chê (kể cả lỗi khai cuộc), tránh "Nước tốt" đi kèm câu chê
+        const isFault = review.cls === "blunder" || review.cls === "mistake" || review.cls === "inaccuracy" || review.cls === "missedWin";
+        const fact = moveIdea(
+          state.history[i].board,
+          m.move,
+          afterEval?.best ?? null,
+          i,
+          opening,
+          historyMoves,
+          best || !isFault,
+        );
         const idea = explainText(
-          [
-            moveIdea(
-              state.history[i].board,
-              m.move,
-              afterEval?.best ?? null,
-              i,
-              opening,
-              historyMoves,
-              best,
-            ),
-          ],
+          [isFault ? fact : withoutCriticism(fact)],
           m.side,
           i + 1,
         );
@@ -124,6 +128,8 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
         ready: true,
         best: cached.best,
         idea: cached.idea,
+        // Nước đối phương thật sự đã đi (nếu có), để đối chiếu với biến AI dự tính
+        actualReply: state.moves[i + 1]?.notation,
       });
 
       if (cached.accuracy !== null && cached.accuracy !== undefined) {
@@ -132,6 +138,31 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
         accScores.push(Math.max(0, 100 - cached.scoreLoss / 3));
       }
     });
+
+    // Diễn biến: sai lầm có bị trừng phạt không, giữa bạn và máy. Nước của máy chấm bằng điểm đã có trong cache;
+    // thiếu điểm thì chỉ giữ tọa độ (vẫn đủ để biết máy có đi đúng nước trừng phạt bạn không).
+    const byPly = new Map(items.filter((x) => x.ready).map((x) => [x.ply, x as MoveReview]));
+    const seq: MoveReview[] = state.moves.map((m, i) => {
+      const mine = byPly.get(i + 1);
+      if (mine) return mine;
+      const stub: MoveReview = { ply: i + 1, side: m.side, notation: m.notation, move: m.move, loss: 0, cls: null, better: null, facts: [] };
+      const before = cache[fens[i]];
+      const after = cache[fens[i + 1]];
+      if (m.side === player || !before || !after) return stub;
+      const key = `${fens[i]}->${fens[i + 1]}`;
+      let r = machineCache.current.get(key);
+      if (!r) {
+        r = reviewMove(m, i, state, before, after, opening).review;
+        machineCache.current.set(key, r);
+      }
+      return r;
+    });
+    const names = { [player]: "bạn", [player === "r" ? "b" : "r"]: "máy" } as Record<Side, string>;
+    for (const n of punishmentNotes(seq, names)) {
+      // Ghi chú ở nước của máy (máy trừng phạt bạn) gắn vào nước của bạn ngay trước đó
+      const target = items.find((x) => x.ply === (n.side === player ? n.ply : n.ply - 1));
+      if (target) (target.story ??= []).push(n.text);
+    }
 
     const avg = accScores.length ? Math.round(accScores.reduce((a, b) => a + b, 0) / accScores.length) : null;
     return { mine: items.reverse(), accuracy: avg };
@@ -165,9 +196,17 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
               {m.facts.length > 0 && <p className={game.reviewNote}>{explainText(m.facts, m.side, m.ply)}</p>}
               {m.line && m.line.length > 1 && (
                 <p className={game.reviewLine}>
-                  Biến tiếp diễn: {m.line.join(" ➔ ")}
+                  Biến AI dự tính: {m.line.join(" ➔ ")}
+                  {m.actualReply && m.actualReply !== m.line[0] && (
+                    <span className="muted"> · thực tế đối phương đi {m.actualReply}</span>
+                  )}
                 </p>
               )}
+              {m.story?.map((t) => (
+                <p key={t} className={game.reviewNote}>
+                  ⚡ {t}
+                </p>
+              ))}
               {m.ready && <p className={`${game.reviewNote} muted`}>{m.idea}</p>}
             </li>
           ))}

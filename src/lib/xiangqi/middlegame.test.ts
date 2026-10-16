@@ -184,16 +184,34 @@ describe("middlegame.ts - Khái niệm trung cuộc cờ tướng (B5)", () => {
     });
 
     it("detectCounterThreat phát hiện đòn Dĩ công vi thủ khi đang bị đe dọa", () => {
-      // Mã Đỏ a3 (sq(6, 0)) bị Xe Đen a7 (sq(2, 0)) bắt, không có căn.
-      // Thay vì cứu Mã, Đỏ tiến Xe i0 (sq(9, 8)) lên i7 (sq(2, 8)) phản công Xe Đen theo hàng ngang.
-      const pos = parseFen("4k4/9/r8/9/9/9/N8/9/9/3K4R w - - 0 1");
-      const move: Move = { from: sq(9, 8), to: sq(2, 8) };
+      // Mã Đỏ a3 bị Xe Đen a6 bắt, không có căn. Thay vì cứu Mã, Đỏ bình Xe i1 sang g1 dọa ăn Mã đen g7
+      // (không căn); Xe đứng g1 an toàn. Đen ăn Mã thì cũng mất Mã.
+      const pos = parseFen("2bakab2/9/6n2/r3p4/9/9/N3P4/9/8R/3AKA3 w - - 0 1");
+      const move: Move = { from: sq(8, 8), to: sq(8, 6) };
       const after = playMove(pos.board, move);
 
       const fact = detectCounterThreat(pos.board, move, after, { loss: 0 });
       expect(fact).not.toBeNull();
       expect(fact?.tactic).toBe("diCongViThu");
       expect(fact?.summary).toContain("Dĩ công vi thủ");
+      expect(fact?.summary).toContain("dọa ăn Mã");
+    });
+
+    it("detectCounterThreat bỏ qua nước phản công bằng quân tự treo (Xe lên bị Xe đối phương ăn không)", () => {
+      // Xe Đỏ i0 lên i7 cùng hàng Xe Đen a7: Đen đi trước, ăn Xe không mất gì — đó là hớ, không phải phản công.
+      const pos = parseFen("4k4/9/r8/9/4p4/9/N8/9/9/3K4R w - - 0 1");
+      const move: Move = { from: sq(9, 8), to: sq(2, 8) };
+      const after = playMove(pos.board, move);
+
+      expect(detectCounterThreat(pos.board, move, after, { loss: 0 })).toBeNull();
+    });
+
+    it("detectCounterThreat bỏ qua khi chính quân bị dọa bỏ chạy (phòng thủ thường)", () => {
+      const pos = parseFen("2bakab2/9/6n2/r3p4/9/9/N3P4/9/8R/3AKA3 w - - 0 1");
+      const move: Move = { from: sq(6, 0), to: sq(4, 1) }; // Mã chạy, đồng thời dọa lại
+      const after = playMove(pos.board, move);
+
+      expect(detectCounterThreat(pos.board, move, after, { loss: 0 })).toBeNull();
     });
 
     it("detectCounterThreat bỏ qua nước không tự tạo đe dọa mới", () => {
@@ -223,16 +241,44 @@ describe("middlegame.ts - Khái niệm trung cuộc cờ tướng (B5)", () => {
     });
 
     it("detectFlankOverload phát hiện thế Tụ binh đột kích áp đảo 1 cánh", () => {
-      // Cánh phải Đỏ (cols 6, 7, 8): Đỏ đã có Xe ở sq(2, 8) và Pháo ở sq(3, 7)
-      // Nước này Đỏ điều thêm Mã từ sq(4, 4) sang sq(2, 6) (col 6) -> tụ đủ 3 quân tấn công cánh đó
-      const pos = parseFen("8k/9/8R/7C1/4N4/9/9/9/9/4K4 w - - 0 1");
-      const move: Move = { from: sq(4, 4), to: sq(2, 6) };
+      // Xe Đỏ i7 đã bắt Mã đen g7; Tốt i6 qua sông, Pháo h5. Mã Đỏ f5 nhảy sang h6 — giờ Xe và Mã cùng nhắm Mã g7,
+      // 4 quân tấn công trên cánh chỉ có 1 quân giữ.
+      const pos = parseFen("2baka3/9/4b1n1R/9/8P/5N1C1/9/9/9/3AKA3 w - - 0 1");
+      const move: Move = { from: sq(5, 5), to: sq(4, 7) };
       const after = playMove(pos.board, move);
 
       const fact = detectFlankOverload(pos.board, move, after, { loss: 0 });
       expect(fact).not.toBeNull();
       expect(fact?.tactic).toBe("tuBinhDotKich");
       expect(fact?.summary).toContain("Tụ binh đột kích");
+    });
+
+    it("detectFlankOverload bỏ qua khi các quân đứng chung cánh nhưng không cùng nhắm điểm nào", () => {
+      // Xe i9 (đáy), Pháo h5, Mã sang h6: đủ 3 quân trên cánh nhưng cánh đối phương trống trơn, không có mục tiêu chung.
+      const pos = parseFen("3aka2R/9/4b4/9/9/5N1C1/9/9/9/3AKA3 w - - 0 1");
+      const move: Move = { from: sq(5, 5), to: sq(4, 7) };
+      const after = playMove(pos.board, move);
+
+      expect(detectFlankOverload(pos.board, move, after, { loss: 0 })).toBeNull();
+    });
+
+    it("detectPalaceBreaker bỏ qua khi ăn Tượng biên mà cung đối phương không bị uy hiếp", () => {
+      // Xe Đỏ a3 lên ăn Tượng a7; Mã đen c7 chặn hàng ngang nên Xe không khống chế ô nào trong cung.
+      const pos = parseFen("3aka3/9/b1n6/4p4/9/9/R8/9/9/4K4 w - - 0 1");
+      const move: Move = { from: sq(6, 0), to: sq(2, 0) };
+      const after = playMove(pos.board, move);
+
+      expect(detectPalaceBreaker(pos.board, move, after, { loss: 0 })).toBeNull();
+    });
+
+    it("các đòn Triệu không khen khi thiếu dữ liệu engine (không có loss/evalAfter)", () => {
+      const pos = parseFen("r3k4/9/3R5/9/9/9/9/9/9/4K4 w - - 0 1");
+      const move: Move = { from: sq(2, 3), to: sq(0, 3) };
+      const after = playMove(pos.board, move);
+
+      expect(detectSacrificeForInitiative(pos.board, move, after)).toBeNull();
+      expect(detectSacrificeForInitiative(pos.board, move, after, { evalAfter: { score: 400 } })).toBeNull();
+      expect(detectSacrificeForInitiative(pos.board, move, after, { evalAfter: { score: -50 } })?.tactic).toBe("khiTuTranhTien");
     });
 
     it("detectZhaoTactics trả về đòn có độ ưu tiên cao nhất", () => {
@@ -247,9 +293,9 @@ describe("middlegame.ts - Khái niệm trung cuộc cờ tướng (B5)", () => {
   });
 
   describe("5. Kỳ lý trung cuộc Hứa Ngân Xuyên (Thái Cực Bổng)", () => {
-    it("detectSolidDefense phát hiện nước củng cố Sĩ/Tượng phòng thủ kiên cố", () => {
-      // Đỏ có Tướng e0 (sq(9, 4)), Sĩ d0 (sq(9, 3)) lên e1 (sq(8, 4)) củng cố cung
-      const pos = parseFen("4k4/9/9/9/9/9/9/9/9/3AK4 w - - 0 1");
+    it("detectSolidDefense phát hiện nước củng cố Sĩ/Tượng phòng thủ kiên cố khi có uy hiếp", () => {
+      // Đen có Xe e4 qua sông đe dọa (sq(5, 4)), Đỏ có Sĩ d0 (sq(9, 3)) lên e1 (sq(8, 4)) củng cố trung cung
+      const pos = parseFen("3k5/9/9/9/4r4/9/9/9/9/3AK4 w - - 0 1");
       const move: Move = { from: sq(9, 3), to: sq(8, 4) };
       const after = playMove(pos.board, move);
 
@@ -272,20 +318,31 @@ describe("middlegame.ts - Khái niệm trung cuộc cờ tướng (B5)", () => {
       expect(fact?.summary).toContain("Tích tiểu thành đại");
     });
 
-    it("detectPositionalClamp phát hiện nước nhu hòa kiềm tỏa tuyến trọng yếu", () => {
-      // Đỏ có Xe d1 (sq(8, 3)) tiến lên tuần hà d5 (sq(5, 3)) khống chế
-      const pos = parseFen("4k4/9/9/9/9/9/9/9/3R5/4K4 w - - 0 1");
-      const move: Move = { from: sq(8, 3), to: sq(5, 3) };
+    it("detectPositionalClamp phát hiện nước nhu hòa kiềm tỏa ghim quân thực sự", () => {
+      // Đen có Tướng d9 (sq(0, 3)), Mã d7 (sq(2, 3)); Đỏ có Xe d1 (sq(8, 3)) tiến lên d5 (sq(4, 3)) ghim Mã vào Tướng
+      const pos = parseFen("3k5/9/3n5/9/9/9/9/9/3R5/4K4 w - - 0 1");
+      const move: Move = { from: sq(8, 3), to: sq(4, 3) };
       const after = playMove(pos.board, move);
 
       const fact = detectPositionalClamp(pos.board, move, after, { loss: 0 });
       expect(fact).not.toBeNull();
       expect(fact?.tactic).toBe("nhuHoaKiemToa");
       expect(fact?.summary).toContain("Nhu hòa kiềm tỏa");
+      expect(fact?.details).toContain("Xe ghim Mã");
+    });
+
+    it("detectPositionalClamp KHÔNG tính khi Xe chỉ đứng ở hàng gần sông mà không ghim hay đè quân đối phương", () => {
+      // Đỏ có Xe d1 tiến lên d5 trên bàn cờ trống không có quân đối phương để ghim hay đè
+      const pos = parseFen("4k4/9/9/9/9/9/9/9/3R5/4K4 w - - 0 1");
+      const move: Move = { from: sq(8, 3), to: sq(4, 3) };
+      const after = playMove(pos.board, move);
+
+      const fact = detectPositionalClamp(pos.board, move, after, { loss: 0 });
+      expect(fact).toBeNull();
     });
 
     it("detectTransitionExchange phát hiện nước đổi Xe ép đổi quy tàn khi ưu thế", () => {
-      // Đỏ có Xe d5 (sq(5, 3)), Đen có Xe d7 (sq(2, 3)), Đỏ ăn Xe d7 với score >= 80
+      // Đỏ có Xe d5 (sq(4, 3)), Đen có Xe d7 (sq(2, 3)), Đỏ ăn Xe d7 với score >= 80
       const pos = parseFen("4k4/9/3r5/9/3R5/9/9/9/9/4K4 w - - 0 1");
       const move: Move = { from: sq(4, 3), to: sq(2, 3) };
       const after = playMove(pos.board, move);

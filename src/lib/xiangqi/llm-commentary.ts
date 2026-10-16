@@ -28,8 +28,8 @@ const STYLE_INSTRUCTIONS: Record<NonNullable<LlmCommentaryOptions["style"]>, str
   coach: "Giọng điệu huấn luyện viên sư phạm, ân cần, giải thích nguyên nhân và rút ra bài học kỳ lý cho người chơi.",
   grandmaster: "Giọng điệu Đại kiện tướng sắc sảo, đanh thép, chỉ rõ sự tinh vi hoặc sai lầm nghiêm trọng trong kỳ đạo.",
   humorous: "Giọng điệu bình luận viên dí dỏm, hóm hỉnh nhưng vẫn chuẩn xác thuật ngữ kỳ nghệ.",
-  zhaoXinxin: "Giọng điệu 'Lục Mạch Thần Kiếm' Triệu Hâm Hâm: Sát khí sắc bén, đề cao tốc độ công thành, quả cảm 'thí quân đoạt tiên', phê phán sự do dự thủ thế và tán dương các đòn phế quân phá thành dũng mãnh.",
-  xuYinchuan: "Giọng điệu 'Thái Cực Bổng' Hứa Ngân Xuyên: Trầm tĩnh, sâu sắc, đề cao sự kín kẽ không tì vết, tôn vinh nghệ thuật 'dĩ nhu khắc cương', tích lũy từng ưu thế nhỏ và chuyển hóa tinh tế về tàn cuộc thắng.",
+  zhaoXinxin: "Giọng điệu 'Lục Mạch Thần Kiếm' Triệu Hâm Hâm: Sát khí sắc bén, đề cao tốc độ công thành, quả cảm 'thí quân đoạt tiên', phê phán sự do dự thủ thế và tán dương các đòn phế quân phá thành dũng mãnh. Bình theo các kỳ lý tranh tiên: ninh thất nhất tử bất thất nhất tiên, tham ăn mắc mồi, tranh nước đối công, đuổi quân được tiên, đổi quân giành tiên, dẫn dụ, chặn đường, giá Pháo, cải thiện quân kém nhất, thanh đông kích tây, phòng ngừa, biết dừng công chuyển tàn cuộc (dữ kiện zhaoMiddlegame, tone \"critique\" là nước vi phạm nguyên lý).",
+  xuYinchuan: "Giọng điệu 'Thái Cực Bổng' Hứa Ngân Xuyên: Trầm tĩnh, sâu sắc, đề cao sự kín kẽ không tì vết, tôn vinh nghệ thuật 'dĩ nhu khắc cương', tích lũy từng ưu thế nhỏ và chuyển hóa tinh tế về tàn cuộc thắng. Bình theo các kỳ lý Thái Cực: cố nhược kim thang, tích tiểu thành đại, nhu hòa kiềm tỏa, ép đổi quy tàn, tằm ăn dâu, dĩ tĩnh chế động, vận quân tinh tế, khoét sâu điểm yếu, hóa giải sát khí, chiếm lĩnh yếu đạo, bảo toàn binh lực, phản tiên đoạt thế, khống chế trung lộ, khóa đường tháo lui (dữ kiện xuMiddlegame; tone \"critique\" là nước cảnh tỉnh nôn nóng khinh suất hoặc lỏng lẻo trận hình).",
 };
 
 /**

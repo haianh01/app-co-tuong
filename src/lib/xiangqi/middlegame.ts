@@ -10,8 +10,9 @@
 import {
   type Board, type Move, type Side,
   inCheck, opponent, sideOf, typeOf, sq, rowOf, colOf, ROWS, inPalace, crossedRiver, findKing, isAttacked, isDefended, attackersOf,
-  play, PIECE_VALUES,
+  play, pseudoMoves, PIECE_VALUES,
 } from "./engine";
+import { attackPressure } from "./strategy";
 import { exchangeGain, ref, type PieceRef } from "./explain";
 import { extractFeatures } from "./features";
 import { moveNotation, PIECE_NAME } from "./notation";
@@ -63,7 +64,37 @@ export interface DetectExchangeOptions {
 
 const fileNumber = (col: number, s: Side) => (s === "r" ? 9 - col : col + 1);
 /** Ô `target` có bị phe `by` tấn công không, xét mọi loại quân (isAttacked chỉ đúng cho ô của Tướng). */
-const underAttack = (board: Board, target: number, by: Side) => attackersOf(board, target, by).length > 0;
+export const underAttack = (board: Board, target: number, by: Side) => attackersOf(board, target, by).length > 0;
+
+/** Tập ô mà quân phe `by` đi tới / ăn được (một lượt quét, dùng để lọc trước khi gọi exchangeGain tốn kém). */
+export function attackedSet(board: Board, by: Side): Set<number> {
+  const out = new Set<number>();
+  for (let i = 0; i < board.length; i++) {
+    const p = board[i];
+    if (p && sideOf(p) === by) for (const to of pseudoMoves(board, i)) out.add(to);
+  }
+  return out;
+}
+
+/**
+ * Chênh lệch vật chất phe `side` thu được dọc chuỗi `pv` đi từ `board` (tối đa `maxPlies` nửa nước):
+ * cộng quân `side` ăn được, trừ quân bị ăn. Dừng khi nước trong PV không khớp bàn cờ.
+ */
+export function pvMaterialSwing(board: Board, pv: Move[], side: Side, maxPlies = 10): number {
+  let cur = board;
+  let swing = 0;
+  for (const m of pv.slice(0, maxPlies)) {
+    const p = cur[m.from];
+    if (!p) break;
+    const victim = cur[m.to];
+    if (victim) {
+      const v = typeOf(victim) === "k" ? 0 : PIECE_VALUES[typeOf(victim)];
+      swing += sideOf(p) === side ? v : -v;
+    }
+    cur = play(cur, m);
+  }
+  return swing;
+}
 
 // ============================================================================
 // 1. TRANH TIÊN (Initiative): Đếm số nước ép buộc liên tiếp trong PV
@@ -395,7 +426,20 @@ export type ZhaoTactics =
   | "khiTuTranhTien"   // Khí tử tranh tiên (Thí quân đoạt thế)
   | "tramSiPhaTuong"   // Trảm Sĩ phá Tượng (Công phá tuyến phòng thủ cung tướng)
   | "tuBinhDotKich"    // Tụ binh đột kích (Tập trung hỏa lực áp đảo một cánh)
-  | "diCongViThu";     // Dĩ công vi thủ (Phản kích thay vì phòng thủ thụ động)
+  | "diCongViThu"      // Dĩ công vi thủ (Phản kích thay vì phòng thủ thụ động)
+  // Các nguyên lý bổ sung, nhận diện trong zhao-principles.ts
+  | "ninhThatNhatTu"   // Ninh thất nhất tử, bất thất nhất tiên (giữ tiên hơn ăn quân)
+  | "khongThamAn"      // Tham ăn mắc mồi: ăn quân rồi bị đối phương phản đòn
+  | "tranhNuoc"        // Tranh nước đối công: bị dọa sát vẫn chiếu trước giành nước
+  | "duoiQuanDuocTien" // Đuổi quân được tiên
+  | "danDu"            // Dẫn dụ: thí quân kéo quân giữ của đối phương rời vị trí
+  | "chanDuong"        // Chặn đường: chen quân cắt căn quân đối phương
+  | "giaPhao"          // Giá Pháo: tạo ngòi cho Pháo chiếu / dọa ăn
+  | "doiQuanGianhTien" // Đổi quân giành tiên / đổi quân trừ quân hoạt
+  | "caiThienQuanKem"  // Cải thiện quân kém nhất trước khi công
+  | "thanhDongKichTay" // Thanh đông kích tây: ép một cánh, đánh cánh kia
+  | "phongNgua"        // Phòng ngừa: chặn trước đường quân đối phương vào điểm then chốt
+  | "chuyenHoaTanCuoc"; // Biết dừng công, đổi quân về tàn cuộc hơn quân
 
 export interface ZhaoMiddlegameFact {
   kind: "zhaoMiddlegame";
@@ -404,13 +448,27 @@ export interface ZhaoMiddlegameFact {
   move: string;
   summary: string;
   details?: string;
+  /** "critique" = nguyên lý bị vi phạm (nước lỗi); mặc định là khen. */
+  tone?: "praise" | "critique";
 }
 
 export interface ZhaoTacticsOptions {
+  /** PV của engine cho thế SAU nước đi (bắt đầu bằng nước đáp của đối phương). */
   pv?: Move[];
   loss?: number;
-  evalBefore?: { score: number; best?: Move | null } | null;
+  /** Điểm thế TRƯỚC nước đi theo bên đi, kèm nước tốt nhất và PV của nó. */
+  evalBefore?: { score: number; best?: Move | null; pv?: Move[] } | null;
+  /** Điểm thế SAU nước đi theo đối phương (dương = đối phương hơn). */
   evalAfter?: { score: number } | null;
+  /** Các nước đã đi trước nước này theo thứ tự thời gian (nước cuối là nước vừa rồi của đối phương). */
+  recentMoves?: Move[];
+}
+
+/** Nước đi trong thế `before` có được coi là chắc chắn (không hớ) không. Không có dữ liệu engine thì không khen. */
+export function soundMove(options: ZhaoTacticsOptions | undefined, maxLoss = 60): boolean {
+  if (options?.loss !== undefined) return options.loss <= maxLoss;
+  if (options?.evalAfter) return options.evalAfter.score <= maxLoss;
+  return false;
 }
 
 /**
@@ -432,11 +490,13 @@ export function detectPalaceBreaker(
   const opp = opponent(mover);
   if (sideOf(capturedPiece) !== opp) return null;
 
-  const loss = options?.loss ?? 0;
-  if (loss > 60) return null; // Không xét nước đi hớ
+  if (!soundMove(options)) return null; // Không xét nước đi hớ
 
   const capType = typeOf(capturedPiece);
   if (capType !== "a" && capType !== "b") return null;
+  // Ăn Sĩ/Tượng chỉ là "phá thành" khi sau đó còn lực công thật sự: ít nhất 2 ô trong cung bị quân đã qua sông khống chế.
+  // Xe đơn độc nhặt Sĩ lúc đối phương không bị tấn công chỉ là ăn quân thường.
+  if (attackPressure(after, opp) < 2) return null;
 
   const moveType = typeOf(movingPiece);
   const moveVal = PIECE_VALUES[moveType] ?? 0;
@@ -485,8 +545,8 @@ export function detectSacrificeForInitiative(
 
   const mover = sideOf(movingPiece);
   const opp = opponent(mover);
-  const loss = options?.loss ?? 0;
-  if (loss > 60) return null;
+  // Nước phế phải được engine xác nhận là chắc (loss/evalAfter); không có dữ liệu thì không khen phế quân.
+  if (!soundMove(options)) return null;
 
   const moveType = typeOf(movingPiece);
   const moveVal = PIECE_VALUES[moveType] ?? 0;
@@ -512,7 +572,12 @@ export function detectSacrificeForInitiative(
 
   const moverPieceName = PIECE_NAME[moveType] ?? "quân";
   const moveNotat = moveNotation(before, move);
-  const summary = `Khí tử tranh tiên đậm chất Lục Mạch Thần Kiếm: táo bạo phế ${moverPieceName} để đoạt tiên cơ áp đảo và phát động đợt công sát vũ bão.`;
+  // Cuối biến đã thu hồi vật chất (hoặc hơn) thì là thí quân có tính toán, không phải bỏ quân lấy thế.
+  // (PV bắt đầu bằng nước ăn lại quân phế, nên chỉ cần cộng phần quân vừa ăn được ở nước này.)
+  const recovered = pvAfter && pvAfter.length > 0 ? capVal + pvMaterialSwing(after, pvAfter, mover) >= 0 : false;
+  const summary = recovered
+    ? `Khí tử tranh tiên: thí ${moverPieceName} giành tiên, chuỗi ép liên tục sau đó thu hồi lại vật chất.`
+    : `Khí tử tranh tiên đậm chất Lục Mạch Thần Kiếm: táo bạo phế ${moverPieceName} để đoạt tiên cơ áp đảo và phát động đợt công sát vũ bão.`;
 
   return {
     kind: "zhaoMiddlegame",
@@ -540,51 +605,73 @@ export function detectCounterThreat(
 
   const mover = sideOf(movingPiece);
   const opp = opponent(mover);
-  const loss = options?.loss ?? 0;
-  if (loss > 60) return null;
+  if (!soundMove(options)) return null;
 
-  // Trước khi đi: Đang chịu áp lực nặng (bị chiếu hoặc quân lớn bị uy hiếp trực tiếp không căn)
+  // Đang bị chiếu thì nước nào cũng là giải chiếu; "dĩ công vi thủ" ở đây là giải chiếu bằng một nước chiếu lại.
   const wasInCheck = inCheck(before, mover);
-  let underHeavyAttack = wasInCheck;
-
-  if (!underHeavyAttack) {
-    for (let i = 0; i < before.length; i++) {
-      const p = before[i];
-      if (p && sideOf(p) === mover && "rnc".includes(typeOf(p))) {
-        if (underAttack(before, i, opp) && !isDefended(before, i, mover)) {
-          underHeavyAttack = true;
-          break;
-        }
-      }
-    }
+  const counterCheck = inCheck(after, opp);
+  if (wasInCheck) {
+    if (!counterCheck) return null;
+    return {
+      kind: "zhaoMiddlegame",
+      side: mover,
+      tactic: "diCongViThu",
+      move: moveNotation(before, move),
+      summary: "Dĩ công vi thủ: giải chiếu bằng chính một nước chiếu lại, giành lại quyền chủ động ngay lập tức.",
+      details: "Phản chiếu giành tiên",
+    };
   }
 
-  if (!underHeavyAttack) return null;
-
-  // Sau khi đi: Tung đòn phản kích (chiếu tướng đối phương hoặc tấn công một quân lớn đối phương
-  // mà trước nước đi chưa bị tấn công — đe dọa phải do chính nước này tạo ra)
-  const counterCheck = inCheck(after, opp);
-  let attacksEnemyMajor = false;
+  // Lọc rẻ trước: nước này phải chiếu hoặc nhắm vào một quân lớn đối phương mà trước đó chưa bị nhắm.
+  const myHitsBefore = attackedSet(before, mover);
+  const myHitsAfter = attackedSet(after, mover);
+  const newTargets: number[] = [];
   for (let i = 0; i < after.length; i++) {
     const p = after[i];
-    if (p && sideOf(p) === opp && "rnc".includes(typeOf(p))) {
-      if (underAttack(after, i, mover) && !(before[i] === p && underAttack(before, i, mover))) {
-        attacksEnemyMajor = true;
-        break;
-      }
+    if (p && sideOf(p) === opp && "rnc".includes(typeOf(p)) && myHitsAfter.has(i) && !(before[i] === p && myHitsBefore.has(i))) newTargets.push(i);
+  }
+  if (!counterCheck && newTargets.length === 0) return null;
+
+  // Quân lớn đang bị dọa ăn có lời trước nước đi.
+  const threatened: number[] = [];
+  const oppHitsBefore = attackedSet(before, opp);
+  for (let i = 0; i < before.length; i++) {
+    const p = before[i];
+    if (!p || sideOf(p) !== mover || !"rnc".includes(typeOf(p)) || !oppHitsBefore.has(i)) continue;
+    if ((exchangeGain(before, i, opp) ?? 0) > 0) threatened.push(i);
+  }
+  if (threatened.length === 0) return null;
+  // Chạy chính quân bị dọa (dù có dọa lại) là phòng thủ thường, không phải bỏ mặc đòn dọa để phản công.
+  if (threatened.includes(move.from)) return null;
+  // Đòn dọa phải vẫn còn nguyên sau nước đi (không chặn, không thêm căn) — tức là thật sự lấy công thay thủ.
+  const stillHanging = threatened.filter((i) => after[i] === before[i] && (exchangeGain(after, i, opp) ?? 0) > 0);
+  if (stillHanging.length === 0) return null;
+  // Quân vừa đi không được tự treo: phản công bằng một quân cho không thì chỉ là hớ thêm.
+  if ((exchangeGain(after, move.to, opp) ?? 0) > 0) return null;
+
+  // Đòn phản kích do chính nước này tạo ra: chiếu, hoặc dọa ăn có lời một quân lớn ít nhất ngang quân mình đang bị dọa.
+  const atStake = Math.max(...stillHanging.map((i) => PIECE_VALUES[typeOf(before[i]!)]));
+  let counterTarget = -1;
+  for (const i of newTargets) {
+    const p = after[i]!;
+    const gain = exchangeGain(after, i, mover) ?? 0;
+    if (gain > 0 && gain >= Math.min(atStake, PIECE_VALUES[typeOf(p)])) {
+      counterTarget = i;
+      break;
     }
   }
+  if (!counterCheck && counterTarget < 0) return null;
 
-  if (!counterCheck && !attacksEnemyMajor) return null;
-
-  const moveNotat = moveNotation(before, move);
-  const summary = `Dĩ công vi thủ theo triết lý Triệu Hâm Hâm: không thủ thế bị động trước áp lực, mà lập tức phản kích quyết liệt buộc đối thủ phải co về đối phó.`;
+  const hangingName = PIECE_NAME[typeOf(before[stillHanging[0]]!)];
+  const summary = counterCheck
+    ? `Dĩ công vi thủ: ${hangingName} đang bị dọa nhưng không chạy, chiếu thẳng vào Tướng buộc đối phương phải đối phó trước.`
+    : `Dĩ công vi thủ: bỏ mặc ${hangingName} đang bị dọa, phản đòn dọa ăn ${PIECE_NAME[typeOf(after[counterTarget]!)]} — đối phương ăn quân thì cũng mất quân, phải co về đối phó.`;
 
   return {
     kind: "zhaoMiddlegame",
     side: mover,
     tactic: "diCongViThu",
-    move: moveNotat,
+    move: moveNotation(before, move),
     summary,
     details: counterCheck ? "Phản chiếu giành tiên" : "Phản công đoạt thế",
   };
@@ -605,8 +692,7 @@ export function detectFlankOverload(
   if (!movingPiece) return null;
 
   const mover = sideOf(movingPiece);
-  const loss = options?.loss ?? 0;
-  if (loss > 60) return null;
+  if (!soundMove(options)) return null;
 
   const toCol = colOf(move.to);
   let flankCols: number[];
@@ -625,6 +711,7 @@ export function detectFlankOverload(
   let myAttackers = 0;
   let enemyDefenders = 0;
   const attackerTypes: string[] = [];
+  const attackerSqs: number[] = [];
 
   for (let r = 0; r < ROWS; r++) {
     for (const c of flankCols) {
@@ -638,6 +725,7 @@ export function detectFlankOverload(
         if (isAdvanced && "rncp".includes(t) && (t !== "p" || crossedRiver(r, mover))) {
           myAttackers++;
           attackerTypes.push(PIECE_NAME[t] ?? "quân");
+          attackerSqs.push(sq(r, c));
         }
       } else if ("rnc".includes(t) || t === "a" || t === "b") {
         // Lực lượng phòng thủ cục bộ của đối phương trên cánh này (nửa sân của họ)
@@ -647,6 +735,21 @@ export function detectFlankOverload(
   }
 
   if (myAttackers < 3 || myAttackers <= enemyDefenders) return null;
+
+  // Đứng chung một cánh chưa đủ: các quân phải cùng nhắm một điểm bên sân đối phương (quân hay ô trong cung),
+  // ít nhất 2 quân tấn công cùng khống chế một ô thì mới là "tụ binh".
+  const opp = opponent(mover);
+  const hits = new Map<number, number>();
+  for (const a of attackerSqs) {
+    for (const to of new Set(pseudoMoves(after, a))) {
+      const target = after[to];
+      const inEnemyCamp = !crossedRiver(rowOf(to), opp) && (flankCols.includes(colOf(to)) || inPalace(rowOf(to), colOf(to), opp));
+      if (!inEnemyCamp) continue;
+      if (!(inPalace(rowOf(to), colOf(to), opp) || (target && sideOf(target) === opp))) continue;
+      hits.set(to, (hits.get(to) ?? 0) + 1);
+    }
+  }
+  if (![...hits.values()].some((n) => n >= 2)) return null;
 
   const fromCol = colOf(move.from);
   const enteredFlank = !flankCols.includes(fromCol) || crossedRiver(rowOf(move.to), mover);
@@ -689,10 +792,22 @@ export function detectZhaoTactics(
 // ============================================================================
 
 export type XuTactics =
-  | "phongThuKienCo"  // Phòng thủ kiên cố (Cố nhược kim thang, củng cố Sĩ Tượng)
-  | "tichLuyUuThe"   // Tích lũy ưu thế (Tích tiểu thành đại, Tốt qua sông đè Mã)
-  | "nhuHoaKiemToa"   // Nhu hòa kiềm tỏa (Dĩ nhu khắc cương, ghim kẹp bó quân)
-  | "epDoiGianHoa";   // Ép đổi quy tàn (Chuyển hóa ưu thế về tàn cuộc tất thắng)
+  | "nhuHoaKiemToa"    // 1. Nhu hòa kiềm tỏa (Dĩ nhu khắc cương, ghim kẹp bó quân)
+  | "phongThuKienCo"   // 2. Phòng thủ kiên cố (Cố nhược kim thang, củng cố Sĩ Tượng)
+  | "tichLuyUuThe"    // 3. Tích lũy ưu thế (Tích tiểu thành đại, Tốt qua sông đè Mã)
+  | "epDoiGianHoa"     // 4. Ép đổi quy tàn (Chuyển hóa ưu thế về tàn cuộc tất thắng)
+  | "nonNongKhinSuat"  // 5. Nôn nóng khinh suất (Manh động khi hậu phương chưa vững) [critique]
+  | "longLeoTranHinh"  // 6. Lỏng lẻo trận hình (Hở sườn, rạn nứt cấu trúc phòng ngự) [critique]
+  | "tamAnDau"         // 7. Tằm ăn dâu (Siết chặt không gian hoạt động của đối phương)
+  | "diTinhCheDong"    // 8. Dĩ tĩnh chế động (Nước chờ thâm sâu giữ cấu trúc hoàn hảo)
+  | "dieuChinhQuanKem" // 9. Vận quân tinh tế (Điều chuyển quân kém sang cứ điểm đắc địa)
+  | "khoetSauDiemYeu"  // 10. Khoét sâu điểm yếu (Tập trung áp lực vào nhược điểm cố hữu của địch)
+  | "hoaGiaiSatKhi"    // 11. Hóa giải sát khí (Tháo ngòi hỏa lực đợt tấn công của đối phương)
+  | "chiemLinhYeuDao"  // 12. Chiếm lĩnh yếu đạo (Chốt giữ tuyến lộ huyết mạch)
+  | "baoToanBinhLuc"   // 13. Bảo toàn binh lực (Tỉnh táo giữ quân, từ chối hỗn chiến rủi ro)
+  | "phanTienDoatThe"  // 14. Phản tiên đoạt thế (Chớp thời cơ từ thế thủ chuyển sang phản công)
+  | "khongCheTrungLo"  // 15. Khống chế trung lộ (Gia cố trục xương sống lộ 5)
+  | "khoaDuongThaoLui"; // 16. Khóa đường tháo lui (Chặn đường rút của quân địch dâng sâu)
 
 export interface XuMiddlegameFact {
   kind: "xuMiddlegame";
@@ -701,17 +816,250 @@ export interface XuMiddlegameFact {
   move: string;
   summary: string;
   details?: string;
+  tone?: "critique";
 }
 
 export interface XuTacticsOptions {
   pv?: Move[];
   loss?: number;
-  evalBefore?: { score: number; best?: Move | null } | null;
-  evalAfter?: { score: number } | null;
+  evalBefore?: { score: number; best?: Move | null; pv?: Move[] } | null;
+  evalAfter?: { score: number; pv?: Move[] } | null;
+  recentMoves?: Move[];
+}
+
+const isMajorPiece = (p: string | null | undefined) => !!p && "rnc".includes(typeOf(p as any));
+
+/** Chênh lệch vật chất (không tính Tướng) theo góc nhìn `side`. */
+export function materialBalance(board: Board, side: Side): number {
+  let bal = 0;
+  for (const p of board) {
+    if (p) {
+      const v = typeOf(p) === "k" ? 0 : PIECE_VALUES[typeOf(p)];
+      bal += sideOf(p) === side ? v : -v;
+    }
+  }
+  return bal;
 }
 
 /**
- * 1. Phòng thủ kiên cố (Solid Defense):
+ * Kiểm tra xem quân địch tại `firstEnemySq` có bị quân tại `attackerSq` ghim vào mục tiêu phía sau không.
+ */
+function findPinnedTarget(board: Board, attackerSq: number, side: Side): { pinnedSq: number; targetBehindSq: number } | null {
+  const attacker = board[attackerSq];
+  if (!attacker) return null;
+  const opp = opponent(side);
+  const aType = typeOf(attacker);
+
+  if (aType === "r") {
+    const r0 = rowOf(attackerSq);
+    const c0 = colOf(attackerSq);
+    const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+
+    for (const [dr, dc] of dirs) {
+      let r = r0 + dr;
+      let c = c0 + dc;
+      let firstEnemySq: number | null = null;
+
+      while (r >= 0 && r < ROWS && c >= 0 && c < 9) {
+        const curSq = sq(r, c);
+        const p = board[curSq];
+        if (p) {
+          if (firstEnemySq === null) {
+            if (sideOf(p) === opp) {
+              firstEnemySq = curSq;
+            } else {
+              break;
+            }
+          } else {
+            if (sideOf(p) === opp) {
+              const targetType = typeOf(p);
+              const pinnedP = board[firstEnemySq]!;
+              const pinnedType = typeOf(pinnedP);
+              // Quân bị ghim phải là quân lớn (Xe, Pháo, Mã) hoặc Sĩ/Tượng giữ cung
+              if ("rcnab".includes(pinnedType)) {
+                if (targetType === "k" || targetType === "r" || (isMajorPiece(pinnedP) && isMajorPiece(p))) {
+                  return { pinnedSq: firstEnemySq, targetBehindSq: curSq };
+                }
+              }
+            }
+            break;
+          }
+        }
+        r += dr;
+        c += dc;
+      }
+    }
+  }
+
+  if (aType === "c") {
+    const r0 = rowOf(attackerSq);
+    const c0 = colOf(attackerSq);
+    const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+
+    for (const [dr, dc] of dirs) {
+      let r = r0 + dr;
+      let c = c0 + dc;
+      let piece1Sq: number | null = null;
+      let piece2Sq: number | null = null;
+
+      while (r >= 0 && r < ROWS && c >= 0 && c < 9) {
+        const curSq = sq(r, c);
+        const p = board[curSq];
+        if (p) {
+          if (piece1Sq === null) {
+            piece1Sq = curSq;
+          } else if (piece2Sq === null) {
+            piece2Sq = curSq;
+          } else {
+            // curSq là quân thứ 3 (Tướng đối phương)
+            // piece1Sq là ngòi (screen), piece2Sq là quân bị ghim
+            const p2 = board[piece2Sq]!;
+            if (sideOf(p2) === opp && sideOf(p) === opp && typeOf(p) === "k") {
+              const p2Type = typeOf(p2);
+              if ("rcnab".includes(p2Type)) {
+                return { pinnedSq: piece2Sq, targetBehindSq: curSq };
+              }
+            }
+            break;
+          }
+        }
+        r += dr;
+        c += dc;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Kiểm tra xem nước đi có đè ép, kiềm tỏa trực tiếp quân lớn đối phương trên cùng tuyến không.
+ */
+function findClampedPiece(
+  before: Board,
+  move: Move,
+  after: Board,
+  mover: Side,
+): number | null {
+  const opp = opponent(mover);
+  const mPiece = after[move.to];
+  if (!mPiece) return null;
+  const mType = typeOf(mPiece);
+
+  if (mType === "r" || mType === "c") {
+    const toRow = rowOf(move.to);
+    const toCol = colOf(move.to);
+
+    for (let i = 0; i < after.length; i++) {
+      const p = after[i];
+      if (!p || sideOf(p) !== opp || !isMajorPiece(p)) continue;
+
+      const r = rowOf(i);
+      const c = colOf(i);
+      const sameLine = r === toRow || c === toCol;
+      if (!sameLine) continue;
+
+      const attackedNow = underAttack(after, i, mover);
+      const wasAttacked = underAttack(before, i, mover);
+      const beforeMobility = pseudoMoves(before, i).length;
+      const afterMobility = pseudoMoves(after, i).length;
+
+      if ((attackedNow && !wasAttacked) || (afterMobility < beforeMobility && attackedNow)) {
+        return i;
+      }
+    }
+  }
+
+  if (mType === "n") {
+    for (let i = 0; i < after.length; i++) {
+      const p = after[i];
+      if (!p || sideOf(p) !== opp || typeOf(p) !== "n") continue;
+      const beforeMobility = pseudoMoves(before, i).length;
+      const afterMobility = pseudoMoves(after, i).length;
+      if (afterMobility < beforeMobility && underAttack(after, i, mover)) {
+        return i;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * 1. Nhu hòa kiềm tỏa (Positional Clamp / Ghim kẹp trói quân):
+ * Dùng quân (Xe, Pháo, Mã) ghim kẹp trực tiếp hoặc khống chế làm tê liệt một quân lớn đối phương:
+ * - Ghim quân (Pin): Xe/Pháo ghim quân đối phương đối diện Tướng hoặc quân lớn.
+ * - Khống chế lộ / tuyến (Clamp): Xe/Pháo đè ép trực tiếp quân lớn đối phương, bóp nghẹt đường cơ động.
+ */
+export function detectPositionalClamp(
+  before: Board,
+  move: Move,
+  after: Board,
+  options?: XuTacticsOptions,
+): XuMiddlegameFact | null {
+  const movingPiece = before[move.from];
+  if (!movingPiece) return null;
+
+  const mover = sideOf(movingPiece);
+  const opp = opponent(mover);
+  const loss = options?.loss ?? 0;
+  if (loss > 60) return null;
+
+  const mType = typeOf(movingPiece);
+  if (!"rcn".includes(mType)) return null;
+
+  // Quân đi tới không được tự treo hớ
+  if ((exchangeGain(after, move.to, opp) ?? 0) > 0) return null;
+
+  // 1. Kiểm tra thế Ghim (Pin)
+  const pin = findPinnedTarget(after, move.to, mover);
+  if (pin) {
+    const pinnedPiece = after[pin.pinnedSq]!;
+    const targetBehind = after[pin.targetBehindSq]!;
+    const pinnedName = PIECE_NAME[typeOf(pinnedPiece)] ?? "quân";
+    const behindName = PIECE_NAME[typeOf(targetBehind)] ?? "mục tiêu";
+    const pName = PIECE_NAME[mType] ?? "quân";
+    const moveNotat = moveNotation(before, move);
+    const isAbsolute = typeOf(targetBehind) === "k";
+
+    const summary = isAbsolute
+      ? `Nhu hòa kiềm tỏa đậm chất Thái Cực: ${pName} ghim chặt ${pinnedName} đối phương vào Tướng, làm tê liệt hoàn toàn khả năng di chuyển.`
+      : `Nhu hòa kiềm tỏa: ${pName} ghim ${pinnedName} đối phương trước ${behindName}, tạo thế trói quân dĩ nhu khắc cương.`;
+
+    return {
+      kind: "xuMiddlegame",
+      side: mover,
+      tactic: "nhuHoaKiemToa",
+      move: moveNotat,
+      summary,
+      details: `${pName} ghim ${pinnedName}`,
+    };
+  }
+
+  // 2. Kiểm tra thế Đè / Kiềm tỏa tuyến (Clamp)
+  const clampedSq = findClampedPiece(before, move, after, mover);
+  if (clampedSq !== null) {
+    const clampedPiece = after[clampedSq]!;
+    const clampedName = PIECE_NAME[typeOf(clampedPiece)] ?? "quân";
+    const pName = PIECE_NAME[mType] ?? "quân";
+    const moveNotat = moveNotation(before, move);
+
+    const summary = `Nhu hòa kiềm tỏa đậm chất Thái Cực: ${pName} chiếm tuyến trọng yếu, đè ép chặt chẽ ${clampedName} đối phương, bóp nghẹt đường cơ động.`;
+    return {
+      kind: "xuMiddlegame",
+      side: mover,
+      tactic: "nhuHoaKiemToa",
+      move: moveNotat,
+      summary,
+      details: `${pName} kiềm tỏa ${clampedName}`,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * 2. Cố nhược kim thang (Solid Defense / Phòng thủ kiên cố):
  * Củng cố Sĩ/Tượng hoặc đưa Tướng/quân chủ lực về vị trí phòng thủ vững chắc,
  * triệt tiêu mầm mống công kích của đối phương.
  */
@@ -736,7 +1084,15 @@ export function detectSolidDefense(
 
   if (isAdvisorOrBishop) {
     const defendedAtDest = isDefended(after, move.to, mover);
-    if (defendedAtDest) {
+    if (!defendedAtDest || (exchangeGain(after, move.to, opp) ?? 0) > 0) return null;
+
+    // Phải có bối cảnh phòng ngự: đối phương có quân qua sông, hoặc cung Tướng bị đe dọa / chiếu
+    const enemyInvaded = after.some((p, sqIdx) => p && sideOf(p) === opp && "rncp".includes(typeOf(p)) && crossedRiver(rowOf(sqIdx), opp));
+    const kSq = findKing(before, mover);
+    const palaceThreatened = kSq >= 0 && (underAttack(before, kSq, opp) || attackPressure(before, mover) > 0);
+    const wasChecked = inCheck(before, mover);
+
+    if (enemyInvaded || palaceThreatened || wasChecked) {
       const summary = `Phòng thủ kiên cố theo phong cách Thái Cực Bổng Hứa Ngân Xuyên: củng cố ${pName} tạo thế trận vững như bàn thạch, triệt tiêu mầm mống công kích của đối phương.`;
       return {
         kind: "xuMiddlegame",
@@ -754,6 +1110,7 @@ export function detectSolidDefense(
   const retreated = mover === "r" ? rowOf(move.to) > rowOf(move.from) : rowOf(move.to) < rowOf(move.from);
 
   if (wasThreatened && isSafeNow && retreated && "rnc".includes(mType)) {
+    if ((exchangeGain(after, move.to, opp) ?? 0) > 0) return null;
     const summary = `Dĩ nhu khắc cương: thoái ${pName} hóa giải nguy cơ trong gang tấc, giữ nguyên binh lực chờ thời cơ phản kích.`;
     return {
       kind: "xuMiddlegame",
@@ -769,7 +1126,7 @@ export function detectSolidDefense(
 }
 
 /**
- * 2. Tích lũy ưu thế vi mô (Incremental Advantage):
+ * 3. Tích lũy ưu thế vi mô (Incremental Advantage / Tích tiểu thành đại):
  * Tiến Tốt qua sông đè đầu Mã hoặc mở rộng không gian khống chế,
  * kiên nhẫn gia tăng áp lực từng chút một đúng chất "Thiếu niên Khương Thái Công".
  */
@@ -791,6 +1148,8 @@ export function detectIncrementalGain(
   const moveNotat = moveNotation(before, move);
 
   if (mType === "p") {
+    if ((exchangeGain(after, move.to, opp) ?? 0) > 0) return null;
+
     const crossedNow = !crossedRiver(rowOf(move.from), mover) && crossedRiver(rowOf(move.to), mover);
     const advancedOverRiver = crossedRiver(rowOf(move.from), mover) && crossedRiver(rowOf(move.to), mover);
 
@@ -801,19 +1160,23 @@ export function detectIncrementalGain(
       const suppressesHorse = enemyHorses.some(
         (hSq) => Math.abs(colOf(hSq) - colOf(move.to)) <= 1 && Math.abs(rowOf(hSq) - rowOf(move.to)) <= 2,
       );
+      const capturesPiece = !!before[move.to];
+      const isSecure = isDefended(after, move.to, mover);
 
-      const summary = suppressesHorse
-        ? `Tích tiểu thành đại theo phong cách Hứa Ngân Xuyên: tiến Tốt đè nghẽn Mã đối phương, từng bước bóp nghẹt không gian hoạt động của đối thủ.`
-        : `Tích lũy ưu thế vi mô: vững bước tiến Tốt qua sông chiếm lĩnh trận địa, gia tăng áp lực trường kỳ lên phòng tuyến đối phương.`;
+      if (suppressesHorse || capturesPiece || isSecure) {
+        const summary = suppressesHorse
+          ? `Tích tiểu thành đại theo phong cách Hứa Ngân Xuyên: tiến Tốt đè nghẽn Mã đối phương, từng bước bóp nghẹt không gian hoạt động của đối thủ.`
+          : `Tích lũy ưu thế vi mô: vững bước tiến Tốt qua sông chiếm lĩnh trận địa, gia tăng áp lực trường kỳ lên phòng tuyến đối phương.`;
 
-      return {
-        kind: "xuMiddlegame",
-        side: mover,
-        tactic: "tichLuyUuThe",
-        move: moveNotat,
-        summary,
-        details: "Tiến Tốt tích lũy",
-      };
+        return {
+          kind: "xuMiddlegame",
+          side: mover,
+          tactic: "tichLuyUuThe",
+          move: moveNotat,
+          summary,
+          details: suppressesHorse ? "Tiến Tốt đè Mã" : "Tiến Tốt tích lũy",
+        };
+      }
     }
   }
 
@@ -821,47 +1184,7 @@ export function detectIncrementalGain(
 }
 
 /**
- * 3. Nhu hòa kiềm tỏa (Positional Clamp):
- * Dùng quân ghìm kẹp, cản trở bước tiến quân của đối phương (dĩ nhu khắc cương).
- */
-export function detectPositionalClamp(
-  before: Board,
-  move: Move,
-  after: Board,
-  options?: XuTacticsOptions,
-): XuMiddlegameFact | null {
-  const movingPiece = before[move.from];
-  if (!movingPiece) return null;
-
-  const mover = sideOf(movingPiece);
-  const loss = options?.loss ?? 0;
-  if (loss > 60) return null;
-
-  const mType = typeOf(movingPiece);
-  const moveNotat = moveNotation(before, move);
-  const pName = PIECE_NAME[mType] ?? "quân";
-
-  if (mType === "c" || mType === "r") {
-    const r = rowOf(move.to);
-    const isRankPin = mover === "r" ? (r >= 3 && r <= 5) : (r >= 4 && r <= 6);
-    if (isRankPin) {
-      const summary = `Nhu hòa kiềm tỏa đậm chất Thái Cực: ${pName} chiếm tuyến trọng yếu, khống chế chặt chẽ đường chuyển dịch của quân đối phương.`;
-      return {
-        kind: "xuMiddlegame",
-        side: mover,
-        tactic: "nhuHoaKiemToa",
-        move: moveNotat,
-        summary,
-        details: `${pName} kiềm tỏa`,
-      };
-    }
-  }
-
-  return null;
-}
-
-/**
- * 4. Ép đổi quy tàn (Transition Exchange):
+ * 4. Ép đổi quy tàn (Transition Exchange / Ép đổi giản hóa):
  * Khi đang chiếm ưu thế, chủ động ép đổi quân chủ lực đưa ván cờ về cờ tàn nghệ thuật.
  */
 export function detectTransitionExchange(
@@ -881,18 +1204,27 @@ export function detectTransitionExchange(
   const loss = options?.loss ?? 0;
   if (loss > 60) return null;
 
-  if (typeOf(movingPiece) === "r" && typeOf(capturedPiece) === "r") {
+  const mType = typeOf(movingPiece);
+  const cType = typeOf(capturedPiece);
+
+  const isMajorTrade =
+    "rnc".includes(mType) && "rnc".includes(cType) && (PIECE_VALUES[cType] >= PIECE_VALUES[mType] - 50);
+
+  if (isMajorTrade) {
     const evalScore = options?.evalBefore?.score ?? 0;
-    if (evalScore >= 80) {
+    const balance = materialBalance(before, mover);
+    if (evalScore >= 80 || balance >= 100) {
       const moveNotat = moveNotation(before, move);
-      const summary = `Ép đổi quy tàn tuyệt đỉnh kiểu Hứa Ngân Xuyên: chủ động đổi Xe khi đang chiếm ưu thế, đưa ván cờ về tàn cuộc ắt thắng mà đối phương không thể quấy rối.`;
+      const mName = PIECE_NAME[mType] ?? "quân";
+      const cName = PIECE_NAME[cType] ?? "quân";
+      const summary = `Ép đổi quy tàn tuyệt đỉnh kiểu Hứa Ngân Xuyên: chủ động đổi ${mName} lấy ${cName} khi đang chiếm ưu thế, đưa ván cờ về tàn cuộc ắt thắng mà đối phương không thể quấy rối.`;
       return {
         kind: "xuMiddlegame",
         side: mover,
         tactic: "epDoiGianHoa",
         move: moveNotat,
         summary,
-        details: "Đổi Xe quy tàn",
+        details: `Đổi ${mName} quy tàn`,
       };
     }
   }
@@ -901,8 +1233,8 @@ export function detectTransitionExchange(
 }
 
 /**
- * Bộ nhận diện tổng hợp các đòn kỳ lý trung cuộc Hứa Ngân Xuyên.
- * Ưu tiên: Ép Đổi Quy Tàn > Phòng Thủ Kiên Cố > Tích Lũy Ưu Thế > Nhu Hòa Kiềm Tỏa.
+ * Bộ nhận diện tổng hợp các đòn kỳ lý trung cuộc Hứa Ngân Xuyên cơ bản.
+ * Ưu tiên: Ép Đổi Quy Tàn > Nhu Hòa Kiềm Tỏa > Phòng Thủ Kiên Cố > Tích Lũy Ưu Thế.
  */
 export function detectXuTactics(
   before: Board,
@@ -912,10 +1244,11 @@ export function detectXuTactics(
 ): XuMiddlegameFact | null {
   return (
     detectTransitionExchange(before, move, after, options) ??
+    detectPositionalClamp(before, move, after, options) ??
     detectSolidDefense(before, move, after, options) ??
-    detectIncrementalGain(before, move, after, options) ??
-    detectPositionalClamp(before, move, after, options)
+    detectIncrementalGain(before, move, after, options)
   );
 }
+
 
 

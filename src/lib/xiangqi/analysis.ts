@@ -2,6 +2,7 @@ import { findBestMove } from "./ai";
 import { assessPosition, type PositionAssessment } from "./assess";
 import { inCheck, legalMoves, opponent, play, type Board, type Move, type Side } from "./engine";
 import { explainMove, personaFacts, type Fact } from "./explain";
+import { endgamePrincipleFacts } from "./endgame-principles";
 import { detectIntent, type IntentFact } from "./intent";
 import type { GameState } from "./game";
 import { moveNotation } from "./notation";
@@ -445,6 +446,15 @@ export function reviewMove(
       pv: afterEval?.pv,
       loss,
       evalBefore: before,
+      evalAfter: afterEval,
+      recentMoves: state.moves.slice(Math.max(0, i - 6), i).map((x) => x.move),
+    }),
+    // Nguyên lý tàn cuộc: hiện ở mọi góc nhìn bình luận
+    ...endgamePrincipleFacts(state.history[i].board, m.move, state.history[i + 1].board, {
+      pv: afterEval?.pv,
+      loss,
+      evalBefore: before,
+      evalAfter: afterEval,
     }),
   );
 

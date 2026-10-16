@@ -16,6 +16,9 @@ import {
   type OpeningFaultType, type Plan, type Principle, detectOpeningFault,
 } from "./strategy";
 import { detectTheoreticalEndgame, type TheoreticalEndgame } from "./endgame";
+import { detectAllZhaoTactics } from "./zhao-principles";
+import { detectAllXuTactics } from "./xu-principles";
+import type { EndgamePrincipleFact } from "./endgame-principles";
 import { buildLlmCommentaryPrompt, generateLlmCommentary, type LlmCommentaryOptions, type LlmPrompt } from "./llm-commentary";
 import { detectPatterns, type MatePatternId } from "./patterns";
 import { type PositionAssessment, FACTOR_NAMES } from "./assess";
@@ -229,7 +232,9 @@ export type Fact =
   /** Kỳ lý trung cuộc Triệu Hâm Hâm ("Lục Mạch Thần Kiếm") (B6). */
   | ZhaoMiddlegameFact
   /** Kỳ lý trung cuộc Hứa Ngân Xuyên ("Thái Cực Bổng") (B7). */
-  | XuMiddlegameFact;
+  | XuMiddlegameFact
+  /** Nguyên lý tàn cuộc của nước đi (đổi quân lý thuyết, Tốt, Tướng, khống chế, phòng thủ). */
+  | EndgamePrincipleFact;
 
 export interface MoveContext {
   before: Board;
@@ -1152,6 +1157,24 @@ export function sentence(f: Fact, mover: Side = "r", seed?: number): string {
           `${head}Mã thứ hai cũng ra biên, hai Mã đều kém linh hoạt; khai cuộc nên ra Chính Mã.${betterPart}`,
         ]);
       }
+      if (f.fault === "ignoreCenter") {
+        return v("openingFault.ignoreCenter", [
+          `${head}bỏ trung lộ: Pháo đầu đối phương đang nhắm Tốt đầu mà Tốt không có quân bảo vệ. Gặp Pháo đầu cần lên Mã chính giữ Tốt đầu, hoặc đặt Pháo đối lại.${betterPart}`,
+          `${head}Tốt đầu bị Pháo đầu đối phương nhắm mà không có căn: trung lộ là đường tấn công chính, khai cuộc không được bỏ ngỏ.${betterPart}`,
+        ]);
+      }
+      if (f.fault === "earlyCannon") {
+        return v("openingFault.earlyCannon", [
+          `${head}${pName} xuất kích sang sông khi hai Mã còn nằm nhà: Pháo đi lẻ dễ bị đuổi mất nước, quân phía sau chưa kịp tiếp ứng. Nên ra Mã trước rồi mới đưa Pháo lên.${betterPart}`,
+          `${head}chưa ra Mã đã đưa Pháo qua sông: đánh đơn độc sớm, đối phương vừa đuổi Pháo vừa ra quân được tiên.${betterPart}`,
+        ]);
+      }
+      if (f.fault === "edgeHorse") {
+        return v("openingFault.edgeHorse", [
+          `${head}Mã đầu tiên đã ra biên trong khi còn đường ra Chính Mã: Mã biên ít chỗ nhảy, trung lộ không có Mã giữ ("Mã đi biên là Mã chết").${betterPart}`,
+          `${head}chưa có Mã chính nào mà đã ra Mã biên: Mã kém linh hoạt, không bảo vệ được Tốt đầu.${betterPart}`,
+        ]);
+      }
       return v("openingFault.lateRook", [
         `${head}khai cuộc cần sớm xuất Xe chiếm lộ thông (chậm ra Xe sẽ thất thế, "Một Xe mười quân").${betterPart}`,
         `${head}hai Xe vẫn nằm ở góc dù khai cuộc đã qua mấy nước; Xe là quân mạnh nhất, ra chậm là thiệt ("Một Xe mười quân").${betterPart}`,
@@ -1291,6 +1314,8 @@ export function sentence(f: Fact, mover: Side = "r", seed?: number): string {
       return f.summary;
     case "xuMiddlegame":
       return f.summary;
+    case "endgamePrinciple":
+      return f.summary;
   }
 }
 
@@ -1307,10 +1332,9 @@ export function personaFacts(
   options?: ZhaoTacticsOptions & XuTacticsOptions,
 ): Fact[] {
   const out: Fact[] = [];
-  const zhao = detectZhaoTactics(before, move, after, options);
-  if (zhao) out.push(zhao);
-  const xu = detectXuTactics(before, move, after, options);
-  if (xu) out.push(xu);
+  // Tối đa 2 nguyên lý mỗi nước để lời bình không bị loãng (đã xếp theo ưu tiên).
+  out.push(...detectAllZhaoTactics(before, move, after, options).slice(0, 2));
+  out.push(...detectAllXuTactics(before, move, after, options).slice(0, 2));
   return out;
 }
 
@@ -1341,6 +1365,8 @@ export function explainText(
         (f.kind === "threat" && f.by === mover) ||
         (f.kind === "pattern" && f.side === mover && f.action === "formed"),
     );
+    const zhaoFacts = visible.filter((f) => f.kind === "zhaoMiddlegame");
+    if (hasZhao && zhaoFacts.every((f) => f.kind === "zhaoMiddlegame" && f.tone === "critique")) return `[Triệu Hâm Hâm - Cảnh tỉnh]: ${base}`;
     if (hasZhao) return `[Triệu Hâm Hâm - Công sát]: ${base}`;
     if (hasAggressive) return `[Triệu Hâm Hâm]: Tận dụng thời cơ tung đòn hỏa lực bão táp! ${base}`;
     return `[Triệu Hâm Hâm]: ${base}`;
@@ -1348,12 +1374,15 @@ export function explainText(
 
   if (style === "xuYinchuan") {
     const hasXu = visible.some((f) => f.kind === "xuMiddlegame");
+    const xuFacts = visible.filter((f) => f.kind === "xuMiddlegame");
     const hasDefensive = visible.some(
       (f) =>
         f.kind === "parried" ||
         f.kind === "endgame" ||
+        (f.kind === "endgamePrinciple" && f.side === mover && f.tone !== "critique") ||
         ((f.kind === "openFile" || f.kind === "exchange") && f.side === mover),
     );
+    if (hasXu && xuFacts.every((f) => f.kind === "xuMiddlegame" && f.tone === "critique")) return `[Hứa Ngân Xuyên - Cảnh tỉnh]: ${base}`;
     if (hasXu) return `[Hứa Ngân Xuyên - Thái cực]: ${base}`;
     if (hasDefensive) return `[Hứa Ngân Xuyên]: Điềm tĩnh tích lũy ưu thế, dĩ nhu khắc cương. ${base}`;
     return `[Hứa Ngân Xuyên]: ${base}`;
@@ -1402,4 +1431,5 @@ export {
   detectIncrementalGain,
   detectPositionalClamp,
   detectTransitionExchange,
+  detectAllXuTactics,
 };

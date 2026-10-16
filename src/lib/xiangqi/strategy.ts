@@ -4,7 +4,7 @@
 // 3. Nguyên lý: các chỉ số đo được trên bàn cờ; kế hoạch quyết định trọng số của từng chỉ số.
 // Giải thích một nước = so chỉ số của thế sau nước đã đi với thế sau nước nên đi, lấy nguyên lý chênh nhiều nhất.
 
-import { Board, Move, Side, colOf, opponent, pseudoMoves, rowOf, sideOf, typeOf, inPalaceSq as inPalace, inCheck, initialPosition, play } from "./engine";
+import { Board, Move, Side, attackersOf, colOf, isDefended, opponent, pseudoMoves, rowOf, sideOf, typeOf, inPalaceSq as inPalace, inCheck, initialPosition, play } from "./engine";
 import { extractFeatures } from "./features";
 import { moveNotation } from "./notation";
 import { isBookMove } from "./openings";
@@ -387,7 +387,8 @@ export const LOSS_TEXT: Record<Principle, string[]> = {
 };
 
 export type OpeningFaultType =
-  | "repeatPiece" | "lateRook" | "edgeElephant" | "doubleEdgeHorse" | "earlyAdvisor" | "advisorBlocksRook" | "oneWing";
+  | "repeatPiece" | "lateRook" | "edgeElephant" | "doubleEdgeHorse" | "earlyAdvisor" | "advisorBlocksRook" | "oneWing"
+  | "ignoreCenter" | "earlyCannon" | "edgeHorse";
 
 export interface OpeningFault {
   fault: OpeningFaultType;
@@ -411,7 +412,109 @@ function inOpeningBook(board: Board, move: Move, historyMoves: Move[]): boolean 
   return isBookMove(notations);
 }
 
-/** Nhận diện các lỗi khai cuộc căn bản: đi một quân nhiều lần, ra Xe chậm trễ, phi Tượng ra biên, hai Mã cùng ra biên. */
+/** Các ô quân đang ở `square` đã đứng trước đó (lần ngược theo các nước của phe `mover`), gần nhất trước. */
+function pieceTrail(square: number, mover: Side, historyMoves: Move[]): number[] {
+  const trail: number[] = [];
+  let cur = square;
+  for (let j = historyMoves.length - 1; j >= 0; j--) {
+    if ((j % 2 === 0 ? "r" : "b") !== mover) continue;
+    if (historyMoves[j].to === cur) {
+      cur = historyMoves[j].from;
+      trail.push(cur);
+    }
+  }
+  return trail;
+}
+
+/**
+ * "Khai cuộc kỵ đi một quân nhiều lần" — chỉ tính khi thật sự lãng phí nước:
+ * - đi tới lui (quay lại ô đã đứng);
+ * - Mã / Pháo đi lần thứ ba, Xe đi lần thứ tư (Xe ra hai ba bước là cách ra Xe bình thường);
+ * - Mã / Pháo đi lần thứ hai khi cả hai Mã còn nằm nhà (vd. Pháo đầu rồi đi tiếp Pháo, chưa ra quân nào khác).
+ * Không tính: ăn quân, chạy quân đang bị dọa, nước tạo đòn dọa mới (nhắm quân, không tính chiếu suông), nước theo sách.
+ * Chiếu suông vẫn tính: Pháo đầu tiến chiếu chỉ ép đối phương bổ Sĩ / Tượng — họ ra quân, mình mất nước.
+ * `board` có thể là thế trước hoặc sau nước đi (`square` là ô quân đang đứng trên `board`).
+ */
+function isRepeatPieceFault(
+  board: Board, move: Move, square: number, mover: Side, pType: string, historyMoves: Move[],
+): boolean {
+  const trail = pieceTrail(move.from, mover, historyMoves);
+  if (trail.length === 0) return false;
+  const backAndForth = trail.includes(move.to);
+  const horsesHome = HORSE_HOME[mover].filter((i) => board[i] && sideOf(board[i]!) === mover && typeOf(board[i]!) === "n").length;
+  const tooMany = pType === "r" ? trail.length >= 3 : trail.length >= 2 || horsesHome === 2;
+  if (!backAndForth && !tooMany) return false;
+
+  // Các miễn trừ chiến thuật chỉ xét được khi có thế trước nước đi.
+  if (square === move.from && (purposefulMove(board, move, mover) || inOpeningBook(board, move, historyMoves))) return false;
+  return true;
+}
+
+/**
+ * Nước có mục đích chiến thuật nên không thể coi là lãng phí / sai hình khai cuộc:
+ * ăn quân, chạy quân đang bị dọa (bị ăn có lời hoặc bị quân nhẹ hơn nhắm), hoặc tạo đòn dọa mới
+ * (nhắm quân đối phương không có căn hay quân lớn hơn mình; chiếu suông không tính). `board` là thế trước nước đi.
+ */
+function purposefulMove(board: Board, move: Move, mover: Side, countThreats = true): boolean {
+  const piece = board[move.from];
+  if (!piece) return false;
+  if (board[move.to]) return true;
+  const opp = opponent(mover);
+  const pType = typeOf(piece);
+  const attackers = attackersOf(board, move.from, opp);
+  const cheaperAttacker = attackers.some((i) => VALUE[typeOf(board[i]!)] < VALUE[pType]);
+  if (attackers.length > 0 && (cheaperAttacker || !isDefended(board, move.from, mover))) return true;
+  if (!countThreats) return false;
+  const after = play(board, move);
+  return pseudoMoves(after, move.to).some((t) => {
+    const v = after[t];
+    return !!v && sideOf(v) === opp && typeOf(v) !== "k" && (VALUE[typeOf(v)] > VALUE[pType] || !isDefended(after, t, opp));
+  });
+}
+
+/** Ô nhà của hai Mã mỗi bên. */
+const HORSE_HOME: Record<Side, number[]> = { r: [82, 88], b: [1, 7] };
+
+/** Bỏ trung lộ, Pháo xuất kích sớm, Mã ra biên khi chưa có Mã chính (chưa xét sách khai cuộc). */
+function shapeFault(
+  board: Board, move: Move, mover: Side, pType: string, edge: (i: number) => boolean,
+): "ignoreCenter" | "earlyCannon" | "edgeHorse" | null {
+  const victim = board[move.to];
+  const opp = opponent(mover);
+  if (!inCheck(board, mover) && !victim) {
+    // Bỏ trung lộ: Pháo đầu đối phương nhắm Tốt đầu mình (Tốt chưa qua sông) mà Tốt không có căn.
+    // Không tính khi: mình cũng đặt Pháo đầu đối lại (Thuận / Nghịch Pháo) — giữ trung lộ bằng phản kích;
+    // hoặc đã phi Tượng về giữa — Pháo ăn Tốt đầu thì chiếu qua ngòi Tượng, bị bổ Sĩ là Pháo kẹt (đại sư hay để như vậy).
+    const after = play(board, move);
+    const centerPawn = pieces(after, mover, "p").find((i) => colOf(i) === 4 && advance(i, mover) <= 4);
+    if (centerPawn !== undefined) {
+      const cannonAims = attackersOf(after, centerPawn, opp).some((i) => typeOf(after[i]!) === "c" && colOf(i) === 4);
+      const counterCannon = pieces(after, mover, "c").some((i) => colOf(i) === 4);
+      const centralElephant = pieces(after, mover, "b").some((i) => colOf(i) === 4);
+      if (cannonAims && !counterCannon && !centralElephant && !isDefended(after, centerPawn, mover)) return "ignoreCenter";
+    }
+  }
+  // Pháo xuất kích sang sông khi cả hai Mã còn nằm nhà (ăn được quân lớn là chiến thuật, không tính).
+  if (pType === "c" && advance(move.to, mover) >= 5 && !(victim && "rnc".includes(typeOf(victim)))) {
+    const horsesHome = HORSE_HOME[mover].filter((i) => board[i] && sideOf(board[i]!) === mover && typeOf(board[i]!) === "n").length;
+    if (horsesHome === 2) return "earlyCannon";
+  }
+  // Mã ra biên khi chưa có Mã chính nào giữ trung lộ mà vẫn còn đường ra Chính Mã (ô không ở biên, không lùi, còn trống).
+  // Đã có một Mã chính thì Mã kia ra biên là thế Mã chính + Mã biên bình thường.
+  if (pType === "n" && edge(move.to) && !edge(move.from)) {
+    const hasCentralHorse = pieces(board, mover, "n").some((i) => i !== move.from && !edge(i) && !HORSE_HOME[mover].includes(i));
+    const centralRoute = pseudoMoves(board, move.from).some(
+      (to) => !edge(to) && !board[to] && advance(to, mover) >= advance(move.to, mover),
+    );
+    if (!hasCentralHorse && centralRoute) return "edgeHorse";
+  }
+  return null;
+}
+
+/**
+ * Nhận diện các lỗi khai cuộc căn bản: đi một quân nhiều lần, ra Xe chậm trễ, lệch cánh, bổ Sĩ sớm / chặn Xe,
+ * phi Tượng ra biên, Mã ra biên (một hay cả hai), bỏ trung lộ trước Pháo đầu, Pháo xuất kích khi chưa ra Mã.
+ */
 export function detectOpeningFault(
   board: Board,
   move: Move,
@@ -421,9 +524,8 @@ export function detectOpeningFault(
 ): OpeningFault | null {
   if (ply > 16) return null;
 
-  const undeveloped = HOME[mover].filter(
-    (i) => board[i] && sideOf(board[i]!) === mover && "rnc".includes(typeOf(board[i]!)),
-  ).length;
+  // Quân lớn còn nằm nhà, xét đúng loại quân (Xe trực đã bình sang ô Mã là đã ra).
+  const undeveloped = homePieces(board, mover).length;
 
   // Tìm quân đang đi: ưu tiên ô move.from (trước nước đi), nếu trống thì kiểm tra ô move.to (sau nước đi)
   const square = (board[move.from] && sideOf(board[move.from]!) === mover)
@@ -437,15 +539,21 @@ export function detectOpeningFault(
   const pType = typeOf(movingPiece);
 
   // 1. Đi một quân nhiều lần trong khai cuộc khi còn >= 2 quân lớn chưa xuất quân
-  if (historyMoves && historyMoves.length >= 2 && undeveloped >= 2) {
-    const timesMoved = historyMoves.filter((m, idx) => idx % 2 === (mover === "r" ? 0 : 1) && m.to === move.from).length;
-    if (timesMoved >= 1 && "rnc".includes(pType)) {
+  if (historyMoves && historyMoves.length >= 2 && undeveloped >= 2 && "rnc".includes(pType)) {
+    if (isRepeatPieceFault(board, move, square, mover, pType, historyMoves)) {
       return { fault: "repeatPiece", pieceSquare: square };
     }
   }
 
-  // 2. Ra Xe chậm: sau 8 nửa nước (ply >= 8), cả 2 Xe vẫn nằm nguyên ở ô ban đầu mà nước này lại đi quân khác
-  if (ply >= 8) {
+  // 2. Ra Xe chậm: sau 8 nửa nước (ply >= 8), cả 2 Xe vẫn nằm nguyên ở ô ban đầu mà nước này lại đi quân khác.
+  // Không tính nước ra Mã / Pháo lần đầu từ ô nhà (vẫn đang ra quân), phi Tượng / bổ Sĩ lần đầu (dựng thế thủ trước
+  // rồi ra Xe là lối chơi đại sư hay dùng), nước có mục đích chiến thuật, nước theo sách.
+  const fromStart = square === move.from && initialPosition().board[move.from] === board[move.from];
+  const developing = fromStart && ("nc".includes(pType) ? homePieces(board, mover).includes(move.from) : "ab".includes(pType));
+  // Chỉ tra sách khi lịch sử khớp số nửa nước (lịch sử rỗng ở ply 8 không phải ván thật từ thế đầu).
+  const bookMove = !!historyMoves && historyMoves.length === ply && inOpeningBook(board, move, historyMoves);
+  const purposeful = square === move.from && (purposefulMove(board, move, mover) || bookMove);
+  if (ply >= 8 && !developing && !purposeful) {
     const [leftRook, rightRook] = mover === "r" ? [81, 89] : [0, 8];
     const bothRooksHome =
       board[leftRook] &&
@@ -462,17 +570,38 @@ export function detectOpeningFault(
 
   // Các lỗi hình cờ chỉ xét được khi biết ô đến (bàn cờ trước nước đi).
   // Lệch cánh: một cánh đã ra đủ Xe Mã Pháo, cánh kia còn nguyên mà nước này vẫn không ra quân cánh đó.
-  if (square === move.from && wingImbalance(board, mover) === 3 && !homePieces(board, mover).includes(move.from)) {
-    return { fault: "oneWing", pieceSquare: square };
+  // Không tính: Xe bình sang hỗ trợ cánh chưa ra, Tốt bên cánh chưa ra (mở đường cho Mã), nước chiến thuật / theo sách.
+  // (Dọa quân không tính: Pháo ở ô nhà vốn không có căn, Xe nhắm vào nó chưa phải lý do bỏ mặc cánh kia.)
+  if (
+    square === move.from && wingImbalance(board, mover) === 3 && !homePieces(board, mover).includes(move.from) &&
+    !purposefulMove(board, move, mover, false) && !bookMove
+  ) {
+    const home = homePieces(board, mover);
+    const idleLeft = home.filter((i) => colOf(i) < 4).length > home.filter((i) => colOf(i) > 4).length;
+    const towardIdle = (i: number) => (idleLeft ? colOf(i) < 4 : colOf(i) > 4);
+    const rookSwitch = pType === "r" && rowOf(move.to) === rowOf(move.from) && towardIdle(move.to);
+    const pawnPrep = pType === "p" && towardIdle(move.from);
+    const guardSetup = "ab".includes(pType); // dựng Sĩ Tượng không phải đánh lệch cánh
+    if (!rookSwitch && !pawnPrep && !guardSetup) return { fault: "oneWing", pieceSquare: square };
   }
-  // Bổ Sĩ để đỡ chiếu hoặc theo đúng sách khai cuộc thì không phải lỗi.
+  // Bổ Sĩ để đỡ chiếu, để phòng thủ khi quân đối phương đã qua sông áp cung, hoặc theo đúng sách khai cuộc thì không phải lỗi.
   if (
     square === move.from && pType === "a" && ply <= 12 &&
-    !inCheck(board, mover) && !(historyMoves && inOpeningBook(board, move, historyMoves))
+    !inCheck(board, mover) && attackPressure(board, mover) === 0 && !purposefulMove(board, move, mover, false) &&
+    !(historyMoves && inOpeningBook(board, move, historyMoves))
   ) {
-    // Sĩ lên giữa cung chặn hàng 2: Xe còn ở góc hoặc mới lên một bước không đi hoành sang cánh kia được.
+    // Sĩ lên giữa cung chặn hàng 2, trong khi Xe cần hàng 2 để ra quân: Xe đã tiến 1 bước để hoành,
+    // hoặc Xe còn ở góc mà Mã cạnh nó chưa ra (chưa có đường ra Xe trực, chỉ còn đường lên 1 rồi hoành).
     const center = mover === "r" ? 76 : 13;
-    const rookNeedsRank = pieces(board, mover, "r").some((i) => advance(i, mover) <= 1 && (colOf(i) === 0 || colOf(i) === 8));
+    const horseBeside = (rook: number) => {
+      const sq = (mover === "r" ? 81 : 0) + (colOf(rook) === 0 ? 1 : 7);
+      return board[sq] !== null && board[sq] === (mover === "r" ? "N" : "n");
+    };
+    const rookNeedsRank = pieces(board, mover, "r").some((i) => {
+      if (colOf(i) !== 0 && colOf(i) !== 8) return false;
+      const a = advance(i, mover);
+      return a === 1 || (a === 0 && horseBeside(i));
+    });
     if (move.to === center && rookNeedsRank) return { fault: "advisorBlocksRook", pieceSquare: square };
     // Bổ Sĩ khi quân lớn còn nằm nhà: chậm ra quân, lộ thế trận sớm.
     if (undeveloped >= 3) return { fault: "earlyAdvisor", pieceSquare: square };
@@ -486,6 +615,11 @@ export function detectOpeningFault(
       const otherOnEdge = pieces(board, mover, "n").some((i) => i !== move.from && edge(i));
       if (otherOnEdge) return { fault: "doubleEdgeHorse", pieceSquare: square };
     }
+
+    // Ba lỗi dưới đây đều có biến sách hợp lệ (Thuận Pháo, Biên Mã, Pháo đầu nước 1...), nên nước theo sách được miễn.
+    // Tra sách tốn công (đi lại cả lịch sử) nên chỉ tra khi đã khớp một lỗi.
+    const candidate = shapeFault(board, move, mover, pType, edge);
+    if (candidate && !(historyMoves && inOpeningBook(board, move, historyMoves))) return { fault: candidate, pieceSquare: square };
   }
 
   return null;

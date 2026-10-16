@@ -7,17 +7,20 @@ import { advance } from "./strategy";
 
 export type ShapeId =
   // Xe
-  | "xeHoanh" | "xeTruc" | "xeSuon" | "xeTuanHa"
+  | "xeHoanh" | "xeTruc" | "xeSuon" | "xeTuanHa" | "xeTamThat" | "daiXuatXe" | "tieuXuatXe"
+  | "xeDeMa" | "xeApMa"
   | "phaoPhongXe" | "songPhaoPhongXe" | "maPhongXe"
   // Pháo
   | "nguLucPhao" | "nguThatPhao" | "nguBatPhao" | "nguCuuPhao"
-  | "tuanHaPhao" | "siGiacPhao" | "uyenUongPhao" | "songPhaoQuaHa" | "loiCongPhao" | "quyBoiPhao"
+  | "tuanHaPhao" | "siGiacPhao" | "uyenUongPhao" | "songPhaoQuaHa" | "loiCongPhao" | "quyBoiPhao" | "songBienPhao"
   // Mã
   | "maBanHa" | "songBienMa" | "caiMaTamChuy"
   // Tốt
   | "luongDauXa" | "tamBoHo"
   // Hình kém
-  | "tuongBien";
+  | "tuongBien"
+  // Tượng
+  | "phiTuongTrungBinh";
 
 export interface Shape {
   id: ShapeId;
@@ -31,7 +34,12 @@ export interface Shape {
 
 const INFO: Record<ShapeId, { name: string; note: string; bad?: boolean }> = {
   xeHoanh: { name: "Xe hoành", note: "Xe lên một bước rồi đi ngang, nhanh chuyển sang sườn hoặc cánh kia." },
-  xeTruc: { name: "Xe trực", note: "Xe tiến thẳng theo lộ biên, chiếm đường dọc để tranh tiên." },
+  xeTruc: { name: "Xe trực", note: "Xe bình sang lộ 2 hoặc lộ 8 (lộ Pháo), từ đó xuất theo đường dọc." },
+  xeTamThat: { name: "Xe lộ 3–7", note: "Xe ra theo lộ 3 hoặc lộ 7, phía ngoài sườn, chi viện Mã và Tốt cánh đó." },
+  daiXuatXe: { name: "Đại xuất Xe", note: "Xe biên đổi Tốt biên rồi lao thẳng lên sân đối phương; mạnh nhưng hợp cờ tán thủ hơn là thế công gấp." },
+  tieuXuatXe: { name: "Tiểu xuất Xe", note: "Xe biên tiến lên hàng Tốt mình, giữ một yếu đạo phòng thủ." },
+  xeDeMa: { name: "Xe đè Mã tận gốc", note: "Xe tiến sâu đè chân Mã còn ở nhà, Mã không ra được: cách công Mã mạnh nhất, nhưng đối phương ít khi để xảy ra." },
+  xeApMa: { name: "Xe qua hà áp Mã", note: "Xe qua sông đứng chặn chân Mã đối phương; cách công Mã phổ biến nhất của khai cuộc tấn công." },
   xeSuon: { name: "Xe chiếm sườn", note: "Xe đứng lộ 4 hoặc lộ 6, uy hiếp sườn cung tướng." },
   xeTuanHa: { name: "Xe tuần hà", note: "Xe đứng bờ sông mình, vừa công vừa thủ, khống chế đường qua sông." },
   phaoPhongXe: { name: "Pháo phong Xe", note: "Pháo đối phương qua sông chặn đường ra của Xe.", bad: true },
@@ -43,6 +51,7 @@ const INFO: Record<ShapeId, { name: string; note: string; bad?: boolean }> = {
   nguCuuPhao: { name: "Ngũ cửu Pháo", note: "Pháo đầu kèm Pháo biên lộ 9, mở đường cho Xe ra, xuất quân cân bằng." },
   tuanHaPhao: { name: "Pháo tuần hà", note: "Pháo đứng bờ sông mình, vững chắc, dễ chuyển ngang chi viện." },
   siGiacPhao: { name: "Sĩ giác Pháo", note: "Pháo đứng góc Sĩ, thủ chắc và mở đường cho Xe." },
+  songBienPhao: { name: "Song biên Pháo", note: "Hai Pháo cùng ra biên (lộ 1 và lộ 9), uy hiếp Xe biên và đáy, hợp vây từ hai cánh." },
   uyenUongPhao: { name: "Uyên ương Pháo", note: "Hai Pháo chồng cùng một lộ, hình hiếm, dễ bị nghẽn." },
   songPhaoQuaHa: { name: "Song Pháo qua hà", note: "Hai Pháo cùng qua sông, công mạnh nhưng hậu phương mỏng." },
   loiCongPhao: {
@@ -61,6 +70,7 @@ const INFO: Record<ShapeId, { name: string; note: string; bad?: boolean }> = {
   songBienMa: { name: "Song biên Mã", note: "Cả hai Mã ra biên, ít chỗ nhảy; chỉ dùng trong thế đặc biệt.", bad: true },
   luongDauXa: { name: "Lưỡng đầu xà", note: "Tốt 3 và Tốt 7 cùng tiến, mở đường cho hai Mã." },
   tamBoHo: { name: "Tam bộ hổ", note: "Pháo ra biên, Xe ra lộ của Pháo cũ: xuất Xe nhanh trong ba nước." },
+  phiTuongTrungBinh: { name: "Phi Tượng tiến Tốt giữa", note: "Phi Tượng cục mà vẫn tiến Tốt giữa, dùng thế vững để tranh trung lộ." },
   tuongBien: { name: "Tượng biên", note: "Phi Tượng ra biên trong khai cuộc làm Tượng rời nhau, cung yếu.", bad: true },
 };
 
@@ -97,10 +107,26 @@ export function detectShapes(board: Board, s: Side): Shape[] {
     const a = advance(r, s);
     const f = fileOf(r, s);
     if (a === 1) ids.push("xeHoanh");
-    else if ((f === 1 || f === 9) && a >= 2) ids.push("xeTruc");
+    // Xe trực: Xe bình sang lộ 2/8 (chỗ Pháo cũ) rồi xuất theo lộ đó, kiểu "Xe 1 bình 2".
+    if (f === 2 || f === 8) ids.push("xeTruc");
+    if (f === 3 || f === 7) ids.push("xeTamThat");
     if ((f === 4 || f === 6) && a >= 1) ids.push("xeSuon");
     if (a === 4) ids.push("xeTuanHa");
   }
+  // Đại xuất Xe: Xe biên đã lên sân đối phương. Tiểu xuất Xe: Xe biên lên hàng Tốt mình.
+  for (const r of rooks) {
+    const f = fileOf(r, s);
+    if (f !== 1 && f !== 9) continue;
+    if (advance(r, s) >= 5) ids.push("daiXuatXe");
+    else if (advance(r, s) === 3) ids.push("tieuXuatXe");
+  }
+  // Xe đứng ở ô chân Mã đối phương: chân bị chặn, lại bị Xe dọa ăn.
+  for (const n of own(board, o, "n")) {
+    const legs = [n - 9, n + 9, colOf(n) > 0 ? n - 1 : -1, colOf(n) < 8 ? n + 1 : -1];
+    if (!rooks.some((r) => legs.includes(r))) continue;
+    ids.push(advance(n, o) === 0 ? "xeDeMa" : "xeApMa");
+  }
+
   // Xe bị phong: Pháo (hoặc Mã) đối phương có căn đứng cùng lộ bên sân mình, không quân nào chen giữa,
   // Xe không ăn được (ăn là mất Xe) và cũng không tiến qua được.
   const blocked = rooks.filter((r) => {
@@ -139,6 +165,7 @@ export function detectShapes(board: Board, s: Side): Shape[] {
   if (oppCenter && cannons.some((c) => (fileOf(c, s) === 2 || fileOf(c, s) === 8) && advance(c, s) === 1)) ids.push("quyBoiPhao");
   if (cannons.length === 2 && colOf(cannons[0]) === colOf(cannons[1])) ids.push("uyenUongPhao");
   if (cannons.length === 2 && cannons.every((c) => advance(c, s) >= 5)) ids.push("songPhaoQuaHa");
+  if (cannons.length === 2 && cannons.every((c) => fileOf(c, s) === 1 || fileOf(c, s) === 9)) ids.push("songBienPhao");
 
   // Mã
   if (horses.some((n) => advance(n, s) === 4 && (fileOf(n, s) === 4 || fileOf(n, s) === 6))) ids.push("maBanHa");
@@ -157,6 +184,10 @@ export function detectShapes(board: Board, s: Side): Shape[] {
     if (cannonEdge && rookOn) ids.push("tamBoHo");
   }
 
+  // Phi Tượng cục tiến Tốt giữa: Tượng đã lên giữa (Tượng 3 tiến 5 hoặc 7 tiến 5), Tốt giữa đã tiến.
+  const centerElephant = own(board, s, "b").some((b) => fileOf(b, s) === 5);
+  if (centerElephant && pawns.some((p) => fileOf(p, s) === 5 && advance(p, s) >= 4)) ids.push("phiTuongTrungBinh");
+
   // Hình kém
   if (own(board, s, "b").some((b) => fileOf(b, s) === 1 || fileOf(b, s) === 9)) ids.push("tuongBien");
 
@@ -166,4 +197,27 @@ export function detectShapes(board: Board, s: Side): Shape[] {
 /** Thế trận của cả hai bên. */
 export function detectAllShapes(board: Board): Shape[] {
   return [...detectShapes(board, "r"), ...detectShapes(board, "b")];
+}
+
+export type OpeningType = "capCong" | "hoanCong" | "linhHoat" | "tanThu";
+
+/** Bốn loại khai cuộc: cấp công và hoãn công (thế tấn công), linh hoạt và tán thủ (thế vững). */
+export const OPENING_TYPE_INFO: Record<OpeningType, { name: string; note: string }> = {
+  capCong: { name: "Cấp công", note: "Tấn công gấp ở trung lộ, Xe sớm qua sông; tranh từng nước, ít thời gian làm việc khác." },
+  hoanCong: { name: "Hoãn công", note: "Tấn công chậm, đẩy dần từng bước, công thủ cân bằng; loại khai cuộc coi trọng nguyên tắc nhất." },
+  linhHoat: { name: "Linh hoạt", note: "Nước đầu chưa lộ hướng (như Tiên nhân chỉ lộ), sau đó có thể chuyển sang công hoặc thủ." },
+  tanThu: { name: "Tán thủ", note: "Thế không theo Pháo đầu (Phi Tượng, Sĩ giác Pháo, Khởi Mã…); logic khác hẳn, đi vững rồi tìm chỗ phản công." },
+};
+
+/**
+ * Phân loại khai cuộc theo nước đầu của Đỏ (ký hiệu Việt Nam) và hình cờ hiện tại.
+ * Pháo đầu: Xe đã qua sông là cấp công, chưa thì hoãn công.
+ */
+export function classifyOpeningType(firstMove: string | undefined, board: Board): OpeningType | null {
+  if (!firstMove) return null;
+  if (/^P[28]-5$/.test(firstMove) || firstMove === "B5.1") {
+    return own(board, "r", "r").some((r) => advance(r, "r") >= 5) ? "capCong" : "hoanCong";
+  }
+  if (/^B[37]\.1$/.test(firstMove)) return "linhHoat";
+  return "tanThu";
 }

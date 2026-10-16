@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseFen, sq, type Board, type Move } from "./engine";
-import { sentence } from "./explain";
+import { sentence, explainText, type Fact } from "./explain";
 import {
   analyzeForcingPlies,
   detectInitiative,
@@ -8,9 +8,21 @@ import {
   isSemiOpenFile,
   detectOpenFile,
   detectExchange,
+  detectPalaceBreaker,
+  detectSacrificeForInitiative,
+  detectCounterThreat,
+  detectFlankOverload,
+  detectZhaoTactics,
+  detectSolidDefense,
+  detectIncrementalGain,
+  detectPositionalClamp,
+  detectTransitionExchange,
+  detectXuTactics,
   type InitiativeFact,
   type OpenFileFact,
   type ExchangeFact,
+  type ZhaoMiddlegameFact,
+  type XuMiddlegameFact,
 } from "./middlegame";
 
 function playMove(board: Board, m: Move): Board {
@@ -132,7 +144,139 @@ describe("middlegame.ts - Khái niệm trung cuộc cờ tướng (B5)", () => {
     });
   });
 
-  describe("4. Tích hợp câu chữ (sentence)", () => {
+  describe("4. Kỳ lý trung cuộc Triệu Hâm Hâm (Lục Mạch Thần Kiếm)", () => {
+    it("detectPalaceBreaker phát hiện đòn Trảm Sĩ phá Tượng xé toang cung cấm", () => {
+      // Đen có Tướng e9 (sq(0, 4)), Sĩ d9 (sq(0, 3)), Sĩ f9 (sq(0, 5))
+      // Đỏ có Xe d7 (sq(2, 3)). Xe Đỏ chém Sĩ d9 (có căn Tướng/Sĩ giữ).
+      const pos = parseFen("3akab2/9/3R5/9/9/9/9/9/9/4K4 w - - 0 1");
+      const move: Move = { from: sq(2, 3), to: sq(0, 3) };
+      const after = playMove(pos.board, move);
+
+      const fact = detectPalaceBreaker(pos.board, move, after, { loss: 0 });
+      expect(fact).not.toBeNull();
+      expect(fact?.tactic).toBe("tramSiPhaTuong");
+      expect(fact?.summary).toContain("Trảm Sĩ phá thành");
+      expect(fact?.details).toContain("Xe trảm Sĩ");
+    });
+
+    it("detectSacrificeForInitiative phát hiện đòn Khí tử tranh tiên táo bạo", () => {
+      // Đen có Tướng e9 (sq(0, 4)), Xe a9 (sq(0, 0))
+      // Đỏ có Xe d7 (sq(2, 3)). Đỏ tiến Xe d7 lên d9 (sq(0, 3)) chiếu ngang Tướng e9 vào tầm ăn của Xe Đen a9
+      const pos = parseFen("r3k4/9/3R5/9/9/9/9/9/9/4K4 w - - 0 1");
+      const move: Move = { from: sq(2, 3), to: sq(0, 3) };
+      const after = playMove(pos.board, move);
+
+      const fact = detectSacrificeForInitiative(pos.board, move, after, { loss: 0 });
+      expect(fact).not.toBeNull();
+      expect(fact?.tactic).toBe("khiTuTranhTien");
+      expect(fact?.summary).toContain("Khí tử tranh tiên");
+    });
+
+    it("detectCounterThreat phát hiện đòn Dĩ công vi thủ khi đang bị đe dọa", () => {
+      // Đỏ có Xe e3 (sq(6, 4)) đang bị Pháo Đen e7 (sq(2, 4)) nhắm ăn trực tiếp không căn
+      // Thay vì chạy Xe, Đỏ tung Mã c7 (sq(2, 2)) nhảy d9 (sq(0, 3)) phản chiếu Tướng e9!
+      const pos = parseFen("4k4/9/2N1c4/9/9/9/4R4/9/9/4K4 w - - 0 1");
+      const move: Move = { from: sq(2, 2), to: sq(0, 3) };
+      const after = playMove(pos.board, move);
+
+      const fact = detectCounterThreat(pos.board, move, after, { loss: 0 });
+      expect(fact).not.toBeNull();
+      expect(fact?.tactic).toBe("diCongViThu");
+      expect(fact?.summary).toContain("Dĩ công vi thủ");
+    });
+
+    it("detectFlankOverload phát hiện thế Tụ binh đột kích áp đảo 1 cánh", () => {
+      // Cánh phải Đỏ (cols 6, 7, 8): Đỏ đã có Xe ở sq(2, 8) và Pháo ở sq(3, 7)
+      // Nước này Đỏ điều thêm Mã từ sq(4, 4) sang sq(2, 6) (col 6) -> tụ đủ 3 quân tấn công cánh đó
+      const pos = parseFen("8k/9/8R/7C1/4N4/9/9/9/9/4K4 w - - 0 1");
+      const move: Move = { from: sq(4, 4), to: sq(2, 6) };
+      const after = playMove(pos.board, move);
+
+      const fact = detectFlankOverload(pos.board, move, after, { loss: 0 });
+      expect(fact).not.toBeNull();
+      expect(fact?.tactic).toBe("tuBinhDotKich");
+      expect(fact?.summary).toContain("Tụ binh đột kích");
+    });
+
+    it("detectZhaoTactics trả về đòn có độ ưu tiên cao nhất", () => {
+      const pos = parseFen("3akab2/9/3R5/9/9/9/9/9/9/4K4 w - - 0 1");
+      const move: Move = { from: sq(2, 3), to: sq(0, 3) };
+      const after = playMove(pos.board, move);
+
+      const fact = detectZhaoTactics(pos.board, move, after, { loss: 0 });
+      expect(fact).not.toBeNull();
+      expect(fact?.tactic).toBe("tramSiPhaTuong");
+    });
+  });
+
+  describe("5. Kỳ lý trung cuộc Hứa Ngân Xuyên (Thái Cực Bổng)", () => {
+    it("detectSolidDefense phát hiện nước củng cố Sĩ/Tượng phòng thủ kiên cố", () => {
+      // Đỏ có Tướng e0 (sq(9, 4)), Sĩ d0 (sq(9, 3)) lên e1 (sq(8, 4)) củng cố cung
+      const pos = parseFen("4k4/9/9/9/9/9/9/9/9/3AK4 w - - 0 1");
+      const move: Move = { from: sq(9, 3), to: sq(8, 4) };
+      const after = playMove(pos.board, move);
+
+      const fact = detectSolidDefense(pos.board, move, after, { loss: 0 });
+      expect(fact).not.toBeNull();
+      expect(fact?.tactic).toBe("phongThuKienCo");
+      expect(fact?.summary).toContain("Phòng thủ kiên cố");
+      expect(fact?.details).toContain("Củng cố Sĩ");
+    });
+
+    it("detectIncrementalGain phát hiện nước Tốt qua sông tích tiểu thành đại", () => {
+      // Đen có Mã d7 (sq(2, 3)), Đỏ có Tốt d5 (sq(5, 3)) tiến lên d6 (sq(4, 3)) qua sông đè Mã
+      const pos = parseFen("4k4/9/3n5/9/9/3P5/9/9/9/4K4 w - - 0 1");
+      const move: Move = { from: sq(5, 3), to: sq(4, 3) };
+      const after = playMove(pos.board, move);
+
+      const fact = detectIncrementalGain(pos.board, move, after, { loss: 0 });
+      expect(fact).not.toBeNull();
+      expect(fact?.tactic).toBe("tichLuyUuThe");
+      expect(fact?.summary).toContain("Tích tiểu thành đại");
+    });
+
+    it("detectPositionalClamp phát hiện nước nhu hòa kiềm tỏa tuyến trọng yếu", () => {
+      // Đỏ có Xe d1 (sq(8, 3)) tiến lên tuần hà d5 (sq(5, 3)) khống chế
+      const pos = parseFen("4k4/9/9/9/9/9/9/9/3R5/4K4 w - - 0 1");
+      const move: Move = { from: sq(8, 3), to: sq(5, 3) };
+      const after = playMove(pos.board, move);
+
+      const fact = detectPositionalClamp(pos.board, move, after, { loss: 0 });
+      expect(fact).not.toBeNull();
+      expect(fact?.tactic).toBe("nhuHoaKiemToa");
+      expect(fact?.summary).toContain("Nhu hòa kiềm tỏa");
+    });
+
+    it("detectTransitionExchange phát hiện nước đổi Xe ép đổi quy tàn khi ưu thế", () => {
+      // Đỏ có Xe d5 (sq(5, 3)), Đen có Xe d7 (sq(2, 3)), Đỏ ăn Xe d7 với score >= 80
+      const pos = parseFen("4k4/9/3r5/9/3R5/9/9/9/9/4K4 w - - 0 1");
+      const move: Move = { from: sq(4, 3), to: sq(2, 3) };
+      const after = playMove(pos.board, move);
+
+      const fact = detectTransitionExchange(pos.board, move, after, {
+        loss: 0,
+        evalBefore: { score: 150 },
+      });
+      expect(fact).not.toBeNull();
+      expect(fact?.tactic).toBe("epDoiGianHoa");
+      expect(fact?.summary).toContain("Ép đổi quy tàn");
+    });
+
+    it("detectXuTactics tổng hợp ưu tiên chuẩn xác", () => {
+      const pos = parseFen("4k4/9/3r5/9/3R5/9/9/9/9/4K4 w - - 0 1");
+      const move: Move = { from: sq(4, 3), to: sq(2, 3) };
+      const after = playMove(pos.board, move);
+
+      const fact = detectXuTactics(pos.board, move, after, {
+        loss: 0,
+        evalBefore: { score: 150 },
+      });
+      expect(fact).not.toBeNull();
+      expect(fact?.tactic).toBe("epDoiGianHoa");
+    });
+  });
+
+  describe("6. Tích hợp câu chữ (sentence & explainText theo phong cách)", () => {
     it("sentence() định dạng chuẩn xác từng fact trung cuộc", () => {
       const initFact: InitiativeFact = {
         kind: "initiative",
@@ -164,10 +308,51 @@ describe("middlegame.ts - Khái niệm trung cuộc cờ tướng (B5)", () => {
         summary: "Đổi Xe lấy Sĩ đối phương nhằm phá vỡ phòng tuyến bảo vệ Tướng.",
       };
       expect(sentence(exFact)).toContain("phá vỡ phòng tuyến");
+
+      const zhaoFact: ZhaoMiddlegameFact = {
+        kind: "zhaoMiddlegame",
+        side: "r",
+        tactic: "tramSiPhaTuong",
+        move: "X4.7",
+        summary: "Trảm Sĩ phá thành theo phong cách Triệu Hâm Hâm: phế đổi Xe xé toang phòng tuyến cung Tướng, đưa Tướng đối phương vào thế hiểm nghèo.",
+      };
+      expect(sentence(zhaoFact)).toContain("Triệu Hâm Hâm");
+
+      const xuFact: XuMiddlegameFact = {
+        kind: "xuMiddlegame",
+        side: "r",
+        tactic: "phongThuKienCo",
+        move: "S4.5",
+        summary: "Phòng thủ kiên cố theo phong cách Thái Cực Bổng Hứa Ngân Xuyên: củng cố Sĩ tạo thế trận vững như bàn thạch, triệt tiêu mầm mống công kích của đối phương.",
+      };
+      expect(sentence(xuFact)).toContain("Hứa Ngân Xuyên");
+    });
+
+    it("explainText gắn tiền tố phong cách chuẩn xác theo nút bấm", () => {
+      const facts: Fact[] = [
+        {
+          kind: "initiative",
+          side: "r",
+          forcingPlies: 3,
+          checks: 2,
+          captures: 1,
+          summary: "Đỏ nắm quyền chủ động, tạo chuỗi 3 nước ép liên tiếp.",
+        },
+      ];
+
+      const zhaoText = explainText(facts, "r", 1, "zhaoXinxin");
+      expect(zhaoText).toContain("[Triệu Hâm Hâm");
+      expect(zhaoText).toContain("hỏa lực bão táp");
+
+      const xuText = explainText(facts, "r", 1, "xuYinchuan");
+      expect(xuText).toContain("[Hứa Ngân Xuyên");
+
+      const defaultText = explainText(facts, "r", 1, "default");
+      expect(defaultText).not.toContain("[");
     });
   });
 
-  describe("5. Hiệu năng thực thi", () => {
+  describe("7. Hiệu năng thực thi", () => {
     it("đánh giá 150 thế cờ trung cuộc dưới 150ms", () => {
       const pos = parseFen("rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w - - 0 1");
       const move: Move = { from: sq(9, 1), to: sq(7, 2) };

@@ -17,7 +17,7 @@ import {
   type TurningPoint,
 } from "@/lib/xiangqi/analysis";
 import { toFen, type Board, type Move, type Side } from "@/lib/xiangqi/engine";
-import { explainText, type Fact } from "@/lib/xiangqi/explain";
+import { explainText, type Fact, type CommentaryStyle } from "@/lib/xiangqi/explain";
 import type { GameState } from "@/lib/xiangqi/game";
 import type { GamePhase } from "@/lib/xiangqi/phases";
 import { PLAN_NAME } from "@/lib/xiangqi/strategy";
@@ -79,6 +79,7 @@ export function AnalysisPanel({
 
   const runReview = useAnalysisWorker();
   const [review, setReview] = useState<ReviewResult | null>(null);
+  const [commentaryStyle, setCommentaryStyle] = useState<CommentaryStyle>("zhaoXinxin");
 
   // State đi thử biến tiếp diễn (interactive preview)
   const [previewLine, setPreviewLine] = useState<{
@@ -565,6 +566,30 @@ export function AnalysisPanel({
             <p className="muted">Không có nước nào đáng chú ý.</p>
           ) : (
             <>
+              <div className={styles.personaBar}>
+                <span className={styles.personaLabel}>Góc nhìn đại sư:</span>
+                <div className={styles.personaButtons}>
+                  <button
+                    type="button"
+                    className={`${styles.personaBtn} ${commentaryStyle === "zhaoXinxin" ? styles.personaActiveZhao : ""}`}
+                    onClick={() => setCommentaryStyle("zhaoXinxin")}
+                    title="Phong cách 'Lục Mạch Thần Kiếm' Triệu Hâm Hâm: Công sát vũ bão, phá thành chém tướng, thí quân đoạt thế"
+                  >
+                    <span>⚔️</span>
+                    <span>Triệu Hâm Hâm</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.personaBtn} ${commentaryStyle === "xuYinchuan" ? styles.personaActiveXu : ""}`}
+                    onClick={() => setCommentaryStyle("xuYinchuan")}
+                    title="Phong cách 'Thái Cực Bổng' Hứa Ngân Xuyên: Dĩ nhu khắc cương, công thủ toàn diện, tích lũy ưu thế"
+                  >
+                    <span>🛡️</span>
+                    <span>Hứa Ngân Xuyên</span>
+                  </button>
+                </div>
+              </div>
+
               <p className="muted">Bấm vào từng nước để xem phân tích chi tiết.</p>
               <ul className={styles.reviewList}>
                 {review.moves.filter((m) => m.cls).map((m) => (
@@ -600,7 +625,9 @@ export function AnalysisPanel({
                               ))}
                           </div>
                         )}
-                        <p className={styles.reviewNote}>{explainText(m.facts, m.side, m.ply)}</p>
+                        <p className={styles.reviewNote}>
+                          {explainText(m.facts, m.side, m.ply, commentaryStyle)}
+                        </p>
                       </>
                     )}
                     {m.ply === ply && m.line && m.line.length > 1 && (

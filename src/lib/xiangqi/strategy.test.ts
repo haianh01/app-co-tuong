@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { START_FEN, parseFen } from "./engine";
-import { choosePlan, coordination, detectOpeningFault, linkedGuards, principleScores } from "./strategy";
+import { choosePlan, coordination, detectOpeningFault, linkedGuards, principleScores, wingImbalance } from "./strategy";
 
 const board = (fen: string) => parseFen(fen).board;
 
@@ -96,4 +96,29 @@ describe("detectOpeningFault: lỗi hình cờ", () => {
     const fen = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/NC5C1/9/R1BAKABNR w";
     expect(detectOpeningFault(board(fen), { from: 88, to: 71 }, 4, "r", [])?.fault).toBe("doubleEdgeHorse");
   });
+});
+
+describe("ba nguyên tắc khai cuộc và bổ Sĩ (bài 2, 14, 47)", () => {
+  it("lệch cánh: một cánh ra đủ ba quân, cánh kia chưa động mà vẫn đi quân cánh đã ra", () => {
+    // Đỏ: Pháo 2 bình 5, Mã 2 tiến 3, Xe 1 bình 2 (đúng kỳ lý), cánh trái còn nguyên.
+    const fen = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C2C1N2/9/RNBAKABR1 w";
+    expect(wingImbalance(board(fen), "r")).toBe(3);
+    // Đi tiếp Xe 2 tiến 4 (cánh đã ra): lỗi lệch cánh.
+    expect(detectOpeningFault(board(fen), { from: 88, to: 52 }, 6, "r", [])?.fault).toBe("oneWing");
+    // Mã 8 tiến 9 (ra cánh trái): đúng như ví dụ bài 2, không lỗi.
+    expect(detectOpeningFault(board(fen), { from: 82, to: 63 }, 6, "r", [])).toBeNull();
+  });
+
+  it("yếu đạo: Xe trực lộ 2/8 được tính", () => {
+    const before = principleScores(board("4k4/9/9/9/9/9/9/9/9/4K3R w"), "r").yeuDao;
+    const after = principleScores(board("4k4/9/9/9/9/9/9/9/9/4K2R1 w"), "r").yeuDao;
+    expect(after).toBeGreaterThan(before);
+  });
+
+  it("Sĩ lên giữa cung chặn đường Xe hoành", () => {
+    // Đen: Xe góc còn ở nhà, bổ Sĩ 6 tiến 5 (ô 5 → 13).
+    const f = detectOpeningFault(board(START_FEN), { from: 5, to: 13 }, 3, "b", []);
+    expect(f?.fault).toBe("advisorBlocksRook");
+  });
+
 });

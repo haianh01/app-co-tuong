@@ -16,7 +16,7 @@ import { detectIntent, type IntentFact, type Purpose, PURPOSE_NAMES } from "./in
 import { detectPatterns, type DetectedPattern } from "./patterns";
 import { detectTheoreticalEndgame, type TheoreticalEndgame } from "./endgame";
 import { countMajorPieces, type GamePhase } from "./phases";
-import { detectAllShapes, type Shape } from "./opening-shapes";
+import { classifyOpeningType, detectAllShapes, type OpeningType, type Shape } from "./opening-shapes";
 import { getOpeningGuide, findNextBookMoves, isBookMove, type OpeningGuide, type NextBookMove } from "./openings";
 import { detectThreat, type ThreatData, type ThreatFact } from "./threats";
 import { narratePv } from "./narrate";
@@ -136,6 +136,8 @@ export interface Layer6PhaseAndOpening {
   nextBookMoves: NextBookMove[];
   /** Thế trận khai cuộc nhận diện từ hình cờ (Xe hoành, Ngũ thất Pháo, Pháo phong Xe…). */
   shapes: Shape[];
+  /** Loại khai cuộc (cấp công, hoãn công, linh hoạt, tán thủ). */
+  openingType: OpeningType | null;
 }
 
 /** Kết quả toàn diện của tính năng Phân tích hình cờ (6 tầng) */
@@ -396,6 +398,7 @@ export function analyzePosition(input: PositionAnalysisInput): PositionAnalysisR
     openingGuide,
     nextBookMoves,
     shapes: currentPly <= 30 ? detectAllShapes(board) : [],
+    openingType: currentPly <= 30 ? classifyOpeningType(historyNotations[0], board) : null,
   };
 
   // TẦNG 2: Đánh giá cục diện theo 9 yếu tố (assess.ts)

@@ -624,3 +624,66 @@
   border-color: #fbbf24;
 }
 
+/* Thanh chuyển phong cách đại sư bình luận */
+.personaBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 12px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+
+.personaLabel {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.personaButtons {
+  display: flex;
+  gap: 6px;
+}
+
+.personaBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.personaBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.personaActiveZhao {
+  background: rgba(239, 68, 68, 0.18) !important;
+  border-color: rgba(239, 68, 68, 0.8) !important;
+  color: #fca5a5 !important;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.25);
+}
+
+.personaActiveXu {
+  background: rgba(16, 185, 129, 0.18) !important;
+  border-color: rgba(16, 185, 129, 0.8) !important;
+  color: #6ee7b7 !important;
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.25);
+}
+
+

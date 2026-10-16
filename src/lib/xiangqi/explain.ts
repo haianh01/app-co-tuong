@@ -42,6 +42,22 @@ import {
   detectInitiative,
   detectOpenFile,
   detectExchange,
+  type ZhaoTactics,
+  type ZhaoMiddlegameFact,
+  type ZhaoTacticsOptions,
+  detectZhaoTactics,
+  detectPalaceBreaker,
+  detectSacrificeForInitiative,
+  detectCounterThreat,
+  detectFlankOverload,
+  type XuTactics,
+  type XuMiddlegameFact,
+  type XuTacticsOptions,
+  detectXuTactics,
+  detectSolidDefense,
+  detectIncrementalGain,
+  detectPositionalClamp,
+  detectTransitionExchange,
 } from "./middlegame";
 
 /** Điểm thắng tuyệt đối mà AI trả về khi thấy chiếu bí (khớp với MATE trong ai.ts). */
@@ -209,7 +225,11 @@ export type Fact =
   /** Lộ mở / chiếm cột thông (B5). */
   | OpenFileFact
   /** Đổi quân có chủ đích (B5). */
-  | ExchangeFact;
+  | ExchangeFact
+  /** Kỳ lý trung cuộc Triệu Hâm Hâm ("Lục Mạch Thần Kiếm") (B6). */
+  | ZhaoMiddlegameFact
+  /** Kỳ lý trung cuộc Hứa Ngân Xuyên ("Thái Cực Bổng") (B7). */
+  | XuMiddlegameFact;
 
 export interface MoveContext {
   before: Board;
@@ -1096,6 +1116,24 @@ export function sentence(f: Fact, mover: Side = "r", seed?: number): string {
           `${head}${pName} đi đi lại lại, làm chậm nhịp ra quân của cả thế trận.${betterPart}`,
         ]);
       }
+      if (f.fault === "oneWing") {
+        return v("openingFault.oneWing", [
+          `${head}một cánh đã ra đủ Xe Mã Pháo mà cánh kia vẫn nằm nhà; khai cuộc cần ra quân cân bằng hai cánh.${betterPart}`,
+          `${head}quân lớn dồn hết một cánh, cánh còn lại chưa động: nên chuyển sang ra quân cánh kia.${betterPart}`,
+        ]);
+      }
+      if (f.fault === "advisorBlocksRook") {
+        return v("openingFault.advisorBlocksRook", [
+          `${head}bổ Sĩ lên giữa cung chặn mất hàng 2, Xe sau này không đi hoành sang cánh kia được.${betterPart}`,
+          `${head}Sĩ đứng giữa cung cắt đường ngang của Xe, hai cánh khó hô ứng nhau.${betterPart}`,
+        ]);
+      }
+      if (f.fault === "earlyAdvisor") {
+        return v("openingFault.earlyAdvisor", [
+          `${head}bổ Sĩ quá sớm khi quân lớn còn nằm nhà: chậm ra quân và lộ ý đồ sớm. Sĩ chỉ nên lên khi cần phòng một đòn cụ thể.${betterPart}`,
+          `${head}khai cuộc cần ra quân lớn trước; bổ Sĩ lúc này chưa cần, lại để đối phương đoán được hướng bày trận.${betterPart}`,
+        ]);
+      }
       if (f.fault === "edgeElephant") {
         return v("openingFault.edgeElephant", [
           `${head}phi Tượng ra biên làm hai Tượng rời nhau, mất liên hoàn, cung tướng yếu đi.${betterPart}`,
@@ -1243,15 +1281,50 @@ export function sentence(f: Fact, mover: Side = "r", seed?: number): string {
       return f.summary;
     case "exchange":
       return f.summary;
+    case "zhaoMiddlegame":
+      return f.summary;
+    case "xuMiddlegame":
+      return f.summary;
   }
 }
+
+export type CommentaryStyle = "default" | "zhaoXinxin" | "xuYinchuan";
 
 /**
  * Lời giải thích hoàn chỉnh cho một nước của phe `mover`.
  * `seed` (thường là số nửa nước) đổi cách diễn đạt giữa các nước; bỏ trống thì dùng câu chuẩn.
+ * `style`: tùy chọn phong cách bình luận ("zhaoXinxin" hoặc "xuYinchuan").
  */
-export function explainText(facts: Fact[], mover: Side, seed?: number): string {
-  return facts.map((f) => capitalize(sentence(f, mover, seed))).join(" ");
+export function explainText(
+  facts: Fact[],
+  mover: Side,
+  seed?: number,
+  style?: CommentaryStyle,
+): string {
+  const base = facts.map((f) => capitalize(sentence(f, mover, seed))).join(" ");
+  if (!style || style === "default") return base;
+
+  if (style === "zhaoXinxin") {
+    const hasZhao = facts.some((f) => f.kind === "zhaoMiddlegame");
+    const hasAggressive = facts.some(
+      (f) => f.kind === "initiative" || f.kind === "threat" || f.kind === "pattern",
+    );
+    if (hasZhao) return `[Triệu Hâm Hâm - Công sát]: ${base}`;
+    if (hasAggressive) return `[Triệu Hâm Hâm]: Tận dụng thời cơ tung đòn hỏa lực bão táp! ${base}`;
+    return `[Triệu Hâm Hâm]: ${base}`;
+  }
+
+  if (style === "xuYinchuan") {
+    const hasXu = facts.some((f) => f.kind === "xuMiddlegame");
+    const hasDefensive = facts.some(
+      (f) => f.kind === "parried" || f.kind === "endgame" || f.kind === "openFile" || f.kind === "exchange",
+    );
+    if (hasXu) return `[Hứa Ngân Xuyên - Thái cực]: ${base}`;
+    if (hasDefensive) return `[Hứa Ngân Xuyên]: Điềm tĩnh tích lũy ưu thế, dĩ nhu khắc cương. ${base}`;
+    return `[Hứa Ngân Xuyên]: ${base}`;
+  }
+
+  return base;
 }
 
 export {
@@ -1278,4 +1351,20 @@ export {
   detectInitiative,
   detectOpenFile,
   detectExchange,
+  type ZhaoTactics,
+  type ZhaoMiddlegameFact,
+  type ZhaoTacticsOptions,
+  detectZhaoTactics,
+  detectPalaceBreaker,
+  detectSacrificeForInitiative,
+  detectCounterThreat,
+  detectFlankOverload,
+  type XuTactics,
+  type XuMiddlegameFact,
+  type XuTacticsOptions,
+  detectXuTactics,
+  detectSolidDefense,
+  detectIncrementalGain,
+  detectPositionalClamp,
+  detectTransitionExchange,
 };

@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useEngine } from "@/hooks/useEngine";
 import { CLASS_NAME, reviewMove, type MoveReview, type PositionEval } from "@/lib/xiangqi/analysis";
 import { toFen, type Side } from "@/lib/xiangqi/engine";
-import { explainText, moveIdea, withoutCriticism } from "@/lib/xiangqi/explain";
+import { explainText, moveIdea, withoutCriticism, type CommentaryStyle } from "@/lib/xiangqi/explain";
 import type { GameState } from "@/lib/xiangqi/game";
 import { openingOf } from "@/lib/xiangqi/openings";
 import { punishmentNotes } from "@/lib/xiangqi/story";
@@ -27,6 +27,7 @@ interface CachedCoachItem {
 
 export function LiveCoach({ state, player }: { state: GameState; player: Side }) {
   const think = useEngine();
+  const [commentaryStyle, setCommentaryStyle] = useState<CommentaryStyle>("zhaoXinxin");
   const [cache, setCache] = useState<Record<string, PositionEval>>({});
   // Cache kết quả theo cặp FEN trước - sau để tránh tính lại toàn bộ ván cờ
   const coachCache = useRef<Map<string, CachedCoachItem>>(new Map());
@@ -174,6 +175,29 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
         <h2 className={styles.panelTitle}>Huấn luyện</h2>
         {accuracy !== null && <span className="muted">Độ chính xác {accuracy}%</span>}
       </div>
+      <div className={game.personaBar} style={{ margin: "6px 0 10px" }}>
+        <span className={game.personaLabel}>Góc nhìn:</span>
+        <div className={game.personaButtons}>
+          <button
+            type="button"
+            className={`${game.personaBtn} ${commentaryStyle === "zhaoXinxin" ? game.personaActiveZhao : ""}`}
+            onClick={() => setCommentaryStyle("zhaoXinxin")}
+            title="Triệu Hâm Hâm: Công sát mãnh liệt, phế quân đoạt thế"
+          >
+            <span>⚔️</span>
+            <span>Triệu Hâm Hâm</span>
+          </button>
+          <button
+            type="button"
+            className={`${game.personaBtn} ${commentaryStyle === "xuYinchuan" ? game.personaActiveXu : ""}`}
+            onClick={() => setCommentaryStyle("xuYinchuan")}
+            title="Hứa Ngân Xuyên: Dĩ nhu khắc cương, phòng thủ kiên cố"
+          >
+            <span>🛡️</span>
+            <span>Hứa Ngân Xuyên</span>
+          </button>
+        </div>
+      </div>
       {mine.length === 0 ? (
         <p className="muted">Mỗi nước bạn đi sẽ được AI chấm và giải thích ngay tại đây.</p>
       ) : (
@@ -193,7 +217,11 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
                   {m.better && <span className="muted"> · nên đi {m.better}</span>}
                 </span>
               </div>
-              {m.facts.length > 0 && <p className={game.reviewNote}>{explainText(m.facts, m.side, m.ply)}</p>}
+              {m.facts.length > 0 && (
+                <p className={game.reviewNote}>
+                  {explainText(m.facts, m.side, m.ply, commentaryStyle)}
+                </p>
+              )}
               {m.line && m.line.length > 1 && (
                 <p className={game.reviewLine}>
                   Biến AI dự tính: {m.line.join(" ➔ ")}

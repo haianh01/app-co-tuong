@@ -284,7 +284,7 @@ describe("nhận xét chiến lược cho mọi nước (moveIdea)", () => {
 
   it("Xe qua hà: khen ra quân nhưng nhắc Xe mất căn", () => {
     // "Xe thông đường hơn" trước đây là nhờ nước đáp B7.1 của Đen; ngay sau X2.6 Xe chưa thoáng hơn đáng kể
-    expect(idea(6)).toBe("Kế hoạch: ra quân. X2.6 giúp đưa thêm quân ra trận, nhưng để Xe 2 mất căn.");
+    expect(idea(6)).toBe("Kế hoạch: ra quân. X2.6 giúp đưa thêm quân ra trận và chiếm yếu đạo, nhưng để Xe 2 mất căn.");
   });
 
   it("không quy việc đối phương chặn đường vào cung cho nước vừa đi (hồi quy B7.1)", () => {

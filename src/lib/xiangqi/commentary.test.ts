@@ -83,6 +83,7 @@ function mockL6(overrides: Partial<Layer6PhaseAndOpening> = {}): Layer6PhaseAndO
     openingGuide: null,
     nextBookMoves: [],
     shapes: [],
+    openingType: null,
     ...overrides,
   };
 }

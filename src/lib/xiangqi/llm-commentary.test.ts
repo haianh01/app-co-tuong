@@ -59,6 +59,24 @@ describe("llm-commentary - Tạo prompt và lời bình cho LLM từ Fact", () =
       style: "humorous",
     });
     expect(promptHumor.systemPrompt).toContain("hóm hỉnh");
+
+    const promptZhao = buildLlmCommentaryPrompt({
+      facts: [sampleFact],
+      mover: "r",
+      playedNotation: "X4.7",
+      style: "zhaoXinxin",
+    });
+    expect(promptZhao.systemPrompt).toContain("Lục Mạch Thần Kiếm");
+    expect(promptZhao.systemPrompt).toContain("Triệu Hâm Hâm");
+
+    const promptXu = buildLlmCommentaryPrompt({
+      facts: [sampleFact],
+      mover: "b",
+      playedNotation: "S4.5",
+      style: "xuYinchuan",
+    });
+    expect(promptXu.systemPrompt).toContain("Thái Cực Bổng");
+    expect(promptXu.systemPrompt).toContain("Hứa Ngân Xuyên");
   });
 
   it("generateLlmCommentary trả về kết quả từ llmCaller khi có", async () => {

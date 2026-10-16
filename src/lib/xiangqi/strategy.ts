@@ -26,11 +26,13 @@ export type Principle =
   | "lienHoan" // Sĩ liên hoàn, Tượng liên hoàn: phòng tuyến tự bảo vệ nhau
   | "loThong" // Xe chiếm lộ thông (cột không còn Tốt mình chắn)
   | "phoiHop" // hợp đồng tác chiến: nhiều loại quân cùng ép cung, không đánh một mình
-  | "totLienHoan"; // Tốt qua sông phải nối nhau mới có sức
+  | "totLienHoan" // Tốt qua sông phải nối nhau mới có sức
+  | "yeuDao"; // ba nguyên tắc khai cuộc (3): chiếm yếu đạo (lộ 2/8 cho Xe, hàng Tốt đối phương, lộ 3/7 cho Pháo)
 
 export const PRINCIPLES: Principle[] = [
   "xe", "ma", "raQuan", "apLuc", "anToan", "matGoc", "phongToa", "tot", "diemThenChot", "catLienLac", "khongCheTuong",
   "khuyetSi", "khuyetTuong", "totVaoCung", "maBien", "lienHoan", "loThong", "phoiHop", "totLienHoan",
+  "yeuDao",
 ];
 
 export type Plan = "raQuan" | "tanCong" | "phongThu" | "donGianHoa" | "tanCuoc" | "canBang";
@@ -119,6 +121,31 @@ export function linkedGuards(board: Board, s: Side): number {
   return n;
 }
 
+/** Ô nhà của Xe, Mã, Pháo phe `s` mà quân đúng loại vẫn còn đứng (Xe bình sang ô Mã không tính là chưa ra). */
+function homePieces(board: Board, s: Side): number[] {
+  const homeType = (i: number) => (colOf(i) === 0 || colOf(i) === 8 ? "r" : rowOf(i) === 0 || rowOf(i) === 9 ? "n" : "c");
+  return HOME[s].filter((i) => board[i] && sideOf(board[i]!) === s && typeOf(board[i]!) === homeType(i));
+}
+
+/** Chênh lệch số quân lớn còn nằm nhà giữa cánh trái và cánh phải (0 = cân bằng, 3 = một cánh ra hết, cánh kia chưa động). */
+export function wingImbalance(board: Board, s: Side): number {
+  const home = homePieces(board, s);
+  const left = home.filter((i) => colOf(i) < 4).length;
+  return Math.abs(left - (home.length - left));
+}
+
+/** Số quân lớn phe `s` đang chiếm yếu đạo khai cuộc (không tính Pháo đầu, đã có ở điểm then chốt). */
+export function keyRoutes(board: Board, s: Side): number {
+  let n = 0;
+  for (const i of pieces(board, s, "r")) {
+    const c = colOf(i);
+    if (c === 1 || c === 7) n++; // lộ 2/8: đường của Xe trực
+    if (advance(i, s) === 6) n++; // hàng Tốt đối phương: Xe ép Tốt, áp Mã
+  }
+  for (const i of pieces(board, s, "c")) if ((colOf(i) === 2 || colOf(i) === 6) && advance(i, s) >= 2) n++; // lộ 3/7: nhắm Mã
+  return n;
+}
+
 /** Số loại quân lớn (Xe, Mã, Pháo) của phe `s` cùng khống chế cung tướng đối phương. */
 export function coordination(board: Board, s: Side): number {
   const o = opponent(s);
@@ -159,6 +186,7 @@ export function principleScores(board: Board, s: Side): Record<Principle, number
     loThong: myFeat.byTag.xeLoThong?.length ?? 0,
     phoiHop: coordination(board, s),
     totLienHoan: myFeat.pieces.filter((p) => p.tags.includes("totQuaHa") && p.tags.includes("totLienHoan")).length,
+    yeuDao: keyRoutes(board, s),
   };
 }
 
@@ -180,12 +208,12 @@ export function choosePlan(board: Board, s: Side, ply: number): Plan {
 
 /** Trọng số nguyên lý theo kế hoạch. Đây là bảng cần người hiểu cờ (và lời bình cao thủ) để chỉnh. */
 export const WEIGHTS: Record<Plan, Record<Principle, number>> = {
-  raQuan: { xe: 1.5, ma: 0.3, raQuan: 3, apLuc: 0.5, anToan: 1, matGoc: 1, phongToa: 1, tot: 0, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 0, khuyetTuong: 0, totVaoCung: 0, maBien: 1, lienHoan: 0.5, loThong: 1, phoiHop: 0.3, totLienHoan: 0 },
-  tanCong: { xe: 0.7, ma: 0.2, raQuan: 0.5, apLuc: 3, anToan: 1, matGoc: 1, phongToa: 0.7, tot: 0.5, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 1.5, khuyetTuong: 1.5, totVaoCung: 2, maBien: 0.7, lienHoan: 0.3, loThong: 1, phoiHop: 1.5, totLienHoan: 0.5 },
-  phongThu: { xe: 0.3, ma: 0.1, raQuan: 0.3, apLuc: 0.5, anToan: 3, matGoc: 1.5, phongToa: 1, tot: 0, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 0.5, khuyetTuong: 0.5, totVaoCung: 0, maBien: 0.3, lienHoan: 1.5, loThong: 0.3, phoiHop: 0.3, totLienHoan: 0 },
-  donGianHoa: { xe: 0.5, ma: 0.2, raQuan: 0, apLuc: 0.5, anToan: 2, matGoc: 2, phongToa: 1, tot: 1, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 1, khuyetTuong: 1, totVaoCung: 1, maBien: 0.5, lienHoan: 1, loThong: 0.5, phoiHop: 0.5, totLienHoan: 1 },
-  tanCuoc: { xe: 0.7, ma: 0.2, raQuan: 0, apLuc: 1, anToan: 1, matGoc: 1, phongToa: 1, tot: 3, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 3, khuyetTuong: 3, totVaoCung: 3.5, maBien: 0.7, lienHoan: 1, loThong: 0.5, phoiHop: 1, totLienHoan: 1.5 },
-  canBang: { xe: 1.5, ma: 0.3, raQuan: 0.5, apLuc: 1, anToan: 1, matGoc: 1, phongToa: 1.5, tot: 0.5, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 1, khuyetTuong: 1, totVaoCung: 1, maBien: 1, lienHoan: 0.5, loThong: 1, phoiHop: 1, totLienHoan: 0.5 },
+  raQuan: { xe: 1.5, ma: 0.3, raQuan: 3, apLuc: 0.5, anToan: 1, matGoc: 1, phongToa: 1, tot: 0, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 0, khuyetTuong: 0, totVaoCung: 0, maBien: 1, lienHoan: 0.5, loThong: 1, phoiHop: 0.3, totLienHoan: 0, yeuDao: 1 },
+  tanCong: { xe: 0.7, ma: 0.2, raQuan: 0.5, apLuc: 3, anToan: 1, matGoc: 1, phongToa: 0.7, tot: 0.5, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 1.5, khuyetTuong: 1.5, totVaoCung: 2, maBien: 0.7, lienHoan: 0.3, loThong: 1, phoiHop: 1.5, totLienHoan: 0.5, yeuDao: 0.5 },
+  phongThu: { xe: 0.3, ma: 0.1, raQuan: 0.3, apLuc: 0.5, anToan: 3, matGoc: 1.5, phongToa: 1, tot: 0, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 0.5, khuyetTuong: 0.5, totVaoCung: 0, maBien: 0.3, lienHoan: 1.5, loThong: 0.3, phoiHop: 0.3, totLienHoan: 0, yeuDao: 0.3 },
+  donGianHoa: { xe: 0.5, ma: 0.2, raQuan: 0, apLuc: 0.5, anToan: 2, matGoc: 2, phongToa: 1, tot: 1, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 1, khuyetTuong: 1, totVaoCung: 1, maBien: 0.5, lienHoan: 1, loThong: 0.5, phoiHop: 0.5, totLienHoan: 1, yeuDao: 0.3 },
+  tanCuoc: { xe: 0.7, ma: 0.2, raQuan: 0, apLuc: 1, anToan: 1, matGoc: 1, phongToa: 1, tot: 3, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 3, khuyetTuong: 3, totVaoCung: 3.5, maBien: 0.7, lienHoan: 1, loThong: 0.5, phoiHop: 1, totLienHoan: 1.5, yeuDao: 0 },
+  canBang: { xe: 1.5, ma: 0.3, raQuan: 0.5, apLuc: 1, anToan: 1, matGoc: 1, phongToa: 1.5, tot: 0.5, diemThenChot: 1, catLienLac: 1, khongCheTuong: 1, khuyetSi: 1, khuyetTuong: 1, totVaoCung: 1, maBien: 1, lienHoan: 0.5, loThong: 1, phoiHop: 1, totLienHoan: 0.5, yeuDao: 1 },
 };
 
 /** Điểm chiến lược tổng của phe `s` trên một thế cờ, theo kế hoạch `plan`. */
@@ -311,6 +339,7 @@ export const GAIN_TEXT: Record<Principle, string[]> = {
     "để các quân hỗ trợ nhau tấn công thay vì đánh đơn độc",
   ],
   totLienHoan: ["giữ Tốt qua sông nối liên hoàn", "nối các Tốt qua sông với nhau"],
+  yeuDao: ["chiếm yếu đạo", "đưa quân lớn lên yếu đạo", "giành đường then chốt cho quân lớn"],
 };
 
 /** Câu cho việc nước đã đi làm nguyên lý kém đi (đứng được sau tên nước, "nhưng" hoặc dấu hai chấm). */
@@ -352,9 +381,11 @@ export const LOSS_TEXT: Record<Principle, string[]> = {
   loThong: ["để Xe rời lộ thông", "bỏ cột mở cho Xe", "đưa Xe khỏi lộ thông"],
   phoiHop: ["để quân tấn công đơn độc, thiếu phối hợp", "làm rời rạc thế phối hợp tấn công"],
   totLienHoan: ["làm Tốt qua sông rời nhau", "để Tốt qua sông đơn độc"],
+  yeuDao: ["bỏ yếu đạo", "rời đường then chốt", "để mất yếu đạo"],
 };
 
-export type OpeningFaultType = "repeatPiece" | "lateRook" | "edgeElephant" | "doubleEdgeHorse";
+export type OpeningFaultType =
+  | "repeatPiece" | "lateRook" | "edgeElephant" | "doubleEdgeHorse" | "earlyAdvisor" | "advisorBlocksRook" | "oneWing";
 
 export interface OpeningFault {
   fault: OpeningFaultType;
@@ -411,6 +442,18 @@ export function detectOpeningFault(
   }
 
   // Các lỗi hình cờ chỉ xét được khi biết ô đến (bàn cờ trước nước đi).
+  // Lệch cánh: một cánh đã ra đủ Xe Mã Pháo, cánh kia còn nguyên mà nước này vẫn không ra quân cánh đó.
+  if (square === move.from && wingImbalance(board, mover) === 3 && !homePieces(board, mover).includes(move.from)) {
+    return { fault: "oneWing", pieceSquare: square };
+  }
+  if (square === move.from && pType === "a" && ply <= 12) {
+    // Sĩ lên giữa cung chặn hàng 2: Xe còn ở góc hoặc mới lên một bước không đi hoành sang cánh kia được.
+    const center = mover === "r" ? 76 : 13;
+    const rookNeedsRank = pieces(board, mover, "r").some((i) => advance(i, mover) <= 1 && (colOf(i) === 0 || colOf(i) === 8));
+    if (move.to === center && rookNeedsRank) return { fault: "advisorBlocksRook", pieceSquare: square };
+    // Bổ Sĩ khi quân lớn còn nằm nhà: chậm ra quân, lộ thế trận sớm.
+    if (undeveloped >= 3) return { fault: "earlyAdvisor", pieceSquare: square };
+  }
   if (square === move.from) {
     const edge = (i: number) => colOf(i) === 0 || colOf(i) === 8;
     // 3. Phi Tượng ra biên: Tượng rời nhau, mất liên hoàn ("phi Tượng loạn là cờ kém").

@@ -15,8 +15,8 @@ export interface LlmCommentaryOptions {
   winDropPercent?: number; // % sụt giảm xác suất thắng
   openingName?: string;
   endgame?: TheoreticalEndgame | null;
-  /** Tùy chọn phong cách bình luận: "coach" (huấn luyện viên sư phạm), "grandmaster" (đại kiện tướng sắc sảo), "humorous" (hóm hỉnh) */
-  style?: "coach" | "grandmaster" | "humorous";
+  /** Tùy chọn phong cách bình luận: "coach" (huấn luyện viên sư phạm), "grandmaster" (đại kiện tướng sắc sảo), "humorous" (hóm hỉnh), "zhaoXinxin" (Lục Mạch Thần Kiếm Triệu Hâm Hâm), "xuYinchuan" (Thái Cực Bổng Hứa Ngân Xuyên) */
+  style?: "coach" | "grandmaster" | "humorous" | "zhaoXinxin" | "xuYinchuan";
 }
 
 export interface LlmPrompt {
@@ -28,6 +28,8 @@ const STYLE_INSTRUCTIONS: Record<NonNullable<LlmCommentaryOptions["style"]>, str
   coach: "Giọng điệu huấn luyện viên sư phạm, ân cần, giải thích nguyên nhân và rút ra bài học kỳ lý cho người chơi.",
   grandmaster: "Giọng điệu Đại kiện tướng sắc sảo, đanh thép, chỉ rõ sự tinh vi hoặc sai lầm nghiêm trọng trong kỳ đạo.",
   humorous: "Giọng điệu bình luận viên dí dỏm, hóm hỉnh nhưng vẫn chuẩn xác thuật ngữ kỳ nghệ.",
+  zhaoXinxin: "Giọng điệu 'Lục Mạch Thần Kiếm' Triệu Hâm Hâm: Sát khí sắc bén, đề cao tốc độ công thành, quả cảm 'thí quân đoạt tiên', phê phán sự do dự thủ thế và tán dương các đòn phế quân phá thành dũng mãnh.",
+  xuYinchuan: "Giọng điệu 'Thái Cực Bổng' Hứa Ngân Xuyên: Trầm tĩnh, sâu sắc, đề cao sự kín kẽ không tì vết, tôn vinh nghệ thuật 'dĩ nhu khắc cương', tích lũy từng ưu thế nhỏ và chuyển hóa tinh tế về tàn cuộc thắng.",
 };
 
 /**

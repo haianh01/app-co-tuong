@@ -6,6 +6,7 @@ import type {
   PositionAnalysisResult,
 } from "@/lib/xiangqi/position-analysis";
 import styles from "./PositionAnalysisModal.module.css";
+import { OPENING_TYPE_INFO } from "@/lib/xiangqi/opening-shapes";
 
 export interface PositionAnalysisModalProps {
   isOpen: boolean;
@@ -323,6 +324,11 @@ export function PositionAnalysisModal({
                 {analysis.layer6.shapes.length > 0 && (
                   <div className={styles.openingBox}>
                     <strong style={{ fontSize: "13px", color: "var(--gold-text)" }}>Thế trận theo kỳ lý</strong>
+                    {analysis.layer6.openingType && (
+                      <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+                        Loại khai cuộc: <b>{OPENING_TYPE_INFO[analysis.layer6.openingType].name}</b>, {OPENING_TYPE_INFO[analysis.layer6.openingType].note}
+                      </span>
+                    )}
                     {analysis.layer6.shapes.map((sh) => (
                       <span key={`${sh.side}-${sh.id}`} style={{ fontSize: "12px", color: sh.bad ? "var(--red-text)" : "var(--muted)" }}>
                         {sh.side === "r" ? "Đỏ" : "Đen"} · <b>{sh.name}</b>{sh.bad ? " (hình xấu)" : ""}: {sh.note}

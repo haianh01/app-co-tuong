@@ -11,6 +11,7 @@ const LINKS = [
   { href: "/play", label: "Chơi với máy" },
   { href: "/puzzle", label: "Cờ thế" },
   { href: "/masters", label: "Ván đại sư" },
+  { href: "/tuong-thuat", label: "Tường thuật" },
   { href: "/leaderboard", label: "Xếp hạng", also: ["/u/"] },
 ];
 

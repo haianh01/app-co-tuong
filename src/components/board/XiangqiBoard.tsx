@@ -94,6 +94,11 @@ export interface XiangqiBoardProps {
   arrows?: BoardArrow[];
   /** Các ô cờ cần làm nổi bật (highlights). */
   highlights?: number[];
+  /**
+   * Chế độ vẽ (bình luận): một lớp phủ nhận thao tác thay cho quân cờ. Kéo từ ô này sang ô khác gọi
+   * onAnnotate(từ, đến) để vẽ mũi tên; bấm một ô gọi onAnnotate(ô, ô) để khoanh ô đó.
+   */
+  onAnnotate?: (from: number, to: number) => void;
 }
 
 export function XiangqiBoard({
@@ -111,12 +116,14 @@ export function XiangqiBoard({
   children,
   arrows = [],
   highlights = [],
+  onAnnotate,
 }: XiangqiBoardProps) {
   const { user } = useSession();
   const boardRef = useRef<HTMLDivElement>(null);
   const pointer = useRef<{ square: number; x: number; y: number; id: number } | null>(null);
   const handledByPointer = useRef(false);
   const [drag, setDrag] = useState<{ square: number; dx: number; dy: number } | null>(null);
+  const [sketch, setSketch] = useState<{ from: number; to: number } | null>(null);
 
   const flip = orientation === "b";
   const place = (i: number) => {
@@ -405,6 +412,46 @@ export function XiangqiBoard({
               );
             })}
           </svg>
+        )}
+
+        {sketch && sketch.from !== sketch.to && (
+          <svg className={styles.overlays} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
+            <line
+              x1={place(sketch.from).x}
+              y1={place(sketch.from).y}
+              x2={place(sketch.to).x}
+              y2={place(sketch.to).y}
+              stroke="#3b82f6"
+              strokeWidth={4}
+              strokeDasharray="6 4"
+              strokeLinecap="round"
+              opacity={0.6}
+            />
+          </svg>
+        )}
+
+        {onAnnotate && (
+          <div
+            className={styles.drawLayer}
+            onPointerDown={(e) => {
+              if (e.button !== 0) return;
+              const from = squareAt(e.clientX, e.clientY);
+              if (from === null) return;
+              e.currentTarget.setPointerCapture(e.pointerId);
+              setSketch({ from, to: from });
+            }}
+            onPointerMove={(e) => {
+              if (!sketch) return;
+              const to = squareAt(e.clientX, e.clientY);
+              if (to !== null && to !== sketch.to) setSketch({ ...sketch, to });
+            }}
+            onPointerUp={() => {
+              if (sketch) onAnnotate(sketch.from, sketch.to);
+              setSketch(null);
+            }}
+            onPointerCancel={() => setSketch(null)}
+            onContextMenu={(e) => e.preventDefault()}
+          />
         )}
 
         {children}

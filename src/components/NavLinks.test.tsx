@@ -8,7 +8,7 @@ vi.mock("next/navigation", () => ({ usePathname: () => pathname.value }));
 const active = () => screen.queryAllByRole("link", { current: "page" }).map((a) => a.textContent);
 
 describe("menu chính", () => {
-  it("có đủ 7 mục với đúng đường dẫn", () => {
+  it("có đủ 8 mục với đúng đường dẫn", () => {
     render(<NavList pathname="/" />);
     const links = screen.getAllByRole("link").map((a) => [a.textContent, a.getAttribute("href")]);
     expect(links).toEqual([
@@ -18,6 +18,7 @@ describe("menu chính", () => {
       ["Chơi với máy", "/play"],
       ["Cờ thế", "/puzzle"],
       ["Ván đại sư", "/masters"],
+      ["Tường thuật", "/tuong-thuat"],
       ["Xếp hạng", "/leaderboard"],
     ]);
   });
@@ -31,6 +32,7 @@ describe("menu chính", () => {
     ["/play", "Chơi với máy"],
     ["/puzzle", "Cờ thế"],
     ["/masters", "Ván đại sư"],
+    ["/tuong-thuat", "Tường thuật"],
     ["/leaderboard", "Xếp hạng"],
     ["/u/haianh", "Xếp hạng"],
   ])("đang ở %s thì sáng mục '%s'", (path, label) => {
@@ -51,7 +53,7 @@ describe("menu chính", () => {
   it("chưa biết đường dẫn (bản prerender) thì không mục nào sáng", () => {
     render(<NavList pathname={null} />);
     expect(active()).toEqual([]);
-    expect(screen.getAllByRole("link")).toHaveLength(7);
+    expect(screen.getAllByRole("link")).toHaveLength(8);
   });
 
   it("NavLinks đọc đường dẫn hiện tại từ router", () => {

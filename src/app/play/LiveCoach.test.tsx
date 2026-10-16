@@ -41,8 +41,8 @@ describe("LiveCoach", () => {
     render(<LiveCoach state={state} player="r" />);
     expect(await screen.findByText("Nước tốt nhất", {}, { timeout: 10_000 })).toBeTruthy();
     expect(screen.getByText(/Độ chính xác 100%/)).toBeTruthy();
-    // Nước tốt vẫn có nhận xét chiến lược.
-    expect(screen.getByText(note("X9.2"))).toBeTruthy();
+    // Nước tốt có ý đồ đã kiểm chứng (ăn quân thật) thì nêu ý đồ thay cho nhận xét nguyên lý chung chung.
+    expect(screen.getByText(note("Ăn Xe"))).toBeTruthy();
   });
 
   it("cache kết quả theo cặp FEN: giữ nguyên kết quả nước cũ khi đi thêm nước mới", async () => {

@@ -485,6 +485,19 @@ function newlyLoose(before: Board, move: Move, after: Board, mover: Side): strin
  * Nhận xét chiến lược cho mọi nước (kể cả nước tốt): kế hoạch hiện tại và nước này làm được / làm hỏng gì
  * so với trước khi đi. Đo ngay sau nước đi; chỉ tính thêm nước đáp khi nước đó ăn quân mình (xem positionAfterMove).
  */
+/**
+ * Ý đồ đủ tin cậy để hiển thị thay cho nhận xét nguyên lý. Thí quân, đặt sát, lập hình giữ như trước;
+ * thêm các nhãn đã được người hiểu cờ chấm trên ván đại sư: hóa giải 7/7, ăn quân thật 7/7, chiếu tướng 2/2.
+ * Tróc quân (giữ tiên không chiếu) và đổi quân chưa đủ mẫu kiểm chứng nên chưa hiển thị.
+ */
+function isShownIntent(intent: IntentFact, before: Board, move: Move): boolean {
+  if (intent.purposes.some((p) => p === "thiQuan" || p === "datSat" || p === "lapHinh")) return true;
+  const primary = intent.primaryPurpose;
+  if (primary === "hoaGiai" || primary === "anQuan") return true;
+  if (primary === "giuTien") return inCheck(play(before, move), opponent(sideOf(before[move.from]!)));
+  return false;
+}
+
 export function moveIdea(
   before: Board,
   move: Move,
@@ -517,14 +530,7 @@ export function moveIdea(
       pv: intentOptions?.pv ?? pv,
       ply: intentOptions?.ply ?? ply,
     });
-    if (
-      intent &&
-      (intent.purposes.includes("thiQuan") ||
-        intent.purposes.includes("datSat") ||
-        intent.purposes.includes("lapHinh"))
-    ) {
-      return intent;
-    }
+    if (intent && isShownIntent(intent, before, move)) return intent;
   }
 
   const plan = choosePlan(before, mover, ply);

@@ -109,6 +109,7 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
         const historyMoves = state.moves.slice(0, i).map((x) => x.move);
         // Nước không bị chấm lỗi thì không chê (kể cả lỗi khai cuộc), tránh "Nước tốt" đi kèm câu chê
         const isFault = review.cls === "blunder" || review.cls === "mistake" || review.cls === "inaccuracy" || review.cls === "missedWin";
+        // Truyền PV và điểm engine để ý đồ được xác nhận bằng engine như lúc chấm trên ván đại sư
         const fact = moveIdea(
           state.history[i].board,
           m.move,
@@ -117,6 +118,12 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
           opening,
           historyMoves,
           best || !isFault,
+          afterEval?.pv,
+          {
+            evalBefore: { score: beforeEval.score },
+            evalAfter: afterEval ? { score: afterEval.score } : null,
+            loss: review.loss,
+          },
         );
         const idea = explainText(
           [isFault ? fact : withoutCriticism(fact)],

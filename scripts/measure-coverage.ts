@@ -35,6 +35,9 @@ const FAULT = new Set(["blunder", "mistake", "inaccuracy", "missedWin"]);
 // Dữ kiện lỗi không nói được nguyên nhân cụ thể
 const GENERIC_FACTS = new Set<Fact["kind"]>(["evalDrop"]);
 const PRINCIPLE_FACTS = new Set<Fact["kind"]>(["strategy"]);
+// Dữ kiện persona chỉ hiện khi người dùng chọn phong cách bình luận của đại sư tương ứng (xem explainText);
+// đo ở phong cách mặc định nên không tính.
+const PERSONA_FACTS = new Set<Fact["kind"]>(["zhaoMiddlegame", "xuMiddlegame"]);
 
 const count = <K extends string>(m: Map<K, number>, k: K) => m.set(k, (m.get(k) ?? 0) + 1);
 
@@ -49,6 +52,7 @@ async function main() {
   const shownLevels = new Map<Level, number>();
   const primaries = new Map<string, number>();
   const factKinds = new Map<string, number>();
+  const shownIntents = new Map<string, number>();
   let plies = 0;
   let skippedGames = 0;
 
@@ -94,8 +98,20 @@ async function main() {
         const isBest = !!evals[i].best && evals[i].best!.from === move.from && evals[i].best!.to === move.to;
 
         // Nhận xét như LiveCoach đang hiển thị
-        const idea = moveIdea(before, move, evals[i + 1]?.best ?? null, i, undefined, state.moves.slice(0, i).map((x) => x.move), isBest || !isFault);
+        // Gọi giống hệt LiveCoach: có PV và điểm engine để ý đồ được xác nhận
+        const idea = moveIdea(
+          before,
+          move,
+          evals[i + 1]?.best ?? null,
+          i,
+          undefined,
+          state.moves.slice(0, i).map((x) => x.move),
+          isBest || !isFault,
+          evals[i + 1]?.pv,
+          { evalBefore: { score: evals[i].score }, evalAfter: evals[i + 1] ? { score: evals[i + 1].score } : null, loss: rv.loss },
+        );
         const shown = isFault ? idea : withoutCriticism(idea);
+        if (shown.kind === "intent") count(shownIntents, shown.primaryPurpose);
 
         const moverAfter = evals[i + 1] ? -evals[i + 1].score : evals[i].score;
         const intent = detectIntent(before, move, after, {
@@ -108,11 +124,12 @@ async function main() {
         count(primaries, primary);
         for (const f of rv.facts) count(factKinds, f.kind);
 
-        const specificFact = rv.facts.some((f) => !GENERIC_FACTS.has(f.kind) && !PRINCIPLE_FACTS.has(f.kind));
+        const facts = rv.facts.filter((f) => !PERSONA_FACTS.has(f.kind));
+        const specificFact = facts.some((f) => !GENERIC_FACTS.has(f.kind) && !PRINCIPLE_FACTS.has(f.kind));
         const specificIdea = shown.kind === "intent" || shown.kind === "openingFault";
         const specificIntent = primary !== "—" && primary !== "caiThienQuan";
         const principle =
-          rv.facts.some((f) => PRINCIPLE_FACTS.has(f.kind)) ||
+          facts.some((f) => PRINCIPLE_FACTS.has(f.kind)) ||
           (shown.kind === "idea" && (shown.gains.length > 0 || shown.worsened.length > 0 || shown.loose.length > 0));
 
         const level: Level = specificFact || specificIdea || specificIntent ? "cuThe" : principle ? "nguyenLy" : "chungChung";
@@ -144,6 +161,8 @@ async function main() {
   const sorted = (m: Map<string, number>) => [...m.entries()].sort((a, b) => b[1] - a[1]);
   console.log("\nÝ chính (detectIntent.primaryPurpose):");
   for (const [k, v] of sorted(primaries)) console.log(`  ${k.padEnd(16)} ${v}`);
+  console.log("\nÝ đồ được hiển thị cho người dùng (theo ý chính):");
+  for (const [k, v] of sorted(shownIntents)) console.log(`  ${k.padEnd(16)} ${v}`);
   console.log("\nLoại dữ kiện giải thích lỗi (explainMove):");
   for (const [k, v] of sorted(factKinds)) console.log(`  ${k.padEnd(16)} ${v}`);
 }

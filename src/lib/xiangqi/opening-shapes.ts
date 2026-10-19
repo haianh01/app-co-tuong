@@ -14,7 +14,7 @@ export type ShapeId =
   | "nguLucPhao" | "nguThatPhao" | "nguBatPhao" | "nguCuuPhao"
   | "tuanHaPhao" | "siGiacPhao" | "uyenUongPhao" | "songPhaoQuaHa" | "loiCongPhao" | "quyBoiPhao" | "songBienPhao"
   // Mã
-  | "maBanHa" | "songBienMa" | "caiMaTamChuy"
+  | "maBanHa" | "songBienMa" | "caiMaTamChuy" | "maQuaiCuoc"
   // Tốt
   | "luongDauXa" | "tamBoHo"
   // Hình kém
@@ -44,33 +44,40 @@ const INFO: Record<ShapeId, { name: string; note: string; bad?: boolean }> = {
   xeTuanHa: { name: "Xe tuần hà", note: "Xe đứng bờ sông mình, vừa công vừa thủ, khống chế đường qua sông." },
   phaoPhongXe: { name: "Pháo phong Xe", note: "Pháo đối phương qua sông chặn đường ra của Xe.", bad: true },
   songPhaoPhongXe: { name: "Song Pháo phong Xe", note: "Cả hai Xe bị Pháo đối phương chặn đường ra.", bad: true },
-  maPhongXe: { name: "Mã phong Xe", note: "Mã đối phương chiếm điểm chặn đường tiến của Xe.", bad: true },
+  maPhongXe: { name: "Ngoại Mã phong Xe", note: "Mã ngoài của đối phương đứng bờ sông chặn lộ Xe; đối phương vừa phong Xe vừa giữ Xe mình tự do, đổi lại trung lộ bên đó mỏng.", bad: true },
   nguLucPhao: { name: "Ngũ lục Pháo", note: "Pháo đầu kèm Pháo lộ 6 sát nhau, quân có căn, thế vững." },
   nguThatPhao: { name: "Ngũ thất Pháo", note: "Pháo đầu kèm Pháo lộ 7, nhắm Mã và Tốt 3 của đối phương." },
   nguBatPhao: { name: "Ngũ bát Pháo", note: "Pháo đầu kèm Pháo lộ 8 tiến lên, ép cánh Xe của đối phương." },
   nguCuuPhao: { name: "Ngũ cửu Pháo", note: "Pháo đầu kèm Pháo biên lộ 9, mở đường cho Xe ra, xuất quân cân bằng." },
   tuanHaPhao: { name: "Pháo tuần hà", note: "Pháo đứng bờ sông mình, vững chắc, dễ chuyển ngang chi viện." },
   siGiacPhao: { name: "Sĩ giác Pháo", note: "Pháo đứng góc Sĩ, thủ chắc và mở đường cho Xe." },
-  songBienPhao: { name: "Song biên Pháo", note: "Hai Pháo cùng ra biên (lộ 1 và lộ 9), uy hiếp Xe biên và đáy, hợp vây từ hai cánh." },
-  uyenUongPhao: { name: "Uyên ương Pháo", note: "Hai Pháo chồng cùng một lộ, hình hiếm, dễ bị nghẽn." },
+  songBienPhao: { name: "Song biên Pháo", note: "Hai Pháo cùng ra biên; khác với Song biên Mã, đây là cấu trúc tốt, dùng được yên tâm." },
+  uyenUongPhao: {
+    name: "Uyên ương Pháo",
+    note: "Xe biên tiến hai bước giữ Pháo, rồi lui Pháo sang cùng cánh: dồn hai Pháo một bên, có bẫy chiến thuật nhưng trái nguyên tắc chiếm yếu đạo.",
+  },
   songPhaoQuaHa: { name: "Song Pháo qua hà", note: "Hai Pháo cùng qua sông, công mạnh nhưng hậu phương mỏng." },
   loiCongPhao: {
-    name: "Lôi công Pháo (Oa tâm Pháo)",
-    note: "Pháo lui về giữa cung mình, chồng Pháo nhắm trung lộ; công mạnh nhưng ra quân chậm và cản Tướng Sĩ.",
+    name: "Lôi công Pháo",
+    note: "Hai Pháo cùng đặt trung lộ, một Pháo ở hàng 2: dồn sức đánh trung lộ; Pháo dưới cản Tướng Sĩ, nên dùng linh hoạt, không nhất thiết phải chồng giữa.",
   },
   quyBoiPhao: {
     name: "Quy bối Pháo",
-    note: "Đáp Pháo đầu bằng Xe hoành rồi lui Pháo 8 một bước để điều quân; công thủ kiêm bị nhưng đi lại một quân nhiều lần, quân dễ cản nhau.",
+    note: "Đáp Pháo đầu bằng lui Pháo 8 một bước rồi bình sang cánh phải (Pháo 8 bình 3); dồn quân một cánh, ra quân vòng vèo, dễ bị Pháo bình lộ sườn phong tỏa.",
   },
   caiMaTamChuy: {
     name: "Cái Mã tam chùy",
-    note: "Ngũ thất Pháo, Mã đi biên rồi vòng lên trung lộ (Mã 8 tiến 9, tiến 7, tiến 5), đột phá một điểm ở giữa.",
+    note: "Thí Tốt 7 dụ Tượng đối phương lên cao, rồi Mã biên tiến 7, tiến 6 công Mã đối phương; là thủ đoạn chiến thuật, dùng được trong nhiều khai cuộc.",
+  },
+  maQuaiCuoc: {
+    name: "Mã quải cước (拐脚马)",
+    note: "Mã nhảy lên lộ 4/6 sát Sĩ (Mã 2 tiến 4): mở nhanh đường Xe cánh đó nhưng dễ bị công; dùng được nếu kiểm soát được rủi ro.",
   },
   maBanHa: { name: "Mã bàn hà", note: "Mã đứng bờ sông lộ 4 hoặc lộ 6, sẵn sàng nhảy qua sông tranh tiên." },
   songBienMa: { name: "Song biên Mã", note: "Cả hai Mã ra biên, ít chỗ nhảy; chỉ dùng trong thế đặc biệt.", bad: true },
   luongDauXa: { name: "Lưỡng đầu xà", note: "Tốt 3 và Tốt 7 cùng tiến, mở đường cho hai Mã." },
   tamBoHo: { name: "Tam bộ hổ", note: "Pháo ra biên, Xe ra lộ của Pháo cũ: xuất Xe nhanh trong ba nước." },
-  phiTuongTrungBinh: { name: "Phi Tượng tiến Tốt giữa", note: "Phi Tượng cục mà vẫn tiến Tốt giữa, dùng thế vững để tranh trung lộ." },
+  phiTuongTrungBinh: { name: "Phi Tượng tiến Tốt giữa", note: "Cờ tán thủ vẫn tiến Tốt giữa để Mã bàn đầu lên điểm vai Tượng; chỉ nên đi khi có mục đích rõ, Tốt giữa dễ bị bắt." },
   tuongBien: { name: "Tượng biên", note: "Phi Tượng ra biên trong khai cuộc làm Tượng rời nhau, cung yếu.", bad: true },
 };
 
@@ -138,7 +145,7 @@ export function detectShapes(board: Board, s: Side): Shape[] {
   else if (blocked.length === 1) ids.push("phaoPhongXe");
   if (
     rooks.some((r) =>
-      own(board, o, "n").some((n) => colOf(n) === colOf(r) && advance(n, o) >= 5 && between(board, r, n) === 0 && isDefended(board, n, o) && advance(r, s) <= 2),
+      own(board, o, "n").some((n) => colOf(n) === colOf(r) && advance(n, o) >= 4 && between(board, r, n) === 0 && isDefended(board, n, o) && advance(r, s) <= 2),
     )
   ) {
     ids.push("maPhongXe");
@@ -159,19 +166,29 @@ export function detectShapes(board: Board, s: Side): Shape[] {
     if (advance(c, s) === 4) ids.push("tuanHaPhao");
     if (center === undefined && advance(c, s) === 2 && (fileOf(c, s) === 4 || fileOf(c, s) === 6)) ids.push("siGiacPhao");
   }
-  if (cannons.some((c) => fileOf(c, s) === 5 && advance(c, s) === 1)) ids.push("loiCongPhao");
-  // Quy bối Pháo: đối phương có Pháo đầu, Pháo lộ 2/8 của mình lui một bước khỏi hàng Pháo (Pháo 8 thoái 1).
+  // Lôi công Pháo: cả hai Pháo cùng trên trung lộ, một Pháo lui xuống hàng 2 (Pháo thoái 1 rồi bình 5).
+  if (cannons.length === 2 && cannons.every((c) => fileOf(c, s) === 5) && cannons.some((c) => advance(c, s) === 1)) ids.push("loiCongPhao");
+  // Uyên ương Pháo: Xe biên tiến hai bước (Xe 9 tiến 2) và hai Pháo dồn về cánh của Xe đó.
+  const wingOf = (i: number) => (fileOf(i, s) > 5 ? "L" : fileOf(i, s) < 5 ? "R" : "C");
+  const uyenUong = rooks.some(
+    (r) => (fileOf(r, s) === 1 || fileOf(r, s) === 9) && advance(r, s) === 2 && cannons.length === 2 && cannons.every((c) => wingOf(c) === wingOf(r)),
+  );
+  if (uyenUong) ids.push("uyenUongPhao");
+  // Quy bối Pháo: trước Pháo đầu đối phương, Pháo 8 lui một bước (hoặc đã bình sang lộ 3 ở hàng đó), Xe biên không lên 2.
   const oppCenter = own(board, o, "c").some((c) => fileOf(c, o) === 5);
-  if (oppCenter && cannons.some((c) => (fileOf(c, s) === 2 || fileOf(c, s) === 8) && advance(c, s) === 1)) ids.push("quyBoiPhao");
-  if (cannons.length === 2 && colOf(cannons[0]) === colOf(cannons[1])) ids.push("uyenUongPhao");
+  const retreated = cannons.some((c) => advance(c, s) === 1 && [2, 3, 7, 8].includes(fileOf(c, s)));
+  if (oppCenter && retreated && !uyenUong) ids.push("quyBoiPhao");
   if (cannons.length === 2 && cannons.every((c) => advance(c, s) >= 5)) ids.push("songPhaoQuaHa");
   if (cannons.length === 2 && cannons.every((c) => fileOf(c, s) === 1 || fileOf(c, s) === 9)) ids.push("songBienPhao");
 
   // Mã
   if (horses.some((n) => advance(n, s) === 4 && (fileOf(n, s) === 4 || fileOf(n, s) === 6))) ids.push("maBanHa");
-  if (ids.includes("nguThatPhao") && horses.some((n) => fileOf(n, s) === 5 && advance(n, s) >= 3 && advance(n, s) <= 5)) {
+  // Cái Mã tam chùy: Tượng đối phương bị dụ lên cao (Tượng ở bờ sông), Mã mình đã vòng lên lộ 6/7 (Mã 9 tiến 7, tiến 6).
+  const highElephant = own(board, o, "b").some((b) => advance(b, o) === 4);
+  if (highElephant && horses.some((n) => (fileOf(n, s) === 6 || fileOf(n, s) === 7) && advance(n, s) >= 3 && advance(n, s) <= 5)) {
     ids.push("caiMaTamChuy");
   }
+  if (horses.some((n) => (fileOf(n, s) === 4 || fileOf(n, s) === 6) && advance(n, s) === 2)) ids.push("maQuaiCuoc");
   if (horses.length === 2 && horses.every((n) => fileOf(n, s) === 1 || fileOf(n, s) === 9)) ids.push("songBienMa");
 
   // Tốt

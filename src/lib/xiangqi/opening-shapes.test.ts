@@ -42,13 +42,23 @@ describe("detectShapes", () => {
 });
 
 describe("thế tra cứu thêm", () => {
-  it("Lôi công Pháo: Pháo về giữa cung mình", () => {
-    expect(ids("4k4/9/9/9/9/9/9/9/4C4/3AKA3 w")).toContain("loiCongPhao");
+  it("Lôi công Pháo: hai Pháo cùng trung lộ, một Pháo ở hàng 2 (bài 34)", () => {
+    expect(ids("4k4/9/9/9/9/9/9/4C4/4C4/3AKA3 w")).toContain("loiCongPhao");
+    // Chỉ một Pháo lui về giữa cung: chưa phải Lôi công Pháo.
+    expect(ids("4k4/9/9/9/9/9/9/9/4C4/3AKA3 w")).not.toContain("loiCongPhao");
   });
 
-  it("Cái Mã tam chùy: Ngũ thất Pháo và Mã lên trung lộ", () => {
-    const fen = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/4N4/P1P3P1P/2C1C4/9/R1BAKABNR w";
+  it("Cái Mã tam chùy: Tượng đen bị dụ lên cao, Mã đỏ vòng lên lộ 6 (bài 25)", () => {
+    const fen = "rnbaka1nr/9/1c5c1/p1p1p1p1p/3N2b2/9/P3P1P1P/2C1C4/9/R1BAKABNR w";
     expect(ids(fen)).toContain("caiMaTamChuy");
+    // Mã lên trung lộ mà Tượng đối phương chưa lên cao: không phải.
+    expect(ids("rnbakabnr/9/1c5c1/p1p1p1p1p/9/4N4/P1P3P1P/2C1C4/9/R1BAKABNR w")).not.toContain("caiMaTamChuy");
+  });
+
+  it("Uyên ương Pháo: Xe 9 tiến 2, hai Pháo dồn về cánh Xe; không nhầm sang Quy bối Pháo (bài 36)", () => {
+    const fen = "rnbakabn1/6c2/7cr/p1p1p1p1p/9/9/P1P1P1P1P/1C2C4/9/RNBAKABNR w";
+    expect(ids(fen, "b")).toContain("uyenUongPhao");
+    expect(ids(fen, "b")).not.toContain("quyBoiPhao");
   });
 });
 
@@ -112,5 +122,19 @@ describe("classifyOpeningType (bài 2)", () => {
     expect(classifyOpeningType("T3.5", start)).toBe("tanThu");
     // Trung binh là khai cuộc riêng, không phải Pháo đầu
     expect(classifyOpeningType("B5.1", start)).toBe("tanThu");
+  });
+});
+
+describe("Ngoại Mã phong Xe (bài 18)", () => {
+  it("Mã 7 tiến 8 đứng bờ sông bên mình, có căn, chặn lộ Xe trực", () => {
+    // Mã đen cột 7 hàng 4, Xe đen cột 7 hàng 0 giữ; Xe đỏ cột 7 hàng 9.
+    expect(ids("r1bakabr1/9/6n2/p1p1p1p1p/7n1/9/P1P1P1P1P/4C1N2/9/RNBAKABR1 w")).toContain("maPhongXe");
+  });
+});
+
+describe("Mã quải cước 拐脚马 (bài 24)", () => {
+  it("Mã 2 tiến 4 đứng sát Sĩ", () => {
+    // Mã đỏ từ cột 7 hàng 9 lên cột 5 hàng 7 (lộ 4).
+    expect(ids("rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C3N1C1/9/RNBAKAB1R w")).toContain("maQuaiCuoc");
   });
 });

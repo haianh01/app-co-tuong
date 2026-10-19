@@ -436,7 +436,7 @@ export function AnalysisPanel({
                       onClick={() => onSelect(n.ply)}
                     >
                       <span className={styles.storyPly}>Nước {Math.max(1, Math.ceil(n.ply / 2))}</span>
-                      <span>{n.text}</span>
+                      <span>{n.kind === "planThread" ? `🎯 ${n.text}` : n.text}</span>
                     </button>
                   </li>
                 ))}

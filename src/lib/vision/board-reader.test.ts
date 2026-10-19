@@ -135,6 +135,8 @@ describe("hiệu chỉnh từ thế cờ ban đầu", () => {
     const cal = calibrate(patchesOf({ board: moved.board, bottom: "r", shift: 1, lastMove: m(7, 7, 7, 4) }), start.board, "r");
     expect(cal.confidence).toBeGreaterThan(0.85);
     expect(cal.misplaced).toBeGreaterThan(0);
+    expect(cal.mismatchedSquares).toBeDefined();
+    expect(cal.mismatchedSquares!.length).toBeGreaterThan(0);
   });
 
   it("báo tin cậy thấp khi trang kia đang ở giữa ván chứ không phải thế ban đầu", () => {

@@ -228,7 +228,18 @@ export function BroadcastClient() {
         <section className={styles.card}>
           <h1 className={styles.title}>Tường thuật</h1>
           <p className={styles.step}>{step}</p>
-          {captureError && <p className={styles.error} role="alert">{captureError}</p>}
+          {captureError && (
+            <div className={styles.errorBox} role="alert">
+              <p className={styles.error}>{captureError}</p>
+              {game.moves.length > 0 && (
+                <div>
+                  <button type="button" className={styles.btnGold} onClick={newMatch}>
+                    ↺ Đặt lại ván mới về đầu
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
           {status !== "idle" && surface && surface !== "browser" && (
             <p className={styles.warn} role="status">
               {surface === "window"
@@ -357,11 +368,18 @@ function GridPreview({ w, h, a, b }: { w: number; h: number; a?: Point; b?: Poin
       for (let c = 0; c < 9; c++) dots.push({ x: (a.x + ((b.x - a.x) * c) / 8) * w, y: (a.y + ((b.y - a.y) * r) / 9) * h });
     }
   } else if (a) dots.push({ x: a.x * w, y: a.y * h });
+  const cornerR = Math.max(7, w / 120);
   return (
     <svg className={styles.gridPreview} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
       {dots.map((d, i) => (
         <circle key={i} cx={d.x} cy={d.y} r={Math.max(3, w / 300)} fill="#facc15" stroke="#000" strokeWidth={Math.max(1, w / 1200)} />
       ))}
+      {a && (
+        <circle cx={a.x * w} cy={a.y * h} r={cornerR} fill="none" stroke="#22c55e" strokeWidth={Math.max(2, w / 400)} />
+      )}
+      {b && (
+        <circle cx={b.x * w} cy={b.y * h} r={cornerR} fill="none" stroke="#22c55e" strokeWidth={Math.max(2, w / 400)} />
+      )}
     </svg>
   );
 }

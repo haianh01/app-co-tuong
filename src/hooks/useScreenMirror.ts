@@ -156,15 +156,76 @@ export function useScreenMirror(onMoves: (moves: Move[]) => void) {
       const video = videoRef.current;
       if (corners.length < 2 || !video) return false;
       const aspect = video.videoWidth / video.videoHeight;
-      const patches = grab(corners);
+      let bestCorners = corners;
+      let patches = grab(bestCorners);
       if (!patches) return false;
+      let result = calibrate(patches, start.board, forceBottom);
+
+      // Nếu người dùng bấm hơi lệch góc, tự động dò tìm vi sai (micro-nudge)
+      // để tự căn chỉnh lưới chuẩn xác vào tâm các giao điểm
+      if (result.confidence < MIN_CONFIDENCE || result.misplaced > 0) {
+        const [p1, p2] = corners;
+        const cw = Math.abs(p1.x - p2.x) / 8;
+        const ch = Math.abs(p1.y - p2.y) / 9;
+
+        const shifts = [
+          { dx: 0.03 * cw, dy: 0 },
+          { dx: -0.03 * cw, dy: 0 },
+          { dx: 0, dy: 0.03 * ch },
+          { dx: 0, dy: -0.03 * ch },
+          { dx: 0.03 * cw, dy: 0.03 * ch },
+          { dx: -0.03 * cw, dy: -0.03 * ch },
+          { dx: 0.03 * cw, dy: -0.03 * ch },
+          { dx: -0.03 * cw, dy: 0.03 * ch },
+          { dx: 0.06 * cw, dy: 0 },
+          { dx: -0.06 * cw, dy: 0 },
+          { dx: 0, dy: 0.06 * ch },
+          { dx: 0, dy: -0.06 * ch },
+        ];
+
+        for (const s of shifts) {
+          const cand: Point[] = [
+            { x: p1.x + s.dx, y: p1.y + s.dy },
+            { x: p2.x + s.dx, y: p2.y + s.dy },
+          ];
+          const candPatches = grab(cand);
+          if (!candPatches) continue;
+          const candRes = calibrate(candPatches, start.board, forceBottom);
+          if (
+            candRes.misplaced < result.misplaced ||
+            (candRes.misplaced === result.misplaced && candRes.confidence > result.confidence)
+          ) {
+            result = candRes;
+            patches = candPatches;
+            bestCorners = cand;
+            if (result.confidence >= MIN_CONFIDENCE && result.misplaced === 0) {
+              setCorners(cand);
+              break;
+            }
+          }
+        }
+      }
+
+      if (bestCorners !== corners && result.confidence >= MIN_CONFIDENCE) {
+        setCorners(bestCorners);
+      }
+
       const fromStart = toFen(start) === toFen(initialPosition());
-      const result = calibrate(patches, start.board, forceBottom);
       if (result.confidence < MIN_CONFIDENCE) {
+        if (!fromStart) {
+          const initRes = calibrate(patches, initialPosition().board, forceBottom);
+          if (initRes.confidence >= MIN_CONFIDENCE && initRes.misplaced === 0) {
+            setError(
+              "Ảnh chụp bên kia đang ở thế cờ ban đầu (ván mới), nhưng bàn cờ bên trái của app đang có nước đi dở dang. Hãy bấm nút “Đặt lại ván mới về đầu” bên dưới để đồng bộ.",
+            );
+            return false;
+          }
+        }
+
         setError(
           fromStart
-            ? "Không nhận ra thế cờ ban đầu. Kiểm tra lại: hai góc phải bấm đúng giao điểm ngoài cùng của lưới. Nếu ván bên kia đã đi vài nước, hãy tắt chế độ Vẽ và tự đi lại các nước đó trên bàn cờ ở đây cho giống, rồi bấm lại “Bắt đầu theo dõi”."
-            : "Ảnh không khớp thế cờ trên bàn cờ ở đây. Kiểm tra lại: hai góc phải bấm đúng giao điểm ngoài cùng của lưới, và các quân trên bàn cờ ở đây phải đứng giống hệt trang kia.",
+            ? "Không nhận ra thế cờ ban đầu. Kiểm tra lại: hai góc phải bấm đúng tâm của 2 con Xe ở góc ngoài cùng của lưới. Nếu ván bên kia đã đi vài nước, hãy tắt chế độ Vẽ và tự đi lại các nước đó trên bàn cờ ở đây cho giống, rồi bấm lại “Bắt đầu theo dõi”."
+            : "Ảnh không khớp thế cờ trên bàn cờ ở đây. Kiểm tra lại: hai góc phải bấm đúng tâm của 2 con Xe góc ngoài cùng, và các quân trên bàn cờ ở đây phải đứng giống hệt trang kia.",
         );
         return false;
       }

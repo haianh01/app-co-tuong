@@ -8,9 +8,10 @@ import { CLASS_NAME, type MoveClass, type MoveReview, type ReviewResult } from "
 import { opponent, type Side } from "./engine";
 import type { GameState } from "./game";
 import { planSeries, type GamePhase, type PhaseEventKind } from "./phases";
+import { type PlanThread } from "./plan-thread";
 import type { Plan } from "./strategy";
 
-export type StoryKind = "opening" | "phase" | "planShift" | "punished" | "unpunished" | "swing" | PhaseEventKind;
+export type StoryKind = "opening" | "phase" | "planShift" | "punished" | "unpunished" | "swing" | "planThread" | PhaseEventKind;
 
 export interface StoryNote {
   /** Nửa nước gắn với ghi chú (giống MoveReview.ply). */
@@ -19,6 +20,7 @@ export interface StoryNote {
   /** Bên được nói tới, nếu có. */
   side?: Side;
   text: string;
+  thread?: PlanThread;
 }
 
 const SIDE: Record<Side, string> = { r: "Đỏ", b: "Đen" };
@@ -187,7 +189,38 @@ export function buildStory(review: ReviewResult, state: GameState): StoryNote[] 
     }
   }
 
-  const order: StoryKind[] = ["punished", "unpunished", "swing", "opening", "phase", "planShift"];
+  // 6. Mạch kế hoạch (PlanThread): chọn tối đa 3 mạch tiêu biểu nhất theo độ quan trọng
+  const threadScore = (t: PlanThread): number => {
+    let score = 0;
+    if (t.outcome === "thanhCong") score += 100;
+    else if (t.outcome === "doiQuan") score += 60;
+    else if (t.outcome === "biHoaGiai") score += 40;
+    else score += 10;
+    if (t.strikeMove) score += 40; // Có đòn dứt điểm cụ thể
+    if (t.target.kind !== "cungTuong") score += 20; // Mục tiêu cụ thể, độ tin cậy cao
+    const distinctPieces = new Set(t.route.map((r) => r.pieceId ?? r.move.from)).size;
+    if (distinctPieces >= 2) score += 20; // Đa quân phối hợp
+    score += Math.min(t.route.length * 5, 25);
+    return score;
+  };
+
+  const notableThreads = [...(review.planThreads ?? [])]
+    .filter((t) => t.outcome !== "boDo" || t.route.length >= 3)
+    .sort((a, b) => threadScore(b) - threadScore(a))
+    .slice(0, 3)
+    .sort((a, b) => a.startPly - b.startPly);
+
+  for (const t of notableThreads) {
+    notes.push({
+      ply: t.endPly,
+      kind: "planThread",
+      side: t.side,
+      text: t.summary,
+      thread: t,
+    });
+  }
+
+  const order: StoryKind[] = ["punished", "unpunished", "swing", "opening", "phase", "planShift", "planThread"];
   const rank = (k: StoryKind) => (order.includes(k) ? order.indexOf(k) : order.length);
   return notes.sort((a, b) => a.ply - b.ply || rank(a.kind) - rank(b.kind));
 }

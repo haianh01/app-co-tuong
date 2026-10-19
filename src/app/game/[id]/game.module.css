@@ -443,6 +443,11 @@
   border-left-color: var(--gold);
 }
 
+.storyItem[data-kind="planThread"] {
+  border-left-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.06);
+}
+
 .storyPly {
   flex: 0 0 auto;
   min-width: 52px;

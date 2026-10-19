@@ -18,6 +18,7 @@ import {
   type GamePhase,
   type PhaseSummary,
 } from "./phases";
+import { type PlanThread, trackPlanThreads } from "./plan-thread";
 import type { Plan } from "./strategy";
 import { detectThreat, type ThreatFact } from "./threats";
 import { formatPvLine } from "./uci";
@@ -270,6 +271,7 @@ export interface ReviewResult {
   opening?: string;
   phases?: PhaseSummary[];
   openingGuide?: OpeningGuide | null;
+  planThreads?: PlanThread[];
 }
 
 /**
@@ -604,12 +606,14 @@ export function reviewGame(state: GameState, evals: (PositionEval | null)[]): Re
   });
 
   const avg = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
+  const planThreads = trackPlanThreads(state.moves, state.history.map((h) => h.board), evals);
   return {
     moves: reviews,
     accuracy: { r: avg(acc.r), b: avg(acc.b) },
     opening,
     phases,
     openingGuide,
+    planThreads,
   };
 }
 

@@ -171,40 +171,57 @@ export interface CalibrationResult {
    * (một nước đã làm 2 ô sai, mà `confidence` vẫn còn ~0.98).
    */
   misplaced: number;
+  mismatchedSquares?: number[];
 }
 
 /**
  * Hiệu chỉnh từ ảnh của thế cờ `start` (thường là thế ban đầu, hoặc thế người dùng đã tự đi tới cho khớp trang kia;
- * hàng 0 là phía Đen). `bottom` để trống thì tự đoán phe ngồi dưới theo màu chữ trên quân.
+ * hàng 0 là phía Đen). `bottom` để trống thì tự đoán phe ngồi dưới theo màu chữ trên quân và độ khớp hình ảnh.
  */
 export function calibrate(screenPatches: Patch[], start: Board, bottom?: Side): CalibrationResult {
-  if (!bottom) {
-    // Xoay bàn cờ theo hướng nào thì các ô có quân đỏ trên ảnh "đỏ" hơn các ô có quân đen.
-    const fit = (side: Side) =>
-      start.reduce((sum, p, sq) => (p ? sum + (sideOf(p) === "r" ? 1 : -1) * redness(screenPatches[screenToSquare(sq, side)]) : sum), 0);
-    bottom = fit("r") >= fit("b") ? "r" : "b";
-  }
-  const patches = toBoardOrder(screenPatches, bottom);
-  const templates = learnTemplates(patches, start);
+  const evaluate = (b: Side): CalibrationResult => {
+    const patches = toBoardOrder(screenPatches, b);
+    const templates = learnTemplates(patches, start);
 
-  // Kiểm tra: mỗi ô phải giống nhất với một ô khác cùng nhãn.
-  let ok = 0;
-  let misplaced = 0;
-  patches.forEach((p, i) => {
-    let best = Infinity;
-    let bestLabel: Label = "";
-    patches.forEach((q, j) => {
-      if (j === i) return;
-      const d = patchDistance(p, q);
-      if (d < best) {
-        best = d;
-        bestLabel = labelOf(start[j]);
+    // Kiểm tra: mỗi ô phải giống nhất với một ô khác cùng nhãn.
+    let ok = 0;
+    let misplaced = 0;
+    const mismatchedSquares: number[] = [];
+    patches.forEach((p, i) => {
+      let best = Infinity;
+      let bestLabel: Label = "";
+      patches.forEach((q, j) => {
+        if (j === i) return;
+        const d = patchDistance(p, q);
+        if (d < best) {
+          best = d;
+          bestLabel = labelOf(start[j]);
+        }
+      });
+      if (bestLabel === labelOf(start[i])) {
+        ok++;
+      } else {
+        mismatchedSquares.push(i);
+        if (!bestLabel !== !start[i]) misplaced++;
       }
     });
-    if (bestLabel === labelOf(start[i])) ok++;
-    else if (!bestLabel !== !start[i]) misplaced++;
-  });
-  return { bottom, templates, confidence: ok / 90, misplaced };
+    return { bottom: b, templates, confidence: ok / 90, misplaced, mismatchedSquares };
+  };
+
+  if (bottom) return evaluate(bottom);
+
+  const resR = evaluate("r");
+  const resB = evaluate("b");
+
+  // Nếu một bên có misplaced = 0 và bên kia misplaced > 0 khi confidence tốt:
+  if (resR.misplaced === 0 && resB.misplaced > 0 && resR.confidence >= 0.8) return resR;
+  if (resB.misplaced === 0 && resR.misplaced > 0 && resB.confidence >= 0.8) return resB;
+  if (resR.confidence >= resB.confidence + 0.05) return resR;
+  if (resB.confidence >= resR.confidence + 0.05) return resB;
+
+  const fit = (side: Side) =>
+    start.reduce((sum, p, sq) => (p ? sum + (sideOf(p) === "r" ? 1 : -1) * redness(screenPatches[screenToSquare(sq, side)]) : sum), 0);
+  return fit("r") >= fit("b") ? resR : resB;
 }
 
 /**

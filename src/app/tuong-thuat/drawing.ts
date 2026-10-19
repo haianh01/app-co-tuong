@@ -1,10 +1,10 @@
 // Nét vẽ bình luận trên bàn cờ, có lịch sử để hoàn tác (Ctrl+Z) và làm lại (Ctrl+Y / Ctrl+Shift+Z).
 
-import type { BoardArrow } from "@/components/board/XiangqiBoard";
+import type { BoardArrow, BoardHighlight } from "@/components/board/XiangqiBoard";
 
 export interface Drawing {
   arrows: BoardArrow[];
-  marks: number[];
+  marks: BoardHighlight[];
 }
 
 export interface DrawingHistory {
@@ -27,7 +27,11 @@ export const EMPTY_DRAWING: DrawingHistory = { past: [], present: { arrows: [], 
 
 function annotate({ arrows, marks }: Drawing, from: number, to: number, color: string): Drawing {
   if (from === to) {
-    return { arrows, marks: marks.includes(from) ? marks.filter((s) => s !== from) : [...marks, from] };
+    const existingIdx = marks.findIndex((m) => (typeof m === "number" ? m === from : m.square === from));
+    if (existingIdx >= 0) {
+      return { arrows, marks: marks.filter((_, i) => i !== existingIdx) };
+    }
+    return { arrows, marks: [...marks, { square: from, color }] };
   }
   const same = (a: BoardArrow) => a.from === from && a.to === to;
   return {

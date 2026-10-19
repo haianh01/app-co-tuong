@@ -6,7 +6,10 @@ import { EMPTY_DRAWING, drawingReducer, type DrawingAction, type DrawingHistory 
 const run = (actions: DrawingAction[], from: DrawingHistory = EMPTY_DRAWING) => actions.reduce(drawingReducer, from);
 const arrow = (from: number, to: number, color = "#3b82f6"): DrawingAction => ({ type: "annotate", from, to, color });
 const mark = (sq: number): DrawingAction => ({ type: "annotate", from: sq, to: sq, color: "#3b82f6" });
-const shown = (s: DrawingHistory) => ({ arrows: s.present.arrows.map((a) => [a.from, a.to]), marks: s.present.marks });
+const shown = (s: DrawingHistory) => ({
+  arrows: s.present.arrows.map((a) => [a.from, a.to]),
+  marks: s.present.marks.map((m) => (typeof m === "number" ? m : m.square)),
+});
 
 describe("hoàn tác nét vẽ", () => {
   it("vẽ 2 mũi tên và khoanh 1 ô, Ctrl+Z ba lần thì gỡ dần từ nét mới nhất", () => {
@@ -24,6 +27,7 @@ describe("hoàn tác nét vẽ", () => {
     const s = run([arrow(70, 67, "#ef4444"), mark(4), { type: "clear" }, { type: "undo" }]);
     expect(shown(s)).toEqual({ arrows: [[70, 67]], marks: [4] });
     expect(s.present.arrows[0].color).toBe("#ef4444");
+    expect(s.present.marks[0]).toEqual({ square: 4, color: "#3b82f6" });
   });
 
   it("kéo lại đúng mũi tên đã có để bỏ nó: Ctrl+Z vẽ lại mũi tên đó", () => {

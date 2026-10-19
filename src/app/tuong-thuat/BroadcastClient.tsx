@@ -5,7 +5,8 @@ import { XiangqiBoard } from "@/components/board/XiangqiBoard";
 import { PositionAnalysisModal } from "@/components/board/PositionAnalysisModal";
 import { usePositionAnalysis } from "@/hooks/usePositionAnalysis";
 import { useScreenMirror, type Point } from "@/hooks/useScreenMirror";
-import { applyMove, findKing, inCheck, legalMovesFrom, sideOf, type Move, type Side } from "@/lib/xiangqi/engine";
+import { playSound } from "@/lib/sound";
+import { applyMove, findKing, inCheck, legalMovesFrom, sideOf, toFen, type Move, type Position, type Side } from "@/lib/xiangqi/engine";
 import { gameReducer, newGame, type GameAction, type GameState } from "@/lib/xiangqi/game";
 import styles from "./broadcast.module.css";
 import { EMPTY_DRAWING, drawingReducer } from "./drawing";
@@ -16,6 +17,15 @@ const COLORS = [
   { value: "#ef4444", label: "Đỏ" },
   { value: "#f59e0b", label: "Vàng" },
 ];
+
+function playMoveSound(prevPos: Position, move: Move) {
+  const isCapture = prevPos.board[move.to] !== null;
+  const nextPos = applyMove(prevPos, move);
+  const isCheck = inCheck(nextPos.board, nextPos.turn);
+  if (isCheck) playSound("check");
+  else if (isCapture) playSound("capture");
+  else playSound("move");
+}
 
 /**
  * Ván trên trang nguồn là chuẩn: kể cả khi luật của app đã xử kết thúc (ví dụ lặp nước), vẫn ghi tiếp
@@ -38,18 +48,26 @@ export function BroadcastClient() {
   const [color, setColor] = useState(COLORS[0].value);
   const [clearOnMove, setClearOnMove] = useState(true);
   const [flipped, setFlipped] = useState(false);
+  const [copied, setCopied] = useState<"fen" | "moves" | null>(null);
   const boardColRef = useRef<HTMLDivElement>(null);
+  const movesContainerRef = useRef<HTMLDivElement>(null);
+  const activePlyRef = useRef<HTMLButtonElement>(null);
   const [videoSize, setVideoSize] = useState({ w: 1, h: 1 });
 
   const clearDrawings = useCallback(() => draw({ type: "clear" }), []);
 
   const onMoves = useCallback(
     (moves: Move[]) => {
-      for (const move of moves) dispatch({ type: "move", move });
+      let currentPos = game.history[game.history.length - 1];
+      for (const move of moves) {
+        playMoveSound(currentPos, move);
+        currentPos = applyMove(currentPos, move);
+        dispatch({ type: "move", move });
+      }
       setSelected(null);
       if (clearOnMove) clearDrawings();
     },
-    [clearOnMove, clearDrawings],
+    [clearOnMove, clearDrawings, game.history],
   );
   const {
     videoRef, status, error: captureError, corners, bottom, diag, surface, start, stop, addCorner, follow, resync, repick,
@@ -67,6 +85,7 @@ export function BroadcastClient() {
   const onSquareClick = (i: number) => {
     if (selected !== null && targets.includes(i)) {
       const move = { from: selected, to: i };
+      playMoveSound(livePos, move);
       dispatch({ type: "move", move });
       if (status === "following") resync(applyMove(livePos, move));
       setSelected(null);
@@ -103,6 +122,14 @@ export function BroadcastClient() {
   };
 
   useEffect(() => {
+    if (activePlyRef.current) {
+      activePlyRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    } else if (movesContainerRef.current) {
+      movesContainerRef.current.scrollTop = movesContainerRef.current.scrollHeight;
+    }
+  }, [ply, game.moves.length]);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
       const key = e.key.toLowerCase();
@@ -115,6 +142,27 @@ export function BroadcastClient() {
         return;
       }
       if (e.altKey) return;
+      if (e.key === " " && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setDrawing((d) => !d);
+        setSelected(null);
+        return;
+      }
+      if (e.key === "Home") {
+        e.preventDefault();
+        setViewPly(0);
+        return;
+      }
+      if (e.key === "End") {
+        e.preventDefault();
+        setViewPly(null);
+        return;
+      }
+      if (["1", "2", "3", "4"].includes(e.key) && !e.ctrlKey && !e.metaKey) {
+        const idx = Number(e.key) - 1;
+        if (COLORS[idx]) setColor(COLORS[idx].value);
+        return;
+      }
       if (e.key === "Escape" || key === "c") clearDrawings();
       else if (e.key === "ArrowLeft") setViewPly((v) => Math.max(0, (v ?? game.moves.length) - 1));
       else if (e.key === "ArrowRight")
@@ -146,6 +194,26 @@ export function BroadcastClient() {
     return out;
   }, [game.moves]);
 
+  const copyFen = async () => {
+    try {
+      const fen = toFen(pos);
+      await navigator.clipboard.writeText(fen);
+      setCopied("fen");
+      setTimeout(() => setCopied((c) => (c === "fen" ? null : c)), 2000);
+    } catch {}
+  };
+
+  const copyMoves = async () => {
+    try {
+      const text = pairs
+        .map((p) => `${p.round}. ${p.plies.map((x) => x.text).join(" ")}`)
+        .join("\n");
+      await navigator.clipboard.writeText(text);
+      setCopied("moves");
+      setTimeout(() => setCopied((c) => (c === "moves" ? null : c)), 2000);
+    } catch {}
+  };
+
   const [a, b] = corners;
   const step =
     status === "idle"
@@ -172,6 +240,7 @@ export function BroadcastClient() {
           disabled={!canMove}
           arrows={sketch.present.arrows}
           highlights={sketch.present.marks}
+          sketchColor={color}
           onAnnotate={drawing ? onAnnotate : undefined}
         />
         <div className={styles.toolbar}>
@@ -179,7 +248,7 @@ export function BroadcastClient() {
             type="button"
             className={styles.btn}
             aria-pressed={drawing}
-            title={drawing ? "Tắt vẽ để đi quân bằng tay" : "Đang đi quân bằng tay: bấm quân rồi bấm ô đến"}
+            title={drawing ? "Tắt vẽ để đi quân bằng tay (Phím Space)" : "Bật chế độ vẽ mũi tên & khoanh ô (Phím Space)"}
             onClick={() => {
               setDrawing((d) => !d);
               setSelected(null);
@@ -187,13 +256,14 @@ export function BroadcastClient() {
           >
             ✏️ {drawing ? "Đang vẽ" : "Vẽ"}
           </button>
-          {COLORS.map((c) => (
+          {COLORS.map((c, idx) => (
             <button
               key={c.value}
               type="button"
               className={styles.swatch}
               style={{ background: c.value }}
               aria-label={`Màu ${c.label}`}
+              title={`Màu ${c.label} (Phím ${idx + 1})`}
               aria-pressed={color === c.value}
               onClick={() => setColor(c.value)}
             />
@@ -327,7 +397,21 @@ export function BroadcastClient() {
               Ván mới
             </button>
           </div>
-          <div className={styles.moves} aria-label="Biên bản nước đi">
+          <div className={styles.row}>
+            <button type="button" className={styles.btn} onClick={copyFen} title="Sao chép FEN của thế cờ đang xem">
+              {copied === "fen" ? "✓ Đã chép FEN" : "📋 Chép FEN"}
+            </button>
+            <button
+              type="button"
+              className={styles.btn}
+              onClick={copyMoves}
+              disabled={game.moves.length === 0}
+              title="Sao chép toàn bộ biên bản nước đi của ván"
+            >
+              {copied === "moves" ? "✓ Đã chép biên bản" : "📋 Chép biên bản"}
+            </button>
+          </div>
+          <div ref={movesContainerRef} className={styles.moves} aria-label="Biên bản nước đi">
             {pairs.length === 0 && <p className={styles.muted}>Chưa có nước nào.</p>}
             {pairs.map((p) => (
               <div key={p.round} className={styles.moveRow}>
@@ -335,6 +419,7 @@ export function BroadcastClient() {
                 {p.plies.map((x) => (
                   <button
                     key={x.ply}
+                    ref={x.ply === ply ? activePlyRef : undefined}
                     type="button"
                     className={styles.moveCell}
                     aria-current={x.ply === ply || undefined}

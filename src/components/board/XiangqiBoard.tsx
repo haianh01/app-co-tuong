@@ -74,6 +74,11 @@ export interface BoardArrow {
   dashed?: boolean;
 }
 
+export interface BoardHighlight {
+  square: number;
+  color?: string;
+}
+
 export interface XiangqiBoardProps {
   board: Board;
   /** Mã cố định của từng quân (xem pieceIds) để vẽ hiệu ứng quân trượt khi di chuyển. */
@@ -92,8 +97,10 @@ export interface XiangqiBoardProps {
   children?: ReactNode;
   /** Các mũi tên vẽ SVG trên bàn cờ (nước đã đi, nước nên đi, nước đáp). */
   arrows?: BoardArrow[];
-  /** Các ô cờ cần làm nổi bật (highlights). */
-  highlights?: number[];
+  /** Các ô cờ cần làm nổi bật (highlights), hỗ trợ số ô hoặc đối tượng kèm màu. */
+  highlights?: (number | BoardHighlight)[];
+  /** Màu nét vẽ phác thảo khi rê chuột (mặc định #3b82f6). */
+  sketchColor?: string;
   /**
    * Chế độ vẽ (bình luận): một lớp phủ nhận thao tác thay cho quân cờ. Kéo từ ô này sang ô khác gọi
    * onAnnotate(từ, đến) để vẽ mũi tên; bấm một ô gọi onAnnotate(ô, ô) để khoanh ô đó.
@@ -116,6 +123,7 @@ export function XiangqiBoard({
   children,
   arrows = [],
   highlights = [],
+  sketchColor = "#3b82f6",
   onAnnotate,
 }: XiangqiBoardProps) {
   const { user } = useSession();
@@ -341,22 +349,37 @@ export function XiangqiBoard({
               <marker id="arrowhead-reply" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
                 <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#f59e0b" />
               </marker>
+              <marker id="arrowhead-blue" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#3b82f6" />
+              </marker>
+              <marker id="arrowhead-green" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#22c55e" />
+              </marker>
+              <marker id="arrowhead-red" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#ef4444" />
+              </marker>
+              <marker id="arrowhead-yellow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#f59e0b" />
+              </marker>
               <marker id="arrowhead-custom" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
                 <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#3b82f6" />
               </marker>
             </defs>
 
             {/* Highlights các ô */}
-            {highlights.map((sq) => {
+            {highlights.map((hl, idx) => {
+              const sq = typeof hl === "number" ? hl : hl.square;
+              const color = typeof hl === "number" ? "#f59e0b" : (hl.color ?? "#f59e0b");
               const pt = place(sq);
+              const fillColor = color.startsWith("#") ? `${color}38` : "rgba(245, 158, 11, 0.22)";
               return (
-                <g key={`hl-${sq}`}>
+                <g key={`hl-${idx}-${sq}`}>
                   <circle
                     cx={pt.x}
                     cy={pt.y}
                     r={24}
-                    fill="rgba(245, 158, 11, 0.22)"
-                    stroke="#f59e0b"
+                    fill={fillColor}
+                    stroke={color}
                     strokeWidth={2.5}
                     strokeDasharray="5 3"
                   />
@@ -391,13 +414,20 @@ export function XiangqiBoard({
                   ? "#3b82f6"
                   : "#ef4444");
 
+              const colorMarkerMap: Record<string, string> = {
+                "#3b82f6": "arrowhead-blue",
+                "#22c55e": "arrowhead-green",
+                "#ef4444": "arrowhead-red",
+                "#f59e0b": "arrowhead-yellow",
+              };
+
               const markerId =
                 kind === "better"
                   ? "arrowhead-better"
                   : kind === "reply"
                   ? "arrowhead-reply"
                   : kind === "custom"
-                  ? "arrowhead-custom"
+                  ? (a.color && colorMarkerMap[a.color]) ?? "arrowhead-custom"
                   : "arrowhead-played";
 
               return (
@@ -426,7 +456,7 @@ export function XiangqiBoard({
               y1={place(sketch.from).y}
               x2={place(sketch.to).x}
               y2={place(sketch.to).y}
-              stroke="#3b82f6"
+              stroke={sketchColor}
               strokeWidth={4}
               strokeDasharray="6 4"
               strokeLinecap="round"

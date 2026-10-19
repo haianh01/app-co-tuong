@@ -21,7 +21,7 @@
 
 import {
   type Board, type Move, type Piece, type Side,
-  attackersOf, colOf, crossedRiver, findKing, inCheck, inPalace, isDefended, legalMoves,
+  attackersOf, colOf, crossedRiver, findKing, inCheck, inPalace, isDefended, legalMoves, legalMovesFrom,
   opponent, PIECE_VALUES, pseudoMoves, rowOf, ROWS, sideOf, sq, typeOf,
 } from "./engine";
 import { exchangeGain, hangingPieces } from "./explain";
@@ -153,8 +153,15 @@ export function detectGradualConstriction(
   if ((exchangeGain(after, move.to, opp) ?? 0) > 0) return null;
 
   const beforeLegal = legalMoves({ board: before, turn: opp }).length;
-  const afterLegal = legalMoves({ board: after, turn: opp }).length;
-  if (afterLegal > beforeLegal - 3) return null;
+  // Đếm nước sau nước đi và dừng ngay khi đã vượt ngưỡng (kết quả y hệt đếm hết, nhưng nhanh hơn nhiều).
+  const limit = beforeLegal - 3;
+  let afterLegal = 0;
+  const afterPos = { board: after, turn: opp };
+  for (let i = 0; i < after.length && afterLegal <= limit; i++) {
+    const p = after[i];
+    if (p && sideOf(p) === opp) afterLegal += legalMovesFrom(afterPos, i).length;
+  }
+  if (afterLegal > limit) return null;
 
   const pName = nameOf(piece);
   return fact(
@@ -185,8 +192,9 @@ export function detectWaitingMove(
     (mType === "r" && !crossedRiver(rowOf(move.to), mover) && Math.abs(rowOf(move.to) - rowOf(move.from)) + Math.abs(colOf(move.to) - colOf(move.from)) === 1);
   if (!isQuiet) return null;
 
-  if (hangingPieces(after, mover).length > 0) return null;
+  // Điều kiện rẻ trước, quét quân treo (tốn nhất) sau; thứ tự không đổi kết quả.
   if (attackPressure(after, mover) > 0) return null;
+  if (hangingPieces(after, mover).length > 0) return null;
 
   const pName = nameOf(piece);
   return fact(
@@ -388,7 +396,7 @@ export function detectCounterFromDefense(
   const mover = sideOf(piece);
   const opp = opponent(mover);
 
-  if (inCheck(before, mover) || hangingPieces(before, mover).length > 0) return null;
+  if (inCheck(before, mover)) return null;
 
   const isCheck = inCheck(after, opp);
   const hitAfter = attackedSet(after, mover);
@@ -406,6 +414,8 @@ export function detectCounterFromDefense(
   }
 
   if (!isCheck && !threatenedMajor) return null;
+  // Xét sau cùng vì tốn nhất (quét mọi quân bị nhắm); thứ tự không đổi kết quả.
+  if (hangingPieces(before, mover).length > 0) return null;
 
   const pName = nameOf(piece);
   return fact(

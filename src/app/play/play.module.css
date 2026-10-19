@@ -61,6 +61,11 @@
   font-size: 13px;
 }
 
+.controls .panelHead {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
 .panelTitle {
   font-size: 18px;
 }
@@ -138,17 +143,14 @@
   .status :global(.muted) {
     display: none;
   }
-  .controls {
-    order: 5;
-  }
-  .controls .actions {
-    order: -1;
-  }
   .review {
     order: 5;
   }
-  .setup {
+  .controls {
     order: 6;
+  }
+  .setup {
+    order: 7;
   }
 }
 
@@ -167,7 +169,7 @@
   cursor: pointer;
 }
 
-/* Huấn luyện / phân tích ván: ngay dưới khung điều khiển, cả trên màn hình hẹp. */
+/* Huấn luyện / phân tích ván: đặt lên đầu phía trên khung biên bản / điều khiển. */
 .review {
   display: flex;
   flex-direction: column;

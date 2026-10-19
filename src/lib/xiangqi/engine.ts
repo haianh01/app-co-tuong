@@ -285,14 +285,76 @@ export function hasMatingMaterial(board: Board, side: Side): boolean {
   return board.some((p) => !!p && sideOf(p) === side && "rncph".includes(typeOf(p)));
 }
 
-/** Các ô có quân phe `by` ăn được quân đang đứng ở ô `target` (theo cách đi, không xét tự lộ tướng). */
+/**
+ * Các ô có quân phe `by` đi tới / ăn được ô `target` (theo cách đi, không xét tự lộ tướng).
+ * Kết quả giống hệt `pseudoMoves(board, i).includes(target)` cho mọi quân phe `by`, theo thứ tự ô tăng dần,
+ * nhưng dò ngược từ ô đích thay vì sinh nước cho mọi quân (đây là hàm nóng nhất của exchangeGain).
+ * Ô đích trống: Pháo đi tới không cần ngòi; ô đích có quân đối phương: Pháo phải có đúng một ngòi.
+ */
 export function attackersOf(board: Board, target: number, by: Side): number[] {
+  const tp = board[target];
+  if (tp && sideOf(tp) === by) return []; // không quân nào đi vào ô có quân mình
+  const r = rowOf(target);
+  const c = colOf(target);
   const out: number[] = [];
-  for (let i = 0; i < board.length; i++) {
-    const p = board[i];
-    if (p && sideOf(p) === by && pseudoMoves(board, i).includes(target)) out.push(i);
+  const own = (i: number, t: PieceType) => {
+    const q = board[i];
+    return !!q && sideOf(q) === by && typeOf(q) === t;
+  };
+
+  // Xe, Pháo theo 4 hướng.
+  for (const [dr, dc] of ORTHO) {
+    let rr = r + dr;
+    let cc = c + dc;
+    let screened = false;
+    while (inBoard(rr, cc)) {
+      const i = sq(rr, cc);
+      if (board[i]) {
+        if (!screened) {
+          if (own(i, "r") || (!tp && own(i, "c"))) out.push(i);
+          screened = true;
+        } else {
+          if (tp && own(i, "c")) out.push(i);
+          break;
+        }
+      }
+      rr += dr;
+      cc += dc;
+    }
   }
-  return out;
+
+  // Mã: chân Mã tính từ phía con Mã.
+  for (const [dr, dc, lr, lc] of HORSE) {
+    const hr = r - dr;
+    const hc = c - dc;
+    if (!inBoard(hr, hc) || !own(sq(hr, hc), "n")) continue;
+    if (!board[sq(hr + lr, hc + lc)]) out.push(sq(hr, hc));
+  }
+
+  // Tốt: tiến thẳng tới ô đích, hoặc đi ngang khi đã qua sông.
+  const back = by === "r" ? 1 : -1;
+  if (inBoard(r + back, c) && own(sq(r + back, c), "p")) out.push(sq(r + back, c));
+  if (crossedRiver(r, by)) {
+    for (const d of [-1, 1]) if (inBoard(r, c + d) && own(sq(r, c + d), "p")) out.push(sq(r, c + d));
+  }
+
+  // Tướng, Sĩ: ô đích phải trong cung phe `by`.
+  if (inPalace(r, c, by)) {
+    for (const [dr, dc] of ORTHO) if (inBoard(r + dr, c + dc) && own(sq(r + dr, c + dc), "k")) out.push(sq(r + dr, c + dc));
+    for (const [dr, dc] of DIAG) if (inBoard(r + dr, c + dc) && own(sq(r + dr, c + dc), "a")) out.push(sq(r + dr, c + dc));
+  }
+
+  // Tượng: không qua sông, mắt Tượng phải trống.
+  if (!crossedRiver(r, by)) {
+    for (const [dr, dc] of DIAG) {
+      const er = r - 2 * dr;
+      const ec = c - 2 * dc;
+      if (!inBoard(er, ec) || !own(sq(er, ec), "b")) continue;
+      if (!board[sq(r - dr, c - dc)]) out.push(sq(er, ec));
+    }
+  }
+
+  return out.sort((a, b) => a - b);
 }
 
 /** Ô `target` có được phe `side` bảo vệ không: nếu quân ở đó bị ăn, phe `side` ăn lại được. */

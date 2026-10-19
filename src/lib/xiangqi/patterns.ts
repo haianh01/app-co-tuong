@@ -3,7 +3,7 @@
 // Chạy cực nhanh (< 0.05ms) vì chỉ đọc chỉ số mảng 90 ô, không đệ quy.
 
 import {
-  Board, Side, colOf, findKing, inCheck, isAttacked, opponent, rowOf, sideOf, sq, typeOf,
+  Board, Side, colOf, findKing, inCheck, isAttacked, opponent, pseudoMoves, rowOf, sideOf, sq, typeOf,
 } from "./engine";
 
 export type MatePatternId =
@@ -23,7 +23,12 @@ export type MatePatternId =
   | "muon_cung"         // Muộn cung / Muộn sát (Tướng kẹt giữa 2 Sĩ)
   | "dai_dao_khu_oa"    // Đại đao khu oa (Đao xuyên tâm phá Sĩ)
   | "nhi_quy_phach_mon" // Nhị quỷ phách môn (Song Tốt vỗ cửa cung)
-  | "song_ma_am_tuyen"; // Song Mã ẩm tuyền (Hai Mã liên hoàn kẹp cung)
+  | "song_ma_am_tuyen"  // Song Mã ẩm tuyền (Hai Mã liên hoàn kẹp cung)
+  | "bat_hoang_ma"      // Bạt hoàng Mã (Dời quân chặn chân Mã để Mã chiếu)
+  | "phao_nien_dan_sa"  // Pháo niễn đan sa (Pháo chìm đáy cùng Xe càn quét Sĩ Tượng)
+  | "tong_phat_quy_dien" // Tống Phật quy điện (Tốt đuổi chiếu Tướng từng bước)
+  | "than_ap_quan"      // Thần áp quân (Quân của chính đối phương chặn đường Tướng)
+  | "tam_tu_quy_bien";  // Tam tử quy biên (Ba quân dồn một cánh đối phương)
 
 export interface DetectedPattern {
   id: MatePatternId;
@@ -663,6 +668,195 @@ function detectSongMaAmTuyen(board: Board, side: Side, kSq: number): DetectedPat
   return null;
 }
 
+// Định nghĩa 5 hình dưới theo "36 sát pháp cơ bản" (老猿象棋): 拔簧马, 炮辗丹砂, 送佛归殿, 臣压君, 三子归边.
+
+/** Phe `by` có khống chế ô `step` mà Tướng ở `kSq` định bước tới không (đặt thử Tướng vào đó để xét đúng luật Pháo, lộ mặt). */
+function kingStepCovered(board: Board, kSq: number, step: number, by: Side): boolean {
+  const probe = board.slice();
+  probe[step] = probe[kSq];
+  probe[kSq] = null;
+  return isAttacked(probe, step, by);
+}
+
+/** Các ô Tướng ở `kSq` bước tới được (trong cung, theo hàng dọc / ngang). */
+function kingSteps(kSq: number, owner: Side): number[] {
+  const r = rowOf(kSq), c = colOf(kSq);
+  const rows = owner === "b" ? [0, 1, 2] : [7, 8, 9];
+  return [[1, 0], [-1, 0], [0, 1], [0, -1]]
+    .map(([dr, dc]) => [r + dr, c + dc])
+    .filter(([rr, cc]) => rows.includes(rr) && cc >= 3 && cc <= 5)
+    .map(([rr, cc]) => sq(rr, cc));
+}
+
+// ============================================================================
+// 18. Bạt hoàng Mã (拔簧马)
+// Quân của mình đang chặn chân Mã nhắm Tướng; dời quân đó đi là Mã chiếu (chiếu lộ diện bằng Mã).
+// ============================================================================
+function detectBatHoangMa(board: Board, side: Side, kSq: number): DetectedPattern | null {
+  const kr = rowOf(kSq), kc = colOf(kSq);
+  const horse = side === "r" ? "N" : "n";
+  // Chỉ 8 ô cách Tướng một bước Mã mới có thể chứa Mã nhắm Tướng (không quét cả bàn).
+  for (const [dr, dc, lr, lc] of HORSE_STEPS) {
+    const hr = kr - dr, hc = kc - dc;
+    if (hr < 0 || hr > 9 || hc < 0 || hc > 8) continue;
+    const hSq = sq(hr, hc);
+    if (board[hSq] !== horse) continue;
+    {
+      const legSq = sq(hr + lr, hc + lc);
+      const blocker = board[legSq];
+      if (!blocker || sideOf(blocker) !== side || !"rncp".includes(typeOf(blocker))) continue;
+      return {
+        id: "bat_hoang_ma",
+        name: "Bạt hoàng Mã",
+        side,
+        targetSide: opponent(side),
+        pieces: [hSq, legSq, kSq],
+        isCheck: false,
+        description: "Quân mình đang chặn chân Mã nhắm thẳng Tướng: dời quân đó đi (thường kèm chiếu hoặc ăn quân) là Mã chiếu lộ diện, đối phương khó đỡ cả hai đòn.",
+      };
+    }
+  }
+  return null;
+}
+
+// ============================================================================
+// 19. Pháo niễn đan sa (炮辗丹砂)
+// Pháo chìm xuống hàng đáy đối phương, có Xe phối hợp sát đáy, càn quét Sĩ Tượng.
+// ============================================================================
+function detectPhaoNienDanSa(board: Board, side: Side, kSq: number): DetectedPattern | null {
+  const opp = opponent(side);
+  const base = opp === "b" ? 0 : 9;
+  const nearBase = opp === "b" ? 1 : 8;
+  const rook = side === "r" ? "R" : "r";
+  const cannon = side === "r" ? "C" : "c";
+  let rookHelps = false;
+  for (let c = 0; c < 9 && !rookHelps; c++) rookHelps = board[sq(base, c)] === rook || board[sq(nearBase, c)] === rook;
+  if (!rookHelps) return null;
+  for (let col = 0; col < 9; col++) {
+    const cSq = sq(base, col);
+    if (board[cSq] !== cannon) continue;
+    const prey = pseudoMoves(board, cSq).find((t) => {
+      const v = board[t];
+      return !!v && sideOf(v) === opp && rowOf(t) === base && (typeOf(v) === "a" || typeOf(v) === "b");
+    });
+    if (prey === undefined) continue;
+    return {
+      id: "phao_nien_dan_sa",
+      name: "Pháo niễn đan sa",
+      side,
+      targetSide: opp,
+      pieces: [cSq, prey, kSq],
+      isCheck: inCheck(board, opp),
+      description: "Pháo chìm đáy được Xe yểm trợ, càn quét Sĩ Tượng dọc hàng đáy, phòng tuyến cung Tướng tan rã dần.",
+    };
+  }
+  return null;
+}
+
+// ============================================================================
+// 20. Tống Phật quy điện (送佛归殿)
+// Tốt có quân khác yểm trợ chiếu Tướng đã rời hàng đáy, từng bước đuổi Tướng về đáy cung.
+// ============================================================================
+function detectTongPhatQuyDien(board: Board, side: Side, kSq: number): DetectedPattern | null {
+  const opp = opponent(side);
+  if (rowOf(kSq) === (opp === "b" ? 0 : 9)) return null; // Tướng đã ở đáy: không còn "đuổi về điện"
+  const pawn = side === "r" ? "P" : "p";
+  // Tốt chỉ chiếu được khi đứng sát Tướng: xét 4 ô kề Tướng thay vì quét cả bàn.
+  const kr = rowOf(kSq), kc = colOf(kSq);
+  for (const [dr, dc] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const r = kr + dr, c = kc + dc;
+    if (r < 0 || r > 9 || c < 0 || c > 8) continue;
+    const pSq = sq(r, c);
+    if (board[pSq] !== pawn) continue;
+    if (!pseudoMoves(board, pSq).includes(kSq)) continue;
+    // Tốt phải được quân khác của mình bảo vệ (Tướng không ăn được): đặt thử Tướng đối phương vào ô Tốt.
+    const probe = board.slice();
+    probe[pSq] = probe[kSq];
+    probe[kSq] = null;
+    if (!isAttacked(probe, pSq, side)) continue;
+    return {
+      id: "tong_phat_quy_dien",
+      name: "Tống Phật quy điện",
+      side,
+      targetSide: opp,
+      pieces: [pSq, kSq],
+      isCheck: true,
+      description: "Tốt có quân yểm trợ chiếu sát mặt Tướng, từng bước đuổi Tướng lùi về đáy cung để các quân khác kết liễu.",
+    };
+  }
+  return null;
+}
+
+// ============================================================================
+// 21. Thần áp quân (臣压君)
+// Tướng bị chiếu, mọi ô thoát đều bị khống chế hoặc bị chính quân tấn công (Xe Mã Pháo Tốt) của đối phương chặn.
+// ============================================================================
+function detectThanApQuan(board: Board, side: Side, kSq: number): DetectedPattern | null {
+  const opp = opponent(side);
+  const steps = kingSteps(kSq, opp);
+  // Lọc rẻ trước: phải có quân tấn công (Xe Mã Pháo Tốt) của chính đối phương chặn ô thoát; chặn bằng Sĩ là Muộn cung.
+  const blockers = steps.filter((st) => {
+    const v = board[st];
+    return !!v && sideOf(v) === opp && "rncp".includes(typeOf(v));
+  });
+  if (blockers.length === 0) return null;
+  if (!inCheck(board, opp)) return null;
+  for (const step of steps) {
+    const v = board[step];
+    if (v && sideOf(v) === opp) continue;
+    if (!kingStepCovered(board, kSq, step, side)) return null; // Tướng còn đường thoát
+  }
+  return {
+    id: "than_ap_quan",
+    name: "Thần áp quân",
+    side,
+    targetSide: opp,
+    pieces: [...blockers, kSq],
+    isCheck: true,
+    description: "Chính quân của đối phương đứng chắn đường thoát của Tướng (bề tôi đè vua), một nước chiếu là Tướng hết đường chạy.",
+  };
+}
+
+// ============================================================================
+// 22. Tam tử quy biên (三子归边)
+// Ba quân tấn công (Xe, Mã, Pháo) cùng dồn về một cánh bên sân đối phương, cùng khống chế cung Tướng.
+// ============================================================================
+function detectTamTuQuyBien(board: Board, side: Side, kSq: number): DetectedPattern | null {
+  const opp = opponent(side);
+  const palaceRows = opp === "b" ? [0, 1, 2] : [7, 8, 9];
+  // Một lượt quét nửa sân đối phương lấy Xe Mã Pháo của mình.
+  const majors: number[] = [];
+  const [from, to] = opp === "b" ? [0, 45] : [45, 90];
+  for (let i = from; i < to; i++) {
+    const p = board[i];
+    if (p && sideOf(p) === side && "rnc".includes(typeOf(p))) majors.push(i);
+  }
+  if (majors.length < 3) return null;
+  for (const flank of [(c: number) => c <= 3, (c: number) => c >= 5]) {
+    if (!(flank(colOf(kSq)) || colOf(kSq) === 4)) continue; // Tướng phải ở cánh đó hoặc giữa cung
+    const group = majors.filter((i) => flank(colOf(i)));
+    if (group.length < 3) continue;
+    const hit = new Set<number>();
+    let attackers = 0;
+    for (const i of group) {
+      const into = pseudoMoves(board, i).filter((t) => palaceRows.includes(rowOf(t)) && colOf(t) >= 3 && colOf(t) <= 5);
+      if (into.length) attackers++;
+      into.forEach((t) => hit.add(t));
+    }
+    if (attackers < 3 || hit.size < 2) continue;
+    return {
+      id: "tam_tu_quy_bien",
+      name: "Tam tử quy biên",
+      side,
+      targetSide: opp,
+      pieces: [...group, kSq],
+      isCheck: inCheck(board, opp),
+      description: "Ba quân tấn công cùng dồn về một cánh đối phương, phối hợp uy hiếp cung Tướng — lấy đông đánh ít.",
+    };
+  }
+  return null;
+}
+
 // ============================================================================
 // Danh sách tất cả các hàm nhận diện
 // ============================================================================
@@ -684,6 +878,11 @@ const DETECTORS: ((board: Board, side: Side, kSq: number) => DetectedPattern | n
   detectDaiDaoKhuOa,
   detectNhiQuyPhachMon,
   detectSongMaAmTuyen,
+  detectBatHoangMa,
+  detectPhaoNienDanSa,
+  detectTongPhatQuyDien,
+  detectThanApQuan,
+  detectTamTuQuyBien,
 ];
 
 /**

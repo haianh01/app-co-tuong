@@ -9,6 +9,7 @@ import { CLASS_NAME, reviewMove, type MoveReview, type PositionEval } from "@/li
 import { toFen, type Side } from "@/lib/xiangqi/engine";
 import { explainText, moveIdea, withoutCriticism, type CommentaryStyle } from "@/lib/xiangqi/explain";
 import type { GameState } from "@/lib/xiangqi/game";
+import { explainMovePlan, type MovePlanFact } from "@/lib/xiangqi/move-plan";
 import { openingOf } from "@/lib/xiangqi/openings";
 import { punishmentNotes } from "@/lib/xiangqi/story";
 import game from "@/app/game/[id]/game.module.css";
@@ -23,6 +24,9 @@ interface CachedCoachItem {
   accuracy?: number | null;
   best: boolean;
   idea: string;
+  /** Kế hoạch của nước đã đi (và của nước AI gợi ý nếu nước bị chấm lỗi), xem move-plan.ts. */
+  movePlan: string;
+  betterPlan: string;
 }
 
 export function LiveCoach({ state, player }: { state: GameState; player: Side }) {
@@ -71,7 +75,7 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
   }, [state.moves]);
 
   const { mine, accuracy } = useMemo(() => {
-    const items: (MoveReview & { ready: boolean; best: boolean; idea: string; actualReply?: string; story?: string[] })[] = [];
+    const items: (MoveReview & { ready: boolean; best: boolean; idea: string; movePlan: string; betterPlan: string; actualReply?: string; story?: string[] })[] = [];
     const accScores: number[] = [];
 
     state.moves.forEach((m, i) => {
@@ -94,6 +98,8 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
           ready: false,
           best: false,
           idea: "",
+          movePlan: "",
+          betterPlan: "",
         });
         return;
       }
@@ -130,7 +136,13 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
           m.side,
           i + 1,
         );
-        cached = { review, scoreLoss, accuracy: moveAcc, best, idea };
+        const planText = (p: MovePlanFact | null) =>
+          p ? [p.steps.map((st) => st.text).join("; "), p.aim && `Hướng chung: ${p.aim}`].filter(Boolean).join(". ") : "";
+        const movePlan = planText(explainMovePlan(state.history[i].board, m.move, afterEval?.pv ?? [], { ply: i }));
+        const betterPlan = isFault && review.betterMove
+          ? planText(explainMovePlan(state.history[i].board, review.betterMove, review.betterPvMoves ?? [], { ply: i }))
+          : "";
+        cached = { review, scoreLoss, accuracy: moveAcc, best, idea, movePlan, betterPlan };
         coachCache.set(fenPairKey, cached);
       }
 
@@ -139,6 +151,8 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
         ready: true,
         best: cached.best,
         idea: cached.idea,
+        movePlan: cached.movePlan,
+        betterPlan: cached.betterPlan,
         // Nước đối phương thật sự đã đi (nếu có), để đối chiếu với biến AI dự tính
         actualReply: state.moves[i + 1]?.notation,
       });
@@ -253,6 +267,10 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
                 </p>
               ))}
               {m.ready && <p className={`${game.reviewNote} muted`}>{m.idea}</p>}
+              {m.ready && m.movePlan && <p className={game.reviewNote}>🧭 {m.movePlan}</p>}
+              {m.ready && m.betterPlan && (
+                <p className={game.reviewNote}>💡 Nếu đi {m.better}: {m.betterPlan}</p>
+              )}
             </li>
           ))}
         </ul>

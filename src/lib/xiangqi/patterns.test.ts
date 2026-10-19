@@ -8,6 +8,59 @@ import {
 } from "./patterns";
 
 describe("patterns.ts - Bộ nhận diện hình sát cục kinh điển", () => {
+  describe("5 sát pháp bổ sung (định nghĩa theo 36 sát pháp cơ bản)", () => {
+    it("Bạt hoàng Mã: Xe đỏ đứng chặn chân Mã đang nhắm Tướng", () => {
+      // Mã đỏ d7 nhắm Tướng e9 qua chân d8, Xe đỏ đứng ở d8: Xe đi là Mã chiếu.
+      const b = parseFen("4k4/3R5/3N5/4p4/9/9/9/9/9/4K4 w").board;
+      expect(hasPattern(b, "r", "bat_hoang_ma")).toBe(true);
+    });
+
+    it("Bạt hoàng Mã: chân Mã bị Mã đối phương chặn thì không phải", () => {
+      const b = parseFen("4k4/3n5/3N5/4p4/9/9/9/9/9/4K4 w").board;
+      expect(hasPattern(b, "r", "bat_hoang_ma")).toBe(false);
+    });
+
+    it("Pháo niễn đan sa: Pháo chìm đáy ăn được Sĩ qua ngòi Tượng, Xe đỏ sát đáy", () => {
+      const b = parseFen("C1bak4/8R/9/4p4/9/9/9/9/9/4K4 w").board;
+      expect(hasPattern(b, "r", "phao_nien_dan_sa")).toBe(true);
+    });
+
+    it("Pháo niễn đan sa: không có Xe phối hợp sát đáy thì không phải", () => {
+      const b = parseFen("C1bak4/9/9/4p4/9/9/9/9/9/R3K4 w").board;
+      expect(hasPattern(b, "r", "phao_nien_dan_sa")).toBe(false);
+    });
+
+    it("Tống Phật quy điện: Tốt có Xe bảo vệ chiếu Tướng đã lên tầng", () => {
+      const b = parseFen("9/4k4/4P3R/9/9/9/9/9/9/3K5 b").board;
+      expect(hasPattern(b, "r", "tong_phat_quy_dien")).toBe(true);
+    });
+
+    it("Tống Phật quy điện: Tốt không ai bảo vệ (Tướng ăn được) thì không phải", () => {
+      const b = parseFen("9/4k4/4P4/9/9/9/9/9/9/3K5 b").board;
+      expect(hasPattern(b, "r", "tong_phat_quy_dien")).toBe(false);
+    });
+
+    it("Thần áp quân: Xe đen chặn ô thoát của chính Tướng đen khi bị Xe đỏ chiếu ngang", () => {
+      const b = parseFen("3rk3R/9/4P4/9/9/9/9/9/9/3K5 b").board;
+      expect(hasPattern(b, "r", "than_ap_quan")).toBe(true);
+    });
+
+    it("Thần áp quân: ô thoát bị Sĩ chặn (không phải quân tấn công) thì không phải", () => {
+      const b = parseFen("3ak3R/9/4P4/9/9/9/9/9/9/3K5 b").board;
+      expect(hasPattern(b, "r", "than_ap_quan")).toBe(false);
+    });
+
+    it("Tam tử quy biên: Xe Mã Pháo đỏ cùng dồn về cánh trái cung đen", () => {
+      const b = parseFen("4k4/R8/1C7/2N6/4p4/9/9/9/9/4K4 w").board;
+      expect(hasPattern(b, "r", "tam_tu_quy_bien")).toBe(true);
+    });
+
+    it("Tam tử quy biên: một quân ở cánh kia thì chưa phải", () => {
+      const b = parseFen("4k4/R8/7C1/2N6/4p4/9/9/9/9/4K4 w").board;
+      expect(hasPattern(b, "r", "tam_tu_quy_bien")).toBe(false);
+    });
+  });
+
   describe("Hàm phụ trợ hình học", () => {
     it("countBetween đếm đúng số quân giữa hai ô", () => {
       // Bàn cờ rỗng trừ 1 quân ở (4, 4)
@@ -155,7 +208,7 @@ describe("patterns.ts - Bộ nhận diện hình sát cục kinh điển", () =>
   });
 
   describe("Hiệu năng kiểm tra", () => {
-    it("quét toàn bộ 17 hình cờ 1.000 lần phải chạy dưới 300ms (<0.3ms/lần)", () => {
+    it("quét toàn bộ 22 hình cờ 1.000 lần phải chạy dưới 300ms (<0.3ms/lần)", () => {
       const pos = parseFen("r1bakab1r/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w");
       const start = performance.now();
       for (let i = 0; i < 1000; i++) {

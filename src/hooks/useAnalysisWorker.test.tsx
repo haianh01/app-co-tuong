@@ -21,12 +21,12 @@ class FakeAnalysisWorker {
     this.posted.push(data);
   }
 
-  addEventListener(type: string, fn: any) {
+  addEventListener(type: string, fn: ((e: MessageEvent) => void) & ((e: Event) => void)) {
     if (type === "message") this.messageListeners.add(fn);
     if (type === "error") this.errorListeners.add(fn);
   }
 
-  removeEventListener(type: string, fn: any) {
+  removeEventListener(type: string, fn: ((e: MessageEvent) => void) & ((e: Event) => void)) {
     if (type === "message") this.messageListeners.delete(fn);
     if (type === "error") this.errorListeners.delete(fn);
   }

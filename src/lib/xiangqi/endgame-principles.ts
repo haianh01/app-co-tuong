@@ -14,6 +14,7 @@ import { exchangeGain } from "./explain";
 import { soundMove, type ZhaoTacticsOptions } from "./middlegame";
 import { moveNotation, PIECE_NAME } from "./notation";
 import { countMajorPieces } from "./phases";
+import { minorValues, screenCount } from "./piece-value";
 import { advance, linkedGuards, palacePressure } from "./strategy";
 
 export type EndgamePrinciple =
@@ -26,7 +27,9 @@ export type EndgamePrinciple =
   | "tuongTroCong"      // Tướng ra lộ, dùng luật lộ mặt Tướng khóa cung đối phương
   | "boTuong"           // Khống chế đường đi của Tướng đối phương
   | "nuocCho"           // Đợi nước: nước chờ buộc đối phương tự đi
-  | "giuSiTuong";       // Bên kém quân giữ Sĩ Tượng liên hoàn
+  | "giuSiTuong"        // Bên kém quân giữ Sĩ Tượng liên hoàn
+  | "doiPhaoLayMa"      // Bàn thưa ngòi: đổi Pháo lấy Mã là có lời
+  | "doiMaLayPhao";     // Bàn thưa ngòi: đổi Mã lấy Pháo là thiệt
 
 export interface EndgamePrincipleFact {
   kind: "endgamePrinciple";
@@ -52,9 +55,16 @@ const nameOf = (p: Piece) => PIECE_NAME[typeOf(p)] ?? "quân";
 const fileNumber = (col: number, s: Side) => (s === "r" ? 9 - col : col + 1);
 const bottomRow = (s: Side) => (s === "r" ? 0 : 9); // hàng đáy của đối phương, nhìn từ phe `s`
 
+/** Chênh lệch vật chất theo góc nhìn `side`, Mã / Pháo tính theo số ngòi còn trên bàn (piece-value.ts). */
 function materialBalance(board: Board, side: Side): number {
+  const minors = minorValues(board); // đếm ngòi một lần cho cả bàn
   let bal = 0;
-  for (const p of board) if (p && typeOf(p) !== "k") bal += sideOf(p) === side ? PIECE_VALUES[typeOf(p)] : -PIECE_VALUES[typeOf(p)];
+  for (const p of board) {
+    if (!p || typeOf(p) === "k") continue;
+    const t = typeOf(p);
+    const v = t === "n" || t === "c" ? minors[t] : PIECE_VALUES[t];
+    bal += sideOf(p) === side ? v : -v;
+  }
   return bal;
 }
 
@@ -153,6 +163,35 @@ export function detectEndgameTrade(
     return fact(before, move, "giaiHoa",
       `Giải hòa: đang kém thế, chủ động đưa ván về "${eg.name}" — tàn cuộc hòa lý thuyết. ${eg.description}`,
       { endgame: eg.name });
+  }
+  return null;
+}
+
+/**
+ * Đổi Mã / Pháo khi bàn đã thưa ngòi (ít Sĩ Tượng Tốt): Pháo thiếu ngòi yếu hẳn, Mã thì không cần ngòi.
+ * Khen đổi Pháo lấy Mã; chê đổi Mã lấy Pháo khi engine chấm lỗi. Phải là đổi thật (PV có nước ăn lại).
+ */
+export function detectMinorTrade(
+  before: Board, move: Move, after: Board, options?: EndgamePrincipleOptions,
+): EndgamePrincipleFact | null {
+  const piece = before[move.from];
+  const victim = before[move.to];
+  if (!piece || !victim) return null;
+  const pair = typeOf(piece) + typeOf(victim);
+  if (pair !== "cn" && pair !== "nc") return null;
+  const settled = settledBoard(after, move, options);
+  if (settled === after) return null; // không bị ăn lại: là ăn quân, không phải đổi
+  const { n, c } = minorValues(settled);
+  if (n <= c) return null; // bàn còn đủ ngòi: Pháo không thiệt, không có nguyên lý để nói
+  const screens = screenCount(settled);
+  if (pair === "cn" && soundMove(options)) {
+    return fact(before, move, "doiPhaoLayMa",
+      `Đổi Pháo lấy Mã đúng lúc: bàn chỉ còn ${screens} quân làm ngòi, Pháo thiếu ngòi yếu hẳn trong khi Mã không cần ngòi — tàn cuộc thưa quân thì Mã mạnh hơn Pháo.`);
+  }
+  if (pair === "nc" && options?.loss !== undefined && options.loss >= 60) {
+    return fact(before, move, "doiMaLayPhao",
+      `Đổi Mã lấy Pháo khi bàn đã thưa ngòi (còn ${screens} quân làm ngòi): giữ lại Pháo thiếu ngòi, bỏ Mã linh hoạt — tàn cuộc kiểu này Mã đáng giá hơn Pháo.`,
+      { tone: "critique" });
   }
   return null;
 }
@@ -292,6 +331,7 @@ type Detector = (before: Board, move: Move, after: Board, options?: EndgamePrinc
 
 const PRIORITY: Detector[] = [
   detectEndgameTrade,
+  detectMinorTrade,
   detectOldPawn,
   detectPawnForGuard,
   detectKingBoxing,

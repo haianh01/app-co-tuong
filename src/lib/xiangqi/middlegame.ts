@@ -622,7 +622,16 @@ export function detectCounterThreat(
     };
   }
 
-  // Lọc rẻ trước: nước này phải chiếu hoặc nhắm vào một quân lớn đối phương mà trước đó chưa bị nhắm.
+  // Lọc rẻ nhất trước: phải có quân lớn của mình đang bị nhắm (chưa cần biết có lời hay không).
+  const oppHitsBefore = attackedSet(before, opp);
+  const attackedMajors: number[] = [];
+  for (let i = 0; i < before.length; i++) {
+    const p = before[i];
+    if (p && sideOf(p) === mover && "rnc".includes(typeOf(p)) && oppHitsBefore.has(i)) attackedMajors.push(i);
+  }
+  if (attackedMajors.length === 0) return null;
+
+  // Nước này phải chiếu hoặc nhắm vào một quân lớn đối phương mà trước đó chưa bị nhắm.
   const myHitsBefore = attackedSet(before, mover);
   const myHitsAfter = attackedSet(after, mover);
   const newTargets: number[] = [];
@@ -633,13 +642,7 @@ export function detectCounterThreat(
   if (!counterCheck && newTargets.length === 0) return null;
 
   // Quân lớn đang bị dọa ăn có lời trước nước đi.
-  const threatened: number[] = [];
-  const oppHitsBefore = attackedSet(before, opp);
-  for (let i = 0; i < before.length; i++) {
-    const p = before[i];
-    if (!p || sideOf(p) !== mover || !"rnc".includes(typeOf(p)) || !oppHitsBefore.has(i)) continue;
-    if ((exchangeGain(before, i, opp) ?? 0) > 0) threatened.push(i);
-  }
+  const threatened = attackedMajors.filter((i) => (exchangeGain(before, i, opp) ?? 0) > 0);
   if (threatened.length === 0) return null;
   // Chạy chính quân bị dọa (dù có dọa lại) là phòng thủ thường, không phải bỏ mặc đòn dọa để phản công.
   if (threatened.includes(move.from)) return null;
@@ -827,7 +830,7 @@ export interface XuTacticsOptions {
   recentMoves?: Move[];
 }
 
-const isMajorPiece = (p: string | null | undefined) => !!p && "rnc".includes(typeOf(p as any));
+const isMajorPiece = (p: string | null | undefined) => !!p && "rnc".includes(typeOf(p));
 
 /** Chênh lệch vật chất (không tính Tướng) theo góc nhìn `side`. */
 export function materialBalance(board: Board, side: Side): number {

@@ -5,7 +5,7 @@ import { XiangqiBoard } from "@/components/board/XiangqiBoard";
 import { PositionAnalysisModal } from "@/components/board/PositionAnalysisModal";
 import { usePositionAnalysis } from "@/hooks/usePositionAnalysis";
 import { useScreenMirror, type Point } from "@/hooks/useScreenMirror";
-import { findKing, inCheck, type Move, type Side } from "@/lib/xiangqi/engine";
+import { applyMove, findKing, inCheck, legalMovesFrom, sideOf, type Move, type Side } from "@/lib/xiangqi/engine";
 import { gameReducer, newGame, type GameAction, type GameState } from "@/lib/xiangqi/game";
 import styles from "./broadcast.module.css";
 import { EMPTY_DRAWING, drawingReducer } from "./drawing";
@@ -32,7 +32,9 @@ export function BroadcastClient() {
   /** null = đang xem trực tiếp; số = đang xem lại thế cờ sau nửa nước thứ n. */
   const [viewPly, setViewPly] = useState<number | null>(null);
   const [sketch, draw] = useReducer(drawingReducer, EMPTY_DRAWING);
-  const [drawing, setDrawing] = useState(true);
+  // Chưa theo dõi thì bàn cờ để đi quân (bày lại các nước trang kia đã đi); bắt đầu theo dõi thì chuyển sang vẽ.
+  const [drawing, setDrawing] = useState(false);
+  const [selected, setSelected] = useState<number | null>(null);
   const [color, setColor] = useState(COLORS[0].value);
   const [clearOnMove, setClearOnMove] = useState(true);
   const [flipped, setFlipped] = useState(false);
@@ -44,12 +46,13 @@ export function BroadcastClient() {
   const onMoves = useCallback(
     (moves: Move[]) => {
       for (const move of moves) dispatch({ type: "move", move });
+      setSelected(null);
       if (clearOnMove) clearDrawings();
     },
     [clearOnMove, clearDrawings],
   );
   const {
-    videoRef, status, error: captureError, corners, bottom, diag, start, stop, addCorner, follow, resync, repick,
+    videoRef, status, error: captureError, corners, bottom, diag, surface, start, stop, addCorner, follow, resync, repick,
   } = useScreenMirror(onMoves);
 
   const live = viewPly === null;
@@ -57,18 +60,34 @@ export function BroadcastClient() {
   const pos = game.history[ply];
   const lastMove = ply > 0 ? game.moves[ply - 1].move : null;
   const checkSquare = inCheck(pos.board, pos.turn) ? findKing(pos.board, pos.turn) : null;
+  const livePos = game.history[game.moves.length];
+  // Đi quân bằng tay: bày lại thế cờ trước khi theo dõi, hoặc đi bù nước app đọc sót trong lúc theo dõi.
+  const canMove = live && !drawing;
+  const targets = canMove && selected !== null ? legalMovesFrom(livePos, selected).map((m) => m.to) : [];
+  const onSquareClick = (i: number) => {
+    if (selected !== null && targets.includes(i)) {
+      const move = { from: selected, to: i };
+      dispatch({ type: "move", move });
+      if (status === "following") resync(applyMove(livePos, move));
+      setSelected(null);
+      return;
+    }
+    const piece = livePos.board[i];
+    setSelected(piece && sideOf(piece) === livePos.turn && i !== selected ? i : null);
+  };
   // Mặc định đặt bàn cờ như trang nguồn (phe ngồi dưới ở đó cũng ở dưới ở đây).
   const baseOrientation: Side = bottom ?? "r";
   const orientation: Side = flipped ? (baseOrientation === "r" ? "b" : "r") : baseOrientation;
 
   const onAnnotate = useCallback((from: number, to: number) => draw({ type: "annotate", from, to, color }), [color]);
 
-  /** Nước vừa đọc bị sai: bỏ đi, bộ theo dõi sẽ đọc lại từ thế cờ trước đó. */
+  /** Lùi nước cuối (tự đi nhầm hoặc app đọc sai): bộ theo dõi sẽ đọc lại từ thế cờ trước đó. */
   const undoMistake = () => {
     if (game.moves.length === 0) return;
     resync(game.history[game.history.length - 2]);
     dispatch({ type: "undo", plies: 1 });
     setViewPly(null);
+    setSelected(null);
   };
 
   const newMatch = () => {
@@ -130,13 +149,13 @@ export function BroadcastClient() {
   const [a, b] = corners;
   const step =
     status === "idle"
-      ? "Mở trang cờ kia ở thế cờ ban đầu (chưa ai đi), rồi bấm “Chọn cửa sổ” và chọn tab/cửa sổ đó."
+      ? "Mở trang cờ kia rồi bấm “Chọn cửa sổ” và chọn tab của trang đó. Nếu ván bên kia đã đi vài nước, hãy tự đi lại các nước đó trên bàn cờ bên trái (bấm quân rồi bấm ô đến) cho giống hệt trước khi bắt đầu theo dõi."
       : status === "picking"
         ? corners.length === 0
           ? "Bấm vào giao điểm góc trên-trái của lưới bàn cờ trong khung dưới đây."
           : corners.length === 1
             ? "Bấm tiếp vào giao điểm góc dưới-phải của lưới."
-            : "Các chấm vàng phải nằm đúng trên 90 giao điểm. Đúng rồi thì bấm “Bắt đầu theo dõi”."
+            : "Các chấm vàng phải nằm đúng trên 90 giao điểm, và bàn cờ bên trái phải giống hệt trang kia (chưa giống thì tự đi quân cho giống). Xong thì bấm “Bắt đầu theo dõi”."
         : "Đang theo dõi. Nước đi trên trang kia sẽ tự hiện trên bàn cờ.";
 
   return (
@@ -147,13 +166,25 @@ export function BroadcastClient() {
           orientation={orientation}
           lastMove={lastMove}
           checkSquare={checkSquare}
-          disabled
+          selected={canMove ? selected : null}
+          targets={targets}
+          onSquareClick={onSquareClick}
+          disabled={!canMove}
           arrows={sketch.present.arrows}
           highlights={sketch.present.marks}
           onAnnotate={drawing ? onAnnotate : undefined}
         />
         <div className={styles.toolbar}>
-          <button type="button" className={styles.btn} aria-pressed={drawing} onClick={() => setDrawing((d) => !d)}>
+          <button
+            type="button"
+            className={styles.btn}
+            aria-pressed={drawing}
+            title={drawing ? "Tắt vẽ để đi quân bằng tay" : "Đang đi quân bằng tay: bấm quân rồi bấm ô đến"}
+            onClick={() => {
+              setDrawing((d) => !d);
+              setSelected(null);
+            }}
+          >
             ✏️ {drawing ? "Đang vẽ" : "Vẽ"}
           </button>
           {COLORS.map((c) => (
@@ -198,12 +229,21 @@ export function BroadcastClient() {
           <h1 className={styles.title}>Tường thuật</h1>
           <p className={styles.step}>{step}</p>
           {captureError && <p className={styles.error} role="alert">{captureError}</p>}
+          {status !== "idle" && surface && surface !== "browser" && (
+            <p className={styles.warn} role="status">
+              {surface === "window"
+                ? "Bạn đang chia sẻ cả một cửa sổ: app chỉ thấy tab đang hiện trong cửa sổ đó. Nếu trang cờ kia ở chung cửa sổ với trang này, mỗi lần bạn quay lại đây app sẽ không thấy bàn cờ và lỡ nước. Nên bấm “Dừng”, chọn lại và chọn mục “Tab”; hoặc tách trang kia ra cửa sổ riêng, đặt cạnh trang này."
+                : "Bạn đang chia sẻ toàn màn hình: app chỉ thấy những gì đang hiện trên màn hình. Cửa sổ trang cờ kia phải luôn hiện, không bị che hay thu nhỏ. Nên bấm “Dừng”, chọn lại và chọn mục “Tab”."}
+            </p>
+          )}
           {status === "following" && diag && (
             <p className={styles.diag} aria-live="polite">
-              {diag.movingStreak >= 10
+              {diag.resized
+                ? "Khung chụp đã đổi kích thước (cửa sổ trang kia bị co giãn hoặc phóng to) nên bàn cờ không còn ở chỗ cũ. Đưa cửa sổ về như cũ hoặc bấm “Chọn lại góc”."
+                : diag.movingStreak >= 10
                 ? "Ảnh bàn cờ thay đổi liên tục nên chưa đọc được. Trong vùng bàn cờ có thứ đang chuyển động (hiệu ứng, con trỏ chuột, đồng hồ…): đưa chuột ra khỏi bàn cờ hoặc tắt hiệu ứng của trang kia."
                 : diag.mismatched > 3
-                  ? `Ảnh lệch với thế cờ đang theo dõi ở ${diag.mismatched} ô. Có thể trang kia đã cuộn/đổi bố cục (bấm “Chọn lại góc”) hoặc app đã lỡ một nước.`
+                  ? `Ảnh lệch với thế cờ đang theo dõi ở ${diag.mismatched} ô. Có thể khung chụp đang không hiện bàn cờ (cửa sổ bị che, đang ở tab khác), trang kia đã cuộn/đổi bố cục (bấm “Chọn lại góc”), hoặc bên kia đã đi quá nhiều nước khi app không nhìn thấy.`
                   : diag.moving
                     ? "Đang chờ ảnh đứng yên…"
                     : "Ảnh khớp thế cờ, đang chờ nước tiếp theo."}
@@ -234,7 +274,16 @@ export function BroadcastClient() {
             ) : (
               <>
                 {status === "picking" && (
-                  <button type="button" className={styles.btnGold} disabled={corners.length < 2} onClick={() => follow()}>
+                  <button
+                    type="button"
+                    className={styles.btnGold}
+                    disabled={corners.length < 2}
+                    onClick={() => {
+                      setViewPly(null);
+                      setSelected(null);
+                      if (follow(livePos)) setDrawing(true);
+                    }}
+                  >
                     Bắt đầu theo dõi
                   </button>
                 )}
@@ -260,8 +309,8 @@ export function BroadcastClient() {
             <button type="button" className={styles.btnGold} onClick={openAnalysis}>
               🔍 Phân tích thế cờ
             </button>
-            <button type="button" className={styles.btn} onClick={undoMistake} disabled={game.moves.length === 0} title="Dùng khi app đọc sai một nước: bỏ nước đó để đọc lại">
-              Bỏ nước đọc sai
+            <button type="button" className={styles.btn} onClick={undoMistake} disabled={game.moves.length === 0} title="Bỏ nước cuối cùng: khi bạn tự đi nhầm lúc bày thế cờ, hoặc khi app đọc sai một nước (app sẽ đọc lại từ thế trước đó)">
+              ↶ Đi lại 1 nước
             </button>
             <button type="button" className={styles.btn} onClick={newMatch}>
               Ván mới
@@ -300,14 +349,14 @@ export function BroadcastClient() {
   );
 }
 
-/** Chấm 2 góc đã bấm và (khi đủ 2 góc) 90 giao điểm sẽ được đọc, vẽ đè lên khung video. */
+/** Chấm 2 góc đã bấm và (khi đủ 2 góc) 90 giao điểm sẽ được đọc, vẽ đè lên khung video (góc tính theo tỉ lệ khung). */
 function GridPreview({ w, h, a, b }: { w: number; h: number; a?: Point; b?: Point }) {
   const dots: { x: number; y: number }[] = [];
   if (a && b) {
     for (let r = 0; r < 10; r++) {
-      for (let c = 0; c < 9; c++) dots.push({ x: a.x + ((b.x - a.x) * c) / 8, y: a.y + ((b.y - a.y) * r) / 9 });
+      for (let c = 0; c < 9; c++) dots.push({ x: (a.x + ((b.x - a.x) * c) / 8) * w, y: (a.y + ((b.y - a.y) * r) / 9) * h });
     }
-  } else if (a) dots.push(a);
+  } else if (a) dots.push({ x: a.x * w, y: a.y * h });
   return (
     <svg className={styles.gridPreview} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
       {dots.map((d, i) => (

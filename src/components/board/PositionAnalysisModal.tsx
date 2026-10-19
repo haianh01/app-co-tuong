@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type {
   CandidateMoveAnalysis,
   PositionAnalysisResult,
@@ -30,9 +30,13 @@ export function PositionAnalysisModal({
   const [activeIdx, setActiveIdx] = useState<number>(0);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
+  // Có kết quả phân tích mới thì quay về biến đầu tiên. Đặt lại ngay khi render (so với lần trước)
+  // thay vì setState trong effect, tránh một lượt render thừa.
+  const [shownAnalysis, setShownAnalysis] = useState(analysis);
+  if (analysis !== shownAnalysis) {
+    setShownAnalysis(analysis);
     setActiveIdx(0);
-  }, [analysis]);
+  }
 
   if (!isOpen) return null;
 
@@ -243,9 +247,9 @@ export function PositionAnalysisModal({
                           </span>
                         </div>
 
-                        {c.narrative && (
+                        {(c.plan?.summary || c.narrative) && (
                           <span className={styles.candidateNarrative}>
-                            {c.narrative}
+                            {c.plan?.summary ?? c.narrative}
                           </span>
                         )}
 

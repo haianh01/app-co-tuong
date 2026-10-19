@@ -90,6 +90,8 @@ export interface MoveReview {
   replyMove?: Move | null;
   /** Chuỗi nước cờ của biến tiếp diễn để đi thử trên bàn cờ. */
   pvMoves?: Move[];
+  /** Biến chính của nước tốt hơn do AI đề xuất (bắt đầu bằng nước đó), để giải thích kế hoạch của nó. */
+  betterPvMoves?: Move[];
   /** Đánh giá thế cờ toàn diện sau nước đi (B2). */
   assessment?: PositionAssessment | null;
   /** Các mối đe dọa từ đối phương ở thế cờ hiện tại (B3). */
@@ -539,6 +541,7 @@ export function reviewMove(
     betterMove: isFault ? betterMove : null,
     replyMove: isFault ? replyMove : null,
     pvMoves,
+    betterPvMoves: isFault && betterMove ? (before.pv?.length ? before.pv : [betterMove]) : undefined,
     assessment,
     threats,
     intent,

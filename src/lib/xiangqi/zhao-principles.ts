@@ -8,12 +8,11 @@
 
 import {
   type Board, type Move, type Piece, type Side,
-  attackersOf, colOf, inCheck, initialPosition, isDefended, legalMoves, opponent, play,
+  attackersOf, colOf, hasAnyLegalMove, inCheck, initialPosition, isDefended, legalMoves, opponent, play,
   pseudoMoves, rowOf, sideOf, typeOf, crossedRiver, PIECE_VALUES,
 } from "./engine";
 import { exchangeGain, hangingPieces } from "./explain";
 import { extractFeatures, type PieceTag } from "./features";
-import { forcesWin } from "./mate";
 import {
   analyzeForcingPlies, attackedSet, detectCounterThreat, detectFlankOverload, detectPalaceBreaker, detectSacrificeForInitiative,
   pvMaterialSwing, soundMove,
@@ -25,6 +24,8 @@ import { advance, attackPressure } from "./strategy";
 type Detector = (before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions) => ZhaoMiddlegameFact | null;
 
 const nameOf = (p: Piece) => PIECE_NAME[typeOf(p)] ?? "quân";
+/** Thế xuất phát, dùng để biết quân còn ở ô ban đầu (tạo một lần, không parse lại mỗi nước). */
+const START_BOARD = initialPosition().board;
 const valueOf = (p: Piece) => (typeOf(p) === "k" ? 0 : PIECE_VALUES[typeOf(p)]);
 const isMajor = (p: Piece | null | undefined) => !!p && "rnc".includes(typeOf(p));
 
@@ -72,6 +73,21 @@ function forcingTarget(board: Board, m: Move, next: Board, side: Side): number |
     if (gain >= 200 && !already) return i;
   }
   return null;
+}
+
+/**
+ * Phe `side` (giả sử đến lượt) có nước chiếu bí ngay không (chỉ chiếu bí, không tính bí nước — đúng nghĩa "dọa sát").
+ * Lọc nước chiếu trước rồi mới xét bên kia hết nước,
+ * rẻ hơn nhiều so với bộ tìm sát tổng quát (mate.ts) vốn xét đủ kết cục cho mọi nước.
+ */
+function hasMateInOne(board: Board, side: Side): boolean {
+  const victim = opponent(side);
+  for (const m of legalMoves({ board, turn: side })) {
+    const next = play(board, m);
+    if (!inCheck(next, victim)) continue;
+    if (!hasAnyLegalMove({ board: next, turn: victim })) return true;
+  }
+  return false;
 }
 
 /** Quân ở ô `from` có khống chế ô `target` không (đặt tạm quân đối phương vào đó để xét cả Pháo). */
@@ -139,7 +155,8 @@ export function detectInitiativeOverMaterial(
   }
 
   if (!soundMove(options, 30)) return null;
-  if (best && (best.from !== move.from || best.to !== move.to)) return null;
+  // Khen bỏ miếng ăn chỉ khi engine xác nhận đây chính là nước tốt nhất; thiếu dữ liệu thì không khen.
+  if (!best || best.from !== move.from || best.to !== move.to) return null;
   const target = forcingTarget(before, move, after, mover);
   if (target === null) return null;
   // Miếng ăn có lời đang có sẵn mà không ăn
@@ -148,7 +165,7 @@ export function detectInitiativeOverMaterial(
   for (const m of legalMoves({ board: before, turn: mover })) {
     if (!before[m.to]) continue;
     const gain = exchangeGain(before, m.to, mover) ?? 0;
-    if (gain >= 100 && gain > baitGain) {
+    if (gain >= 300 && gain > baitGain) { // "nhất tử" là một quân thật sự (lãi từ quân nhẹ trở lên), không phải một Tốt
       bait = m.to;
       baitGain = gain;
     }
@@ -209,7 +226,7 @@ export function detectMatingRace(
   if (inCheck(before, mover) || !inCheck(after, opp)) return null;
   if (!soundMove(options)) return null;
   if (attackPressure(before, mover) < 1) return null; // không có quân nào áp cung thì không thể có đòn dọa sát
-  if (!forcesWin({ board: before, turn: opp }, 1)) return null;
+  if (!hasMateInOne(before, opp)) return null;
   const pv = pvAfterMove(options, move);
   const checks = analyzeForcingPlies(after, mover, pv).checks + 1;
   return fact(
@@ -232,6 +249,13 @@ export function detectTempoChase(
   const mover = sideOf(piece);
   const opp = opponent(mover);
   if (inCheck(before, mover) || inCheck(after, opp) || !soundMove(options)) return null;
+  // "Được tiên" là vừa ra / tiến quân vừa đuổi: quân đuổi phải tiến lên hoặc vừa rời ô xuất phát.
+  const forward = advance(move.to, mover) > advance(move.from, mover);
+  const developing = START_BOARD[move.from] === piece;
+  if (!forward && !developing) return null;
+  // Phải có PV xác nhận đối phương dùng nước đáp để lo quân bị đuổi (không có PV thì không kết luận).
+  const reply = pvAfterMove(options, move)[0];
+  if (!reply) return null;
   if ((exchangeGain(after, move.to, opp) ?? 0) > 0) return null;
   // Quân lớn đối phương vừa bị dọa (trước đó không bị nhắm), bị ăn có lời hoặc là Xe bị Mã/Pháo đuổi.
   const hitBefore = attackedSet(before, mover);
@@ -244,14 +268,9 @@ export function detectTempoChase(
   }
   if (chased.length === 0) return null;
   const target = chased[0];
-  // Có PV thì xác nhận đối phương thật sự phải dùng nước đáp để lo quân bị đuổi.
-  const reply = pvAfterMove(options, move)[0];
-  if (reply) {
-    const replyNext = play(after, reply);
-    const handled = reply.from === target || (exchangeGain(replyNext, target, mover) ?? 0) <= 0;
-    if (!handled || after[reply.to]) return null; // đối phương ăn quân / phản đòn thay vì lo chạy: không phải được tiên
-  }
-  const forward = advance(move.to, mover) > advance(move.from, mover);
+  const replyNext = play(after, reply);
+  const handled = reply.from === target || (exchangeGain(replyNext, target, mover) ?? 0) <= 0;
+  if (!handled || after[reply.to]) return null; // đối phương ăn quân / phản đòn thay vì lo chạy: không phải được tiên
   return fact(
     before, move, "duoiQuanDuocTien",
     `Đuổi quân được tiên: ${nameOf(piece)} ${forward ? "tiến lên" : "chuyển vị trí"} đồng thời dọa ăn ${nameOf(after[target]!)}, đối phương phải mất nước lo chạy quân — ta được thêm một nhịp.`,
@@ -420,7 +439,7 @@ export function detectWorstPieceImprovement(
   if (!isMajor(piece) || before[move.to] || !soundMove(options)) return null;
   const mover = sideOf(piece!);
   if (inCheck(after, opponent(mover))) return null;
-  if (initialPosition().board[move.from] === piece) return null; // ra quân, không phải cải thiện
+  if (START_BOARD[move.from] === piece) return null; // ra quân, không phải cải thiện
   if ((exchangeGain(after, move.to, opponent(mover)) ?? 0) > 0) return null;
   const mine = extractFeatures(before)[mover].pieces.filter((s) => isMajor(s.ref.piece));
   const st = mine.find((s) => s.ref.square === move.from);
@@ -487,6 +506,10 @@ function dangerousEntries(board: Board, s: Side): { from: number; to: number; ki
     if (!p || sideOf(p) !== s) continue;
     const t = typeOf(p);
     if (t !== "n" && t !== "r") continue;
+    // Lọc chính xác trước khi sinh nước: Mã mỗi bước tiến tối đa 2 hàng nên phải đang ở hàng >= 5 mới tới được hàng 7-8;
+    // Xe chỉ tới được sườn cung sâu nếu đang đứng trên cột sườn hoặc trên một hàng đủ sâu.
+    if (t === "n" && advance(i, s) < 5) continue;
+    if (t === "r" && colOf(i) !== 3 && colOf(i) !== 5 && advance(i, s) < 7) continue;
     for (const to of pseudoMoves(board, i)) {
       const target = board[to];
       if (target && (sideOf(target) === s || typeOf(target) === "k")) continue;

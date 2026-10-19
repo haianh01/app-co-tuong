@@ -156,10 +156,15 @@ export function XiangqiBoard({
     [flip],
   );
 
-  // Khi bàn cờ thay đổi (nước đi vừa hoàn thành) hoặc bị vô hiệu hóa, dọn sạch hoàn toàn trạng thái kéo
+  // Khi bàn cờ thay đổi (nước đi vừa hoàn thành) hoặc bị vô hiệu hóa, dọn sạch hoàn toàn trạng thái kéo.
+  // State kéo được đặt lại ngay khi render (so với lần trước); ref con trỏ không được ghi lúc render nên dọn trong effect.
+  const [dragScope, setDragScope] = useState({ board, disabled });
+  if (dragScope.board !== board || dragScope.disabled !== disabled) {
+    setDragScope({ board, disabled });
+    setDrag(null);
+  }
   useEffect(() => {
     pointer.current = null;
-    setDrag(null);
   }, [board, disabled]);
 
   // Lắng nghe di chuyển và nhả chuột toàn cục trên window để đảm bảo dọn sạch kéo thả

@@ -20,6 +20,7 @@ import { classifyOpeningType, detectAllShapes, type OpeningType, type Shape } fr
 import { getOpeningGuide, findNextBookMoves, isBookMove, type OpeningGuide, type NextBookMove } from "./openings";
 import { detectThreat, type ThreatData, type ThreatFact } from "./threats";
 import { narratePv } from "./narrate";
+import { explainMovePlan, type MovePlanFact } from "./move-plan";
 import { moveNotation } from "./notation";
 import { moveToUci, MATE_SCORE, MATE_THRESHOLD } from "./uci";
 import { winChance } from "./analysis";
@@ -68,6 +69,8 @@ export interface CandidateMoveAnalysis {
   purpose: Purpose;
   purposeLabel: string;
   narrative: string;
+  /** Kế hoạch của nước: dọa gì, đối phương buộc đáp gì, bên đi làm gì tiếp theo (move-plan.ts). */
+  plan?: MovePlanFact | null;
 }
 
 /** Tầng 1: Tính toán bằng engine (Pikafish) */
@@ -354,6 +357,7 @@ export function analyzePosition(input: PositionAnalysisInput): PositionAnalysisR
       purpose: mainPurpose,
       purposeLabel,
       narrative: narration.summary && narration.summary !== "không có nước tiếp diễn" ? narration.summary : "",
+      plan: explainMovePlan(board, move, pvMoves, { ply: historyMoves.length }),
     });
   }
 

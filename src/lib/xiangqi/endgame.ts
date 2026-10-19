@@ -12,6 +12,8 @@ export interface SidePieceCount {
   p: number;
   passedP: number;
   highP: number;
+  /** Tốt cao thật sự: đã qua sông, cách hàng đáy đối phương ít nhất 2 hàng (không tính Tốt thấp sát đáy). */
+  upperP: number;
   lowP: number;
   a: number;
   b: number;
@@ -31,7 +33,7 @@ export interface TheoreticalEndgame {
 
 /** Đếm số lượng và đặc tính từng loại quân của một phe trên bàn cờ. */
 export function countSidePieces(board: Board, s: Side): SidePieceCount {
-  let k = 0, r = 0, n = 0, c = 0, p = 0, passedP = 0, highP = 0, lowP = 0, a = 0, b = 0;
+  let k = 0, r = 0, n = 0, c = 0, p = 0, passedP = 0, highP = 0, upperP = 0, lowP = 0, a = 0, b = 0;
   board.forEach((piece, square) => {
     if (!piece || sideOf(piece) !== s) return;
     const t = typeOf(piece);
@@ -51,13 +53,14 @@ export function countSidePieces(board: Board, s: Side): SidePieceCount {
           const isLow = s === "r" ? row === 0 : row === 9;
           if (isLow) lowP++;
           else highP++;
+          if (s === "r" ? row >= 2 : row <= 7) upperP++;
         }
         break;
       }
     }
   });
   return {
-    k, r, n, c, p, passedP, highP, lowP, a, b,
+    k, r, n, c, p, passedP, highP, upperP, lowP, a, b,
     majors: r + n + c,
     totalAttackers: r + n + c + passedP,
   };
@@ -213,18 +216,9 @@ function evaluateOneSidedAttack(
 
   // TH 5: Mã Chốt
   if (att.n === 1 && att.p >= 1 && att.r === 0 && att.c === 0) {
-    if (att.highP >= 1) {
-      return {
-        id: "win_horse_pawn_vs_full_guards",
-        name: "Mã Chốt thắng Sĩ Tượng toàn",
-        outcome: "win",
-        winner: attSide,
-        attacker: attSide,
-        defender: defSide,
-        description: "Mã kết hợp cùng Chốt cao qua sông tạo thành thế gọng kìm uy lực, có thể phá tan Sĩ Tượng toàn.",
-      };
-    }
-    if (att.highP === 0 && att.lowP >= 1 && def.a >= 2) {
+    // (Luật cũ "Mã Chốt cao thắng Sĩ Tượng toàn" đã bỏ: Pikafish chấm hòa 29/30 thế ngẫu nhiên — xem VERIFIED_RULES.)
+    // Chỉ khi bên thủ đủ Sĩ Tượng: gặp Song Sĩ khuyết Tượng thì Mã + Tốt đáy vẫn thắng (Pikafish 28/30).
+    if (att.highP === 0 && att.lowP >= 1 && def.a >= 2 && def.b >= 2) {
       return {
         id: "draw_horse_low_pawn_vs_guards",
         name: "Mã Chốt đáy (Tốt già) hòa Sĩ Tượng toàn",
@@ -236,20 +230,7 @@ function evaluateOneSidedAttack(
     }
   }
 
-  // TH 6: Pháo Chốt có ngòi
-  if (att.c === 1 && att.p >= 1 && att.r === 0 && att.n === 0) {
-    if ((att.a >= 1 || att.b >= 1) && att.highP >= 1) {
-      return {
-        id: "win_cannon_pawn_screen_vs_full_guards",
-        name: "Pháo Chốt có ngòi thắng Sĩ Tượng toàn",
-        outcome: "win",
-        winner: attSide,
-        attacker: attSide,
-        defender: defSide,
-        description: "Pháo Chốt có quân bên mình làm ngòi có thể linh hoạt chuyển hướng công kích, phá tan Sĩ Tượng toàn.",
-      };
-    }
-  }
+  // (TH 6 Pháo Chốt chuyển sang VERIFIED_RULES: chỉ 1-2 Sĩ làm ngòi thì Pikafish chấm hòa 20/30, phải đủ Sĩ Tượng mới thắng.)
 
   // TH 7: Đơn Chốt
   if (att.p === 1 && att.majors === 0) {
@@ -278,6 +259,141 @@ function evaluateOneSidedAttack(
   return null;
 }
 
+// ============================================================================
+// LUẬT ĐÃ KIỂM CHỨNG BẰNG PIKAFISH
+// Mỗi cấu hình: 30 thế ngẫu nhiên hợp lệ (Tướng trong cung, không lộ mặt, không ai bị chiếu, không quân nào treo,
+// Sĩ Tượng đúng ô, Tốt cao ở hàng Tốt / sông / đỉnh cung đối phương), mỗi thế Pikafish tính 1,5 giây có WDL.
+// Chỉ nhận cấu hình mà >= 90% thế mẫu cùng kết quả. Suy rộng một chiều: thắng khi bên thủ đủ Sĩ Tượng thì cũng
+// thắng khi bên thủ ít hơn; hòa khi bên công có Sĩ Tượng thì bên công ít hơn cũng không thắng được — nhưng chỉ kết luận
+// "hòa" khi bên thủ không còn quân tấn công; bên thủ còn Xe / Mã / Pháo thì chỉ áp đúng cấu hình đã kiểm.
+// Kết quả lấy mẫu (ngày 2026-10-16) ghi trong ngoặc ở từng luật.
+// ============================================================================
+
+interface PieceSpec { r?: number; n?: number; c?: number; p?: number }
+
+/** Bên `s` có đúng số Xe / Mã / Pháo / Tốt như `spec` (không ghi = 0). */
+function exactly(s: SidePieceCount, spec: PieceSpec): boolean {
+  return s.r === (spec.r ?? 0) && s.n === (spec.n ?? 0) && s.c === (spec.c ?? 0) && s.p === (spec.p ?? 0);
+}
+const fullGuards = (s: SidePieceCount) => s.a === 2 && s.b === 2;
+const noGuards = (s: SidePieceCount) => s.a === 0 && s.b === 0;
+
+interface VerifiedRule {
+  id: string;
+  name: string;
+  outcome: "win" | "draw";
+  description: string;
+  when: (att: SidePieceCount, def: SidePieceCount) => boolean;
+}
+
+const VERIFIED_RULES: VerifiedRule[] = [
+  // --- Thắng ---
+  {
+    id: "win_horse_cannon_vs_guards", name: "Mã Pháo thắng Sĩ Tượng toàn", outcome: "win",
+    description: "Mã Pháo phối hợp (Mã làm ngòi cho Pháo, Pháo khống chế đường Tướng) đủ sức phá Sĩ Tượng toàn.",
+    when: (att, def) => exactly(att, { n: 1, c: 1 }) && exactly(def, {}), // (thắng 28/30 khi Đỏ có Sĩ Tượng, 30/30 khi không)
+  },
+  {
+    id: "win_double_horse_vs_guards", name: "Song Mã thắng Sĩ Tượng toàn", outcome: "win",
+    description: "Hai Mã thay nhau khống chế và chiếu, Sĩ Tượng toàn không giữ nổi cung.",
+    when: (att, def) => exactly(att, { n: 2 }) && exactly(def, {}), // (thắng 29/30 khi Đỏ có Sĩ Tượng, 30/30 khi không)
+  },
+  {
+    id: "win_double_cannon_with_guards", name: "Song Pháo (có Song Sĩ) thắng Sĩ Tượng toàn", outcome: "win",
+    description: "Song Pháo có Song Sĩ nhà làm ngòi thay nhau chiếu, phá được Sĩ Tượng toàn; không có ngòi thì khó thắng.",
+    when: (att, def) => exactly(att, { c: 2 }) && att.a === 2 && exactly(def, {}), // (thắng 28/30 với Sĩ Tượng toàn, 28/30 chỉ Song Sĩ; không Sĩ Tượng chỉ 6/30)
+  },
+  {
+    id: "win_cannon_pawn_full_guards", name: "Pháo Tốt cao (có Sĩ Tượng toàn) thắng Sĩ Tượng toàn", outcome: "win",
+    description: "Pháo Tốt cao có đủ Sĩ Tượng nhà làm ngòi thì phá được Sĩ Tượng toàn; thiếu ngòi thì khó thắng.",
+    when: (att, def) => exactly(att, { c: 1, p: 1 }) && att.upperP === 1 && fullGuards(att) && exactly(def, {}), // (thắng 27/30; đối AA 30/30, BB 27/30)
+  },
+  {
+    id: "win_horse_pawn_vs_advisors", name: "Mã Tốt cao thắng Song Sĩ (khuyết Tượng)", outcome: "win",
+    description: "Thiếu Tượng, Song Sĩ không che được các điểm Mã Tốt khai thác.",
+    // Tốt phải đã qua sông: Tốt cao thắng cả khi bên công không có Sĩ Tượng; Tốt thấp / đáy cần bên công đủ Sĩ Tượng.
+    when: (att, def) => exactly(att, { n: 1, p: 1 }) && (att.upperP === 1 || (fullGuards(att) && att.passedP === 1)) && exactly(def, {}) && def.b === 0, // (Tốt cao: thắng 29/30 không Sĩ Tượng, 30/30 có; Tốt đáy có Sĩ Tượng: 28/30)
+  },
+  {
+    id: "win_horse_pawn_vs_two_guards", name: "Mã Tốt cao (có Sĩ Tượng) thắng Sĩ Tượng lẻ", outcome: "win",
+    description: "Bên thủ chỉ còn hai quân Sĩ / Tượng, Mã Tốt có Sĩ Tượng nhà yểm trợ phá được.",
+    when: (att, def) => exactly(att, { n: 1, p: 1 }) && att.upperP === 1 && fullGuards(att) && exactly(def, {}) && def.a + def.b <= 2, // (đối Sĩ Tượng 28/30, Song Tượng 27/30; ba quân thủ chỉ 24/30 nên không tính)
+  },
+  {
+    id: "win_rook_pawn_vs_bare_rook", name: "Xe Tốt cao thắng Xe đơn (không Sĩ Tượng)", outcome: "win",
+    description: "Bên thủ chỉ còn Xe trơ, không Sĩ Tượng che Tướng: Xe Tốt có Sĩ Tượng thắng được.",
+    when: (att, def) => exactly(att, { r: 1, p: 1 }) && att.upperP === 1 && fullGuards(att) && exactly(def, { r: 1 }) && def.a === 0 && def.b <= 1, // (thắng 28/30; còn 1 Tượng 27/30; còn 1 Sĩ chỉ 20/30 nên không tính; Đỏ không Sĩ Tượng 24/30)
+  },
+  {
+    id: "win_rook_horse_vs_bare_rook", name: "Xe Mã thắng Xe đơn (không Sĩ Tượng)", outcome: "win",
+    description: "Xe Mã có Sĩ Tượng đối Xe trơ không Sĩ Tượng: Tướng bên thủ không có chỗ trú, Xe Mã phối hợp chiếu bí.",
+    when: (att, def) => exactly(att, { r: 1, n: 1 }) && fullGuards(att) && exactly(def, { r: 1 }) && noGuards(def), // (thắng 27/30)
+  },
+  {
+    id: "win_rook_cannon_vs_bare_rook", name: "Xe Pháo thắng Xe đơn (không Sĩ Tượng)", outcome: "win",
+    description: "Xe Pháo có Sĩ Tượng làm ngòi đối Xe trơ không Sĩ Tượng: dễ dàng chiếu bí.",
+    when: (att, def) => exactly(att, { r: 1, c: 1 }) && fullGuards(att) && exactly(def, { r: 1 }) && noGuards(def), // (thắng 29/30)
+  },
+  // --- Hòa ---
+  {
+    id: "draw_horse_pawn_vs_full_guards", name: "Mã Tốt khó thắng Sĩ Tượng toàn", outcome: "draw",
+    description: "Một Mã một Tốt không đủ lực phá Sĩ Tượng toàn đứng đúng chỗ, thường là hòa.",
+    // Chỉ khi bên công không có Sĩ Tượng (đã kiểm). Có đủ Sĩ Tượng thì bên công thắng được 5/30, chưa đủ cơ sở kết luận.
+    when: (att, def) => exactly(att, { n: 1, p: 1 }) && noGuards(att) && exactly(def, {}) && fullGuards(def), // (hòa 29/30, cả Tốt cao lẫn Tốt thấp)
+  },
+  {
+    id: "draw_cannon_pawn_no_screen", name: "Pháo Tốt không ngòi hòa Sĩ Tượng toàn", outcome: "draw",
+    description: "Không có Sĩ Tượng nhà làm ngòi, Pháo Tốt không chiếu bí được Tướng có Sĩ Tượng toàn.",
+    when: (att, def) => exactly(att, { c: 1, p: 1 }) && noGuards(att) && exactly(def, {}) && fullGuards(def), // (hòa 30/30)
+  },
+  {
+    id: "draw_cannon_bottom_pawn_vs_full_guards", name: "Pháo Tốt đáy hòa Sĩ Tượng toàn", outcome: "draw",
+    description: "Tốt đã xuống đáy (Tốt già) chỉ đi ngang, Pháo Tốt dù có Sĩ Tượng làm ngòi cũng không phá được Sĩ Tượng toàn.",
+    when: (att, def) => exactly(att, { c: 1, p: 1 }) && att.lowP === 1 && exactly(def, {}) && fullGuards(def), // (hòa 29/30, trong khi Tốt cao có Sĩ Tượng thắng 27/30)
+  },
+  {
+    id: "draw_pawn_pair_vs_full_guards", name: "Song Tốt hòa Sĩ Tượng toàn", outcome: "draw",
+    description: "Hai Tốt không có quân lớn hỗ trợ không phá được Sĩ Tượng toàn.",
+    when: (att, def) => exactly(att, { p: 2 }) && exactly(def, {}) && fullGuards(def), // (hòa 30/30)
+  },
+  {
+    id: "draw_rook_pawn_vs_rook_guards", name: "Xe Tốt hòa Xe Sĩ Tượng toàn", outcome: "draw",
+    description: "Xe Sĩ Tượng toàn giữ được trước Xe Tốt: Xe bên thủ quấy rối, Sĩ Tượng che Tướng.",
+    when: (att, def) => exactly(att, { r: 1, p: 1 }) && fullGuards(att) && exactly(def, { r: 1 }) && fullGuards(def), // (hòa 29/30, hai bên đủ Sĩ Tượng)
+  },
+  {
+    id: "draw_horse_pawn_vs_horse_guards", name: "Mã Tốt hòa Mã Sĩ Tượng toàn", outcome: "draw",
+    description: "Hơn một Tốt nhưng bên thủ còn Mã và Sĩ Tượng toàn, không phá được thế thủ.",
+    when: (att, def) => exactly(att, { n: 1, p: 1 }) && fullGuards(att) && exactly(def, { n: 1 }) && fullGuards(def), // (hòa 30/30, hai bên đủ Sĩ Tượng)
+  },
+  {
+    id: "draw_cannon_pawn_vs_cannon_guards", name: "Pháo Tốt hòa Pháo Sĩ Tượng toàn", outcome: "draw",
+    description: "Hơn một Tốt nhưng bên thủ còn Pháo và Sĩ Tượng toàn, không phá được thế thủ.",
+    when: (att, def) => exactly(att, { c: 1, p: 1 }) && fullGuards(att) && exactly(def, { c: 1 }) && fullGuards(def), // (hòa 29/30, hai bên đủ Sĩ Tượng)
+  },
+];
+
+function matchVerified(board: Board): TheoreticalEndgame | null {
+  const sides: [Side, Side][] = [["r", "b"], ["b", "r"]];
+  for (const [attSide, defSide] of sides) {
+    const att = countSidePieces(board, attSide);
+    const def = countSidePieces(board, defSide);
+    for (const rule of VERIFIED_RULES) {
+      if (!rule.when(att, def)) continue;
+      return {
+        id: rule.id,
+        name: rule.name,
+        outcome: rule.outcome,
+        ...(rule.outcome === "win" ? { winner: attSide } : {}),
+        attacker: attSide,
+        defender: defSide,
+        description: rule.description,
+      };
+    }
+  }
+  return null;
+}
+
 /**
  * Nhận diện hình cờ tàn lý thuyết kinh điển (thắng hoặc hòa).
  * Trả về `TheoreticalEndgame` nếu thế cờ khớp lý thuyết tàn cuộc, ngược lại trả về `null`.
@@ -288,6 +404,9 @@ export function detectTheoreticalEndgame(board: Board): TheoreticalEndgame | nul
 
   // Chỉ xét khi đã vào tàn cuộc (tổng quân lớn cả 2 bên <= 4)
   if (red.majors + black.majors > 4) return null;
+
+  const verified = matchVerified(board);
+  if (verified) return verified;
 
   // 1. Cạn quân tấn công cả 2 bên
   if (red.majors === 0 && black.majors === 0 && red.p === 0 && black.p === 0) {

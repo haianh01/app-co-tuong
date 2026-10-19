@@ -18,6 +18,7 @@ import {
 import { toFen, type Board, type Move, type Side } from "@/lib/xiangqi/engine";
 import { explainText, type Fact, type CommentaryStyle } from "@/lib/xiangqi/explain";
 import type { GameState } from "@/lib/xiangqi/game";
+import { explainMovePlan } from "@/lib/xiangqi/move-plan";
 import type { GamePhase } from "@/lib/xiangqi/phases";
 import { PLAN_NAME } from "@/lib/xiangqi/strategy";
 import { buildStory, summarizeGame, type StoryNote } from "@/lib/xiangqi/story";
@@ -128,6 +129,19 @@ export function AnalysisPanel({
   const currentReview = useMemo(() => {
     return review?.moves.find((m) => m.ply === ply) ?? null;
   }, [review, ply]);
+
+  // Kế hoạch của nước đang chọn: tính khi chọn nước (khoảng 2ms) thay vì cho cả ván trong reviewGame
+  const currentPlan = useMemo(() => {
+    const before = currentReview ? state.history[currentReview.ply - 1]?.board : undefined;
+    if (!currentReview?.move || !before) return null;
+    return explainMovePlan(before, currentReview.move, currentReview.pvMoves ?? [], { ply: currentReview.ply - 1 });
+  }, [currentReview, state.history]);
+  // Kế hoạch của nước AI gợi ý thay thế (chỉ có khi nước đã đi bị chấm lỗi)
+  const betterPlan = useMemo(() => {
+    const before = currentReview ? state.history[currentReview.ply - 1]?.board : undefined;
+    if (!currentReview?.betterMove || !before) return null;
+    return explainMovePlan(before, currentReview.betterMove, currentReview.betterPvMoves ?? [], { ply: currentReview.ply - 1 });
+  }, [currentReview, state.history]);
 
   // Các mũi tên và highlights trên bàn cờ
   const { arrows, highlights } = useMemo(() => {
@@ -486,6 +500,39 @@ export function AnalysisPanel({
                     <p style={{ margin: "2px 0 0", color: "var(--gold-text)", fontSize: "11px" }}>
                       💡 Nước AI gợi ý ({currentReview.better}): {currentReview.betterIntent.summary}
                     </p>
+                  )}
+                </div>
+              )}
+
+              {/* Kế hoạch: nước này nhằm gì, đối phương buộc đáp gì, bên đi làm gì tiếp theo */}
+              {(currentPlan || betterPlan) && (
+                <div className={styles.expertSection}>
+                  <span className={`${styles.expertSectionTitle} ${styles.expertSectionIntent}`}>
+                    🧭 Kế hoạch
+                  </span>
+                  {currentPlan && (
+                    <>
+                      <ol style={{ margin: 0, paddingLeft: "18px" }}>
+                        {currentPlan.steps.map((st, i) => (
+                          <li key={i}>{st.text}</li>
+                        ))}
+                      </ol>
+                      {currentPlan.aim && <p style={{ margin: "2px 0 0" }}>Hướng chung: {currentPlan.aim}</p>}
+                      {currentPlan.outcome && (
+                        <p style={{ margin: "2px 0 0", opacity: 0.8 }}>Cả biến: {currentPlan.outcome}</p>
+                      )}
+                    </>
+                  )}
+                  {betterPlan && (
+                    <div style={{ marginTop: "4px", color: "var(--gold-text)", fontSize: "12px" }}>
+                      <span>💡 Kế hoạch của nước AI gợi ý ({betterPlan.move}):</span>
+                      <ol style={{ margin: 0, paddingLeft: "18px" }}>
+                        {betterPlan.steps.map((st, i) => (
+                          <li key={i}>{st.text}</li>
+                        ))}
+                      </ol>
+                      {betterPlan.aim && <p style={{ margin: "2px 0 0" }}>Hướng chung: {betterPlan.aim}</p>}
+                    </div>
                   )}
                 </div>
               )}

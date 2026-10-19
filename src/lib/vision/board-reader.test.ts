@@ -126,12 +126,45 @@ describe("hiệu chỉnh từ thế cờ ban đầu", () => {
     const cal = calibrate(patchesOf({ board: start.board, bottom, shift: 1 }), start.board);
     expect(cal.bottom).toBe(bottom);
     expect(cal.confidence).toBeGreaterThan(0.95);
+    expect(cal.misplaced).toBe(0);
+  });
+
+  it("trang kia đã đi một nước trước khi bấm theo dõi: tin cậy vẫn cao nhưng phát hiện được ô sai", () => {
+    // Đỏ pháo 2 bình 5 rồi mới bấm: chỉ 2 ô khác, `confidence` không đủ để chặn.
+    const moved = applyMove(start, m(7, 7, 7, 4));
+    const cal = calibrate(patchesOf({ board: moved.board, bottom: "r", shift: 1, lastMove: m(7, 7, 7, 4) }), start.board, "r");
+    expect(cal.confidence).toBeGreaterThan(0.85);
+    expect(cal.misplaced).toBeGreaterThan(0);
   });
 
   it("báo tin cậy thấp khi trang kia đang ở giữa ván chứ không phải thế ban đầu", () => {
     const mid = convertChineseGame(MASTER_GAMES[0].movesCN).positions[20];
     const cal = calibrate(patchesOf({ board: mid.board, bottom: "r" }), start.board, "r");
     expect(cal.confidence).toBeLessThan(0.8);
+  });
+
+  it.each<Side>(["r", "b"])(
+    "bắt đầu giữa ván (người dùng đã tự đi tới thế này), phe %s ngồi dưới: đoán đúng hướng và theo được các nước tiếp theo",
+    (bottom) => {
+      const game = convertChineseGame(MASTER_GAMES[0].movesCN);
+      const k = 24;
+      const mid = game.positions[k];
+      const cal = calibrate(patchesOf({ board: mid.board, bottom, shift: 1, lastMove: game.moves[k - 1], seed: 7 }), mid.board);
+      expect(cal.bottom).toBe(bottom);
+      expect(cal.misplaced).toBe(0);
+      const t = new MoveTracker(cal.templates, cal.bottom, mid);
+      const seen: Move[] = [];
+      for (let i = k; i < k + 20; i++) {
+        seen.push(...feedStable(t, { board: game.positions[i + 1].board, bottom, lastMove: game.moves[i], shift: 1 }));
+      }
+      expect(seen).toEqual(game.moves.slice(k, k + 20));
+    },
+  );
+
+  it("bàn cờ ở đây còn thiếu một nước so với trang kia: phát hiện được ô sai", () => {
+    const game = convertChineseGame(MASTER_GAMES[0].movesCN);
+    const cal = calibrate(patchesOf({ board: game.positions[25].board, bottom: "r", shift: 1 }), game.positions[24].board, "r");
+    expect(cal.misplaced).toBeGreaterThan(0);
   });
 
   it("vùng cắt từ ảnh gốc: giao điểm góc nằm giữa ô đầu tiên của ảnh chuẩn hóa", () => {
@@ -200,6 +233,58 @@ describe("theo dõi ván đại sư qua ảnh chụp", () => {
     expect(feedStable(t, { board: after.board, bottom: "r", lastMove: black, shift: 1 })).toEqual([red, black]);
   });
 
+  it("mất hình một lúc (chuyển sang cửa sổ khác) trong khi ván bên kia đi tiếp 5 nước: đọc bù đủ cả 5 rồi theo tiếp", () => {
+    const game = convertChineseGame(MASTER_GAMES[0].movesCN);
+    const t = trackerFor("r");
+    for (let i = 0; i < 10; i++) feedStable(t, { board: game.positions[i + 1].board, bottom: "r", lastMove: game.moves[i], shift: 1 });
+    expect(t.position.board).toEqual(game.positions[10].board);
+    // Trong lúc khung chụp hiện thứ khác (ở đây: một thế cờ chẳng liên quan), không được bịa nước.
+    const other = parseFen("4k4/9/9/9/9/9/9/9/9/4K4 w");
+    expect(feedStable(t, { board: other.board, bottom: "r" })).toEqual([]);
+    expect(feedStable(t, { board: game.positions[15].board, bottom: "r", lastMove: game.moves[14], shift: 1 })).toEqual(
+      game.moves.slice(10, 15),
+    );
+    expect(feedStable(t, { board: game.positions[16].board, bottom: "r", lastMove: game.moves[15], shift: 1 })).toEqual([game.moves[15]]);
+  });
+
+});
+
+describe("đọc bù nhiều nước nhờ dấu nước vừa đi của trang kia", () => {
+  // Bốn nước đọc từng nước một để học dấu "nước vừa đi" (ô tô màu ở ô đi và ô đến), xong tới lượt Đỏ.
+  const opening = [m(7, 7, 7, 4), m(0, 7, 2, 6), m(9, 7, 7, 6), m(0, 1, 2, 2)];
+  function learned() {
+    const t = trackerFor("r");
+    let p = start;
+    for (const mv of opening) {
+      p = applyMove(p, mv);
+      expect(feedStable(t, { board: p.board, bottom: "r", lastMove: mv, shift: 1 })).toEqual([mv]);
+    }
+    return { t, p };
+  }
+  const play = (p: ReturnType<typeof initialPosition>, moves: Move[]) => moves.reduce((q, mv) => applyMove(q, mv), p);
+
+  it.each([
+    ["mã", [m(9, 8, 8, 8), m(3, 0, 4, 0), m(9, 1, 7, 2)]],
+    ["xe", [m(9, 1, 7, 2), m(3, 0, 4, 0), m(9, 8, 8, 8)]],
+  ])("hai nước Đỏ không liên quan nhau, nước cuối là %s: thứ tự theo dấu", (_, moves) => {
+    const { t, p } = learned();
+    const after = play(p, moves);
+    expect(feedStable(t, { board: after.board, bottom: "r", lastMove: moves[2], shift: 1 })).toEqual(moves);
+  });
+
+  it("xe đi hai bước hay một bước ra cùng ảnh: dấu ở nước mã của Đỏ cho biết đã đi 5 nửa nước chứ không phải 4", () => {
+    const { t, p } = learned();
+    const moves = [m(9, 0, 8, 0), m(3, 0, 4, 0), m(8, 0, 7, 0), m(3, 2, 4, 2), m(9, 1, 7, 2)];
+    const after = play(p, moves);
+    const got = feedStable(t, { board: after.board, bottom: "r", lastMove: moves[4], shift: 1 });
+    expect(got).toHaveLength(5);
+    expect(got[4]).toEqual(moves[4]);
+    expect(t.position.board).toEqual(after.board);
+    expect(t.position.turn).toBe(after.turn);
+  });
+});
+
+describe("ảnh không phải ván đang theo dõi", () => {
   it("ảnh lệch hẳn (chọn sai vùng) thì không bịa ra nước đi", () => {
     const t = trackerFor("r");
     const other = parseFen("4k4/9/9/9/9/9/9/9/9/4K4 w");

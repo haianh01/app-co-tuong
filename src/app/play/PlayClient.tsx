@@ -288,12 +288,20 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
       </section>
 
       <div className={styles.side}>
+        <div className={styles.review}>
+          {coach && !result && <LiveCoach state={state} player={player} />}
+          {result && state.moves.length > 0 && (
+            <AnalysisPanel
+              state={state}
+              ply={viewPly}
+              onSelect={setReview}
+              viewer={player}
+              onAnalysisUpdate={setAnalysisInfo}
+            />
+          )}
+          {reviewing && <button type="button" className="btn" onClick={() => setReview(null)}>Về thế cuối ván</button>}
+        </div>
         <div className={`card ${styles.panel} ${styles.controls}`}>
-          <div className={styles.panelHead}>
-            <h2 className={styles.panelTitle}>Biên bản</h2>
-            <span className="muted">{ply} nửa nước</span>
-          </div>
-          <MoveList moves={state.moves} />
           <div className={styles.actions}>
             <button type="button" className="btn" onClick={undo} disabled={!canUndo}>Đi lại</button>
             <button type="button" className="btn" onClick={askHint} disabled={!canAct}>Gợi ý</button>
@@ -312,19 +320,11 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
             <input type="checkbox" checked={coach} onChange={(e) => setCoach(e.target.checked)} />
             Phân tích từng nước khi đang đánh
           </label>
-        </div>
-        <div className={styles.review}>
-          {coach && !result && <LiveCoach state={state} player={player} />}
-          {result && state.moves.length > 0 && (
-            <AnalysisPanel
-              state={state}
-              ply={viewPly}
-              onSelect={setReview}
-              viewer={player}
-              onAnalysisUpdate={setAnalysisInfo}
-            />
-          )}
-          {reviewing && <button type="button" className="btn" onClick={() => setReview(null)}>Về thế cuối ván</button>}
+          <div className={styles.panelHead}>
+            <h2 className={styles.panelTitle}>Biên bản</h2>
+            <span className="muted">{ply} nửa nước</span>
+          </div>
+          <MoveList moves={state.moves} />
         </div>
         <div className={styles.setup}>{setup}</div>
       </div>

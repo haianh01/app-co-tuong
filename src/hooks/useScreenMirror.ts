@@ -1,17 +1,31 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { initialPosition, type Move, type Position, type Side } from "@/lib/xiangqi/engine";
+import { initialPosition, toFen, type Move, type Position, type Side } from "@/lib/xiangqi/engine";
 import {
   GRID_H, GRID_W, MoveTracker, calibrate, extractPatches, sourceRect, type Calibration,
 } from "@/lib/vision/board-reader";
 
 /** Dưới mức này coi như chọn sai góc hoặc trang kia chưa ở thế cờ ban đầu. */
 const MIN_CONFIDENCE = 0.85;
+/** Tỉ lệ ngang/dọc của khung chụp lệch quá mức này so với lúc chọn góc thì bố cục trang kia đã đổi. */
+const ASPECT_TOLERANCE = 0.01;
 /** Nhịp chụp: đủ nhanh để thấy nước đi gần như tức thì, đủ thưa để không tốn CPU. */
 const TICK_MS = 300;
 
 export type MirrorStatus = "idle" | "picking" | "following";
+
+/**
+ * Loại nguồn người dùng đã chọn chia sẻ. Chỉ "browser" (một tab) là trình duyệt vẫn gửi hình khi tab đó bị ẩn;
+ * "window"/"monitor" chỉ chụp thứ đang hiện trên màn hình.
+ */
+export type CaptureSurface = "browser" | "window" | "monitor";
+
+/** Các tùy chọn của getDisplayMedia mà thư viện kiểu DOM của TypeScript chưa có (Chrome/Edge hỗ trợ). */
+interface CaptureOptions extends DisplayMediaStreamOptions {
+  /** Ẩn chính tab đang gọi khỏi danh sách chọn: chia sẻ trang tường thuật thì không đọc được gì. */
+  selfBrowserSurface?: "include" | "exclude";
+}
 
 /** Những gì bộ theo dõi đang thấy, hiện cho người dùng để biết vì sao chưa nhận được nước. */
 export interface MirrorDiagnostics {
@@ -22,8 +36,11 @@ export interface MirrorDiagnostics {
   mismatched: number;
   /** Số nhịp liên tiếp ảnh không đứng yên. */
   movingStreak: number;
+  /** Khung chụp đã đổi tỉ lệ so với lúc chọn góc (cửa sổ kia bị co giãn): vị trí bàn cờ không còn như cũ. */
+  resized: boolean;
 }
 
+/** Điểm trên khung chụp, tính theo tỉ lệ (0..1) chiều rộng/cao: giữ đúng khi trình duyệt đổi độ phân giải chụp. */
 export interface Point {
   x: number;
   y: number;
@@ -51,6 +68,7 @@ export function useScreenMirror(onMoves: (moves: Move[]) => void) {
   const [corners, setCorners] = useState<Point[]>([]);
   const [bottom, setBottom] = useState<Side | null>(null);
   const [diag, setDiag] = useState<MirrorDiagnostics | null>(null);
+  const [surface, setSurface] = useState<CaptureSurface | null>(null);
 
   const stop = useCallback(() => {
     timerRef.current?.terminate();
@@ -61,6 +79,7 @@ export function useScreenMirror(onMoves: (moves: Move[]) => void) {
     if (videoRef.current) videoRef.current.srcObject = null;
     setStatus("idle");
     setCorners([]);
+    setSurface(null);
   }, []);
 
   useEffect(() => stop, [stop]);
@@ -72,8 +91,17 @@ export function useScreenMirror(onMoves: (moves: Move[]) => void) {
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 10 }, audio: false });
+      // Mở sẵn mục "Tab" trong hộp chọn: chia sẻ cả cửa sổ thì khi người dùng chuyển sang tab này, hình chụp chỉ còn
+      // là chính trang này và app lỡ các nước đi trong lúc đó.
+      const options: CaptureOptions = {
+        video: { frameRate: 10, displaySurface: "browser" },
+        audio: false,
+        selfBrowserSurface: "exclude",
+      };
+      const stream = await navigator.mediaDevices.getDisplayMedia(options);
       streamRef.current = stream;
+      const chosen = stream.getVideoTracks()[0]?.getSettings().displaySurface;
+      setSurface(chosen === "browser" || chosen === "window" || chosen === "monitor" ? chosen : null);
       // Người dùng bấm "Dừng chia sẻ" của trình duyệt.
       stream.getVideoTracks()[0]?.addEventListener("ended", stop);
       const video = videoRef.current;
@@ -93,16 +121,22 @@ export function useScreenMirror(onMoves: (moves: Move[]) => void) {
     const video = videoRef.current;
     if (!video?.videoWidth) return;
     const rect = video.getBoundingClientRect();
-    const p = {
-      x: ((clientX - rect.left) / rect.width) * video.videoWidth,
-      y: ((clientY - rect.top) / rect.height) * video.videoHeight,
-    };
+    const p = { x: (clientX - rect.left) / rect.width, y: (clientY - rect.top) / rect.height };
     setCorners((cs) => (cs.length >= 2 ? [p] : [...cs, p]));
   }, []);
 
-  const grab = useCallback((cal: Calibration) => {
+  /** Chụp 90 mẫu tại hai góc `a`, `b` (theo tỉ lệ khung hình, thứ tự bất kỳ). */
+  const grab = useCallback(([a, b]: Point[]) => {
     const video = videoRef.current;
     if (!video?.videoWidth) return null;
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    const cal: Calibration = {
+      x0: Math.min(a.x, b.x) * w,
+      y0: Math.min(a.y, b.y) * h,
+      x1: Math.max(a.x, b.x) * w,
+      y1: Math.max(a.y, b.y) * h,
+    };
     const canvas = (canvasRef.current ??= document.createElement("canvas"));
     canvas.width = GRID_W;
     canvas.height = GRID_H;
@@ -113,25 +147,36 @@ export function useScreenMirror(onMoves: (moves: Move[]) => void) {
     return extractPatches(ctx.getImageData(0, 0, GRID_W, GRID_H).data);
   }, []);
 
-  /** Học hình quân từ thế cờ ban đầu đang hiện trên trang kia rồi bắt đầu theo dõi. */
+  /**
+   * Học hình quân từ ảnh trang kia, khi trang kia đang ở đúng thế `start` (thế ban đầu, hoặc thế người dùng đã tự đi
+   * tới cho khớp), rồi bắt đầu theo dõi từ đó. Trả về false nếu ảnh không khớp (lỗi ở `error`).
+   */
   const follow = useCallback(
-    (forceBottom?: Side) => {
-      if (corners.length < 2) return;
-      const [a, b] = corners;
-      // Chấp nhận bấm hai góc theo thứ tự bất kỳ.
-      const cal: Calibration = { x0: Math.min(a.x, b.x), y0: Math.min(a.y, b.y), x1: Math.max(a.x, b.x), y1: Math.max(a.y, b.y) };
-      const patches = grab(cal);
-      if (!patches) return;
-      const result = calibrate(patches, initialPosition().board, forceBottom);
+    (start: Position, forceBottom?: Side): boolean => {
+      const video = videoRef.current;
+      if (corners.length < 2 || !video) return false;
+      const aspect = video.videoWidth / video.videoHeight;
+      const patches = grab(corners);
+      if (!patches) return false;
+      const fromStart = toFen(start) === toFen(initialPosition());
+      const result = calibrate(patches, start.board, forceBottom);
       if (result.confidence < MIN_CONFIDENCE) {
         setError(
-          "Không nhận ra thế cờ ban đầu. Kiểm tra lại: trang kia phải đang ở thế cờ ban đầu (chưa ai đi) và hai góc phải bấm đúng giao điểm ngoài cùng của lưới.",
+          fromStart
+            ? "Không nhận ra thế cờ ban đầu. Kiểm tra lại: hai góc phải bấm đúng giao điểm ngoài cùng của lưới. Nếu ván bên kia đã đi vài nước, hãy tắt chế độ Vẽ và tự đi lại các nước đó trên bàn cờ ở đây cho giống, rồi bấm lại “Bắt đầu theo dõi”."
+            : "Ảnh không khớp thế cờ trên bàn cờ ở đây. Kiểm tra lại: hai góc phải bấm đúng giao điểm ngoài cùng của lưới, và các quân trên bàn cờ ở đây phải đứng giống hệt trang kia.",
         );
-        return;
+        return false;
+      }
+      if (result.misplaced > 0) {
+        setError(
+          `Trang kia khác thế cờ trên bàn cờ ở đây ở ${result.misplaced} ô. Hãy tắt chế độ Vẽ và tự đi các nước trên bàn cờ ở đây cho giống hệt trang kia, rồi bấm lại “Bắt đầu theo dõi”.`,
+        );
+        return false;
       }
       setError(null);
       setBottom(result.bottom);
-      const tracker = new MoveTracker(result.templates, result.bottom, initialPosition());
+      const tracker = new MoveTracker(result.templates, result.bottom, start);
       trackerRef.current = tracker;
       timerRef.current?.terminate();
       const ticker = new Worker(
@@ -141,16 +186,25 @@ export function useScreenMirror(onMoves: (moves: Move[]) => void) {
       let frames = 0;
       let movingStreak = 0;
       ticker.onmessage = () => {
-        const ps = grab(cal);
-        if (!ps || trackerRef.current !== tracker) return;
+        const v = videoRef.current;
+        if (!v?.videoWidth || trackerRef.current !== tracker) return;
+        // Cùng tỉ lệ (trình duyệt chỉ đổi độ phân giải chụp) thì góc theo tỉ lệ vẫn đúng; khác tỉ lệ thì bố cục đã đổi.
+        if (Math.abs(v.videoWidth / v.videoHeight - aspect) > ASPECT_TOLERANCE * aspect) {
+          frames++;
+          setDiag({ frames, moving: false, mismatched: 0, movingStreak: 0, resized: true });
+          return false;
+        }
+        const ps = grab(corners);
+        if (!ps) return;
         const moves = tracker.feed(ps);
         if (moves.length) onMovesRef.current(moves);
         frames++;
         movingStreak = tracker.last.moving ? movingStreak + 1 : 0;
-        setDiag({ frames, moving: tracker.last.moving, mismatched: tracker.last.mismatched.length, movingStreak });
+        setDiag({ frames, moving: tracker.last.moving, mismatched: tracker.last.mismatched.length, movingStreak, resized: false });
       };
       setDiag(null);
       setStatus("following");
+      return true;
     },
     [corners, grab],
   );
@@ -169,5 +223,5 @@ export function useScreenMirror(onMoves: (moves: Move[]) => void) {
     setStatus(streamRef.current ? "picking" : "idle");
   }, []);
 
-  return { videoRef, status, error, corners, bottom, diag, start, stop, addCorner, follow, resync, repick };
+  return { videoRef, status, error, corners, bottom, diag, surface, start, stop, addCorner, follow, resync, repick };
 }

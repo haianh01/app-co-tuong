@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { initialPosition, isLegal, parseFen, play, sq, type Board, type Move } from "./engine";
 import { explainText } from "./explain";
+import { minorValues, screenCount } from "./piece-value";
 import {
   detectEndgameTrade,
   detectGuardFormation,
   detectHighPawn,
   detectKingActivity,
   detectKingBoxing,
+  detectMinorTrade,
   detectOldPawn,
   detectPawnForGuard,
   detectWaitingMove,
@@ -73,14 +75,15 @@ describe("endgame-principles: nguyên lý tàn cuộc", () => {
   });
 
   describe("Tốt trong tàn cuộc", () => {
-    it("phê bình Tốt xuống đáy biến Mã Chốt thắng thành Mã Chốt đáy hòa", () => {
-      const fen = "2baka3/1P7/4b4/9/9/5N3/9/9/9/4K4 w - - 0 1";
+    it("phê bình Tốt xuống đáy biến Pháo Tốt đang thắng thành Pháo Tốt đáy hòa", () => {
+      // Pháo Tốt có Sĩ Tượng làm ngòi; engine chấm thế trước là thắng (+300). Tốt xuống đáy: Pikafish hòa 29/30.
+      const fen = "2bakab2/1P7/9/9/9/4C4/9/9/9/2BAKAB2 w - - 0 1";
       const down = mv(1, 1, 0, 1);
       const { before, after } = setup(fen, down);
       const f = detectOldPawn(before, down, after, { loss: 250, evalBefore: { score: 300 } });
       expect(f?.principle).toBe("totGia");
       expect(f?.tone).toBe("critique");
-      expect(f?.endgame).toBe("Mã Chốt đáy (Tốt già) hòa Sĩ Tượng toàn");
+      expect(f?.endgame).toBe("Pháo Tốt đáy hòa Sĩ Tượng toàn");
     });
 
     it("không phê bình Tốt xuống đáy khi engine không chấm lỗi và kết quả lý thuyết không đổi", () => {
@@ -150,6 +153,53 @@ describe("endgame-principles: nguyên lý tàn cuộc", () => {
       const wait = mv(8, 4, 9, 5);
       const { before, after } = setup(fen, wait);
       expect(detectWaitingMove(before, wait, after, { loss: 0, evalBefore: { score: 30 } })).toBeNull();
+    });
+  });
+
+  describe("Mã / Pháo theo số ngòi trên bàn", () => {
+    it("đầu ván đủ ngòi: giữ giá trị chuẩn Pháo 450, Mã 400", () => {
+      const b = initialPosition().board;
+      expect(screenCount(b)).toBe(18);
+      expect(minorValues(b)).toEqual({ n: 400, c: 450 });
+    });
+
+    it("hết Sĩ Tượng, chỉ còn 1 Tốt: Mã đáng giá hơn Pháo", () => {
+      const b = parseFen("4k4/9/9/9/2P6/2C6/4N4/9/9/4K4 w - - 0 1").board;
+      const v = minorValues(b);
+      expect(v.n).toBeGreaterThan(v.c);
+    });
+
+    // Đỏ: Pháo c4 có ngòi là Tốt c5, ăn Mã đen c7; Mã đen b9 ăn lại. Không còn Sĩ Tượng, chỉ 1 Tốt.
+    const fen = "1n2k4/9/2n6/9/2P6/2C6/4N4/9/9/4K4 w - - 0 1";
+    const trade = mv(5, 2, 2, 2);
+    const recapture = mv(0, 1, 2, 2);
+
+    it("khen đổi Pháo lấy Mã khi bàn thưa ngòi", () => {
+      const { before, after } = setup(fen, trade);
+      const f = detectMinorTrade(before, trade, after, { loss: 0, pv: [recapture] });
+      expect(f?.principle).toBe("doiPhaoLayMa");
+      expect(f?.summary).toContain("1 quân làm ngòi");
+    });
+
+    it("không coi là đổi khi đối phương không ăn lại", () => {
+      const { before, after } = setup(fen, trade);
+      expect(detectMinorTrade(before, trade, after, { loss: 0, pv: [mv(0, 4, 1, 4)] })).toBeNull();
+    });
+
+    it("chê đổi Mã lấy Pháo khi bàn thưa ngòi và engine chấm lỗi", () => {
+      // Đỏ: Mã e3 ăn Pháo đen d5; Xe đen d9 ăn lại. Không còn Sĩ Tượng, chỉ 1 Tốt.
+      const fen2 = "3rk4/9/9/9/3cP4/9/4N4/2C6/9/4K4 w - - 0 1";
+      const take = mv(6, 4, 4, 3);
+      const { before, after } = setup(fen2, take);
+      const f = detectMinorTrade(before, take, after, { loss: 120, pv: [mv(0, 3, 4, 3)] });
+      expect(f?.principle).toBe("doiMaLayPhao");
+      expect(f?.tone).toBe("critique");
+    });
+
+    it("bàn còn đủ Sĩ Tượng thì không nói gì về đổi Mã / Pháo", () => {
+      const fen3 = "1nbakab2/9/2n6/9/2P6/2C6/4N4/9/9/2BAKAB2 w - - 0 1";
+      const { before, after } = setup(fen3, trade);
+      expect(detectMinorTrade(before, trade, after, { loss: 0, pv: [recapture] })).toBeNull();
     });
   });
 

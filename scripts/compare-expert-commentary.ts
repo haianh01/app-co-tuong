@@ -47,7 +47,10 @@ import { engineScore, uciToMove, moveToUci } from "../src/lib/xiangqi/uci";
 import { classifyWinDrop, winChance } from "../src/lib/xiangqi/analysis";
 
 const dataDir = path.join(process.cwd(), ".data", "expert-commentary");
-const files = fs.readdirSync(dataDir).filter((f) => f.startsWith("tlkd_") && f.endsWith(".json"));
+// Thư mục dữ liệu nằm trong .gitignore: không có thì để rỗng, để test các hàm thuần bên dưới vẫn import được (CI).
+const files = fs.existsSync(dataDir)
+  ? fs.readdirSync(dataDir).filter((f) => f.startsWith("tlkd_") && f.endsWith(".json"))
+  : [];
 
 const args = process.argv.slice(2);
 const limitIdx = args.indexOf("--limit");
@@ -329,6 +332,9 @@ export function extractExpertTacticalThemes(text: string): string[] {
 }
 
 async function runBenchmark() {
+  if (files.length === 0) {
+    throw new Error(`Không có dữ liệu ván bình luận trong ${dataDir} — chạy scripts/crawl-expert-games.py trước.`);
+  }
   console.log(`\n=================================================================`);
   console.log(`BẮT ĐẦU ĐỐI SÁNH BÌNH LUẬN ĐẠI SƯ VỚI HỆ THỐNG AI 5 KHỐI (V2 - CHUẨN HÓA)`);
   console.log(`Số ván phân tích: ${Math.min(maxGames, files.length)} / ${files.length}`);

@@ -5,7 +5,8 @@ import { newStageRoom, stageSocketUrl, type StageRelayMessage, type StageServerM
 import styles from "./broadcast.module.css";
 import type { StageResult } from "./stage-round";
 import { formatClock } from "@/lib/vision/zigavn-panels";
-import { DEFAULT_STAGE_SETTINGS, liveClocks, type StageClocks, type StagePlayer, type StageSettings } from "./stage-sync";
+import { DEFAULT_STAGE_SETTINGS, DEFAULT_STAGE_VOICE_LINES, liveClocks, type StageClocks, type StagePlayer, type StageSettings, type StageVoiceLines } from "./stage-sync";
+import { playStageVoiceEvent, speakStageVoice } from "@/lib/stage-voice";
 
 const ROOM_KEY = "tuong-thuat:stage-room";
 const SETTINGS_KEY = "tuong-thuat:stage-settings";
@@ -23,7 +24,8 @@ function loadSettings(): StageSettings {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (raw) {
       const saved = JSON.parse(raw) as { date?: string; settings?: Partial<StageSettings> };
-      const s = { ...DEFAULT_STAGE_SETTINGS, ...saved.settings };
+      const voiceLines: StageVoiceLines = { ...DEFAULT_STAGE_VOICE_LINES, ...saved.settings?.voiceLines };
+      const s: StageSettings = { ...DEFAULT_STAGE_SETTINGS, ...saved.settings, voiceLines };
       return saved.date === today() ? s : { ...s, round: 1, today: DEFAULT_STAGE_SETTINGS.today };
     }
   } catch {}
@@ -185,6 +187,8 @@ export function StagePanel({
   autoRead,
   onAutoRead,
   clocks,
+  mySide = "r",
+  onToggleSide,
 }: {
   settings: StageSettings;
   setSettings: (update: (s: StageSettings) => StageSettings) => void;
@@ -195,9 +199,14 @@ export function StagePanel({
   autoRead: boolean;
   onAutoRead: (on: boolean) => void;
   clocks: StageClocks | null;
+  /** Màu cờ của người dẫn (luôn là màu cờ phía dưới bàn cờ). */
+  mySide?: "r" | "b";
+  /** Đổi màu cờ phía dưới (lật bàn). */
+  onToggleSide?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [recapSent, setRecapSent] = useState(false);
   const stageUrl = link.room ? `${typeof window === "undefined" ? "" : window.location.origin}/tuong-thuat/san-khau?room=${link.room}` : "";
   const goal = settings.goal ?? { label: "tim", current: 0, target: 0 };
   const setGoal = (g: Partial<typeof goal>) => setSettings((s) => ({ ...s, goal: { ...goal, ...g } }));
@@ -208,6 +217,22 @@ export function StagePanel({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {}
+  };
+
+  const sendRecap = () => {
+    link.send({ t: "recap" });
+    setRecapSent(true);
+    setTimeout(() => setRecapSent(false), 2000);
+  };
+
+  const handleResultClick = (r: StageResult) => {
+    const next = result === r ? null : r;
+    onResult(next);
+    if (next === "win") {
+      link.send({ t: "voice", event: "win", text: settings.voiceLines?.win });
+    } else if (next === "loss") {
+      link.send({ t: "voice", event: "loss", text: settings.voiceLines?.loss });
+    }
   };
 
   const results: [StageResult, string][] = [
@@ -235,15 +260,25 @@ export function StagePanel({
         <button type="button" className={styles.btn} disabled={!stageUrl} onClick={copyUrl} title="Dán vào Browser Source của OBS, kích thước 1080×1920">
           {copied ? "✓ Đã chép" : "Chép link cho OBS"}
         </button>
-        <button type="button" className={styles.btn} onClick={() => link.send({ t: "recap" })} title="Hiện thẻ tóm tắt ván cho người vừa vào xem">
-          Tóm tắt cho người mới
+        <button type="button" className={styles.btn} onClick={sendRecap} title="Hiện thẻ tóm tắt ván cho người vừa vào xem">
+          {recapSent ? "✓ Đã hiện tóm tắt" : "Tóm tắt cho người mới"}
         </button>
+        {onToggleSide && (
+          <button
+            type="button"
+            className={styles.btn}
+            onClick={onToggleSide}
+            title="Đổi màu cờ của bạn ở phía dưới bàn cờ (Đỏ ↔ Đen)"
+          >
+            ⇅ Cờ dưới: {mySide === "r" ? "🔴 Bạn cầm Đỏ" : "⚫ Bạn cầm Đen"}
+          </button>
+        )}
       </div>
 
       <div className={styles.row}>
         <span className={styles.muted}>Ván {settings.round} · kết quả:</span>
         {results.map(([r, text]) => (
-          <button key={r} type="button" className={styles.btn} aria-pressed={result === r} onClick={() => onResult(result === r ? null : r)}>
+          <button key={r} type="button" className={styles.btn} aria-pressed={result === r} onClick={() => handleResultClick(r)}>
             {text}
           </button>
         ))}
@@ -258,14 +293,133 @@ export function StagePanel({
       </label>
       {clocks && <ClockPreview clocks={clocks} />}
 
-      <PlayerFields label="Đối thủ (ô phải)" player={settings.opponent} onChange={(opponent) => setSettings((s) => ({ ...s, opponent }))} />
+      <PlayerFields
+        label={`Bạn (ô trái trên Ziga) · ${mySide === "r" ? "🔴 Cầm Đỏ (dưới bàn cờ)" : "⚫ Cầm Đen (dưới bàn cờ)"}`}
+        player={settings.me}
+        onChange={(me) => setSettings((s) => ({ ...s, me }))}
+      />
+
+      <PlayerFields
+        label={`Đối thủ (ô phải trên Ziga) · ${mySide === "r" ? "⚫ Cầm Đen (trên bàn cờ)" : "🔴 Cầm Đỏ (trên bàn cờ)"}`}
+        player={settings.opponent}
+        onChange={(opponent) => setSettings((s) => ({ ...s, opponent }))}
+      />
 
       <button type="button" className={styles.btn} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
-        {open ? "Ẩn cài đặt" : "Cài đặt: thông tin của bạn, mục tiêu…"}
+        {open ? "Ẩn cài đặt thêm" : "Cài đặt thêm: giọng nói, mục tiêu, kết nối…"}
       </button>
       {open && (
         <div className={styles.stageSettingsForm}>
-          <PlayerFields label="Bạn (ô trái)" player={settings.me} onChange={(me) => setSettings((s) => ({ ...s, me }))} />
+          
+          <fieldset className={styles.stageFieldset}>
+            <legend className={styles.stageLabel}>Giọng nói & Câu khẩu hiệu sân khấu</legend>
+            <label className={styles.stageFieldFull} style={{ display: "flex", flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={settings.voiceLines?.enabled ?? true}
+                onChange={(e) => setSettings((s) => ({ ...s, voiceLines: { ...s.voiceLines, enabled: e.target.checked } }))}
+              />
+              <span style={{ fontSize: 13, fontWeight: 600 }}>Bật giọng nói thông báo trên sân khấu (OBS)</span>
+            </label>
+
+            <div className={styles.stageFieldFull} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span className={styles.stageLabel}>Khi bị chiếu (câu kêu cứu)</span>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  className={styles.stageInput}
+                  style={{ flex: 1 }}
+                  value={settings.voiceLines?.check ?? ""}
+                  placeholder="Người đâu Cứu trẫm"
+                  onChange={(e) => setSettings((s) => ({ ...s, voiceLines: { ...s.voiceLines, check: e.target.value } }))}
+                />
+                <button
+                  type="button"
+                  className={styles.btn}
+                  title="Nghe thử trên loa máy này"
+                  onClick={() => playStageVoiceEvent("check", settings.voiceLines)}
+                >
+                  🔈 Thử loa
+                </button>
+                <button
+                  type="button"
+                  className={styles.btn}
+                  title="Phát trực tiếp lên màn sân khấu OBS"
+                  onClick={() => link.send({ t: "voice", event: "check", text: settings.voiceLines?.check })}
+                >
+                  📣 Phát sân khấu
+                </button>
+              </div>
+            </div>
+
+            <div className={styles.stageFieldFull} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span className={styles.stageLabel}>Khi thắng trận</span>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  className={styles.stageInput}
+                  style={{ flex: 1 }}
+                  value={settings.voiceLines?.win ?? ""}
+                  placeholder="Bạn sắp đạt đến mục tiêu 2000 elo rồi"
+                  onChange={(e) => setSettings((s) => ({ ...s, voiceLines: { ...s.voiceLines, win: e.target.value } }))}
+                />
+                <button
+                  type="button"
+                  className={styles.btn}
+                  title="Nghe thử trên loa máy này"
+                  onClick={() => playStageVoiceEvent("win", settings.voiceLines)}
+                >
+                  🔈 Thử loa
+                </button>
+                <button
+                  type="button"
+                  className={styles.btn}
+                  title="Phát trực tiếp lên màn sân khấu OBS"
+                  onClick={() => link.send({ t: "voice", event: "win", text: settings.voiceLines?.win })}
+                >
+                  📣 Phát sân khấu
+                </button>
+              </div>
+            </div>
+
+            <div className={styles.stageFieldFull} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              <span className={styles.stageLabel}>Khi thua trận</span>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  className={styles.stageInput}
+                  style={{ flex: 1 }}
+                  value={settings.voiceLines?.loss ?? ""}
+                  placeholder="Đừng buồn bạn chỉ thiếu chút may mắn thôi"
+                  onChange={(e) => setSettings((s) => ({ ...s, voiceLines: { ...s.voiceLines, loss: e.target.value } }))}
+                />
+                <button
+                  type="button"
+                  className={styles.btn}
+                  title="Nghe thử trên loa máy này"
+                  onClick={() => playStageVoiceEvent("loss", settings.voiceLines)}
+                >
+                  🔈 Thử loa
+                </button>
+                <button
+                  type="button"
+                  className={styles.btn}
+                  title="Phát trực tiếp lên màn sân khấu OBS"
+                  onClick={() => link.send({ t: "voice", event: "loss", text: settings.voiceLines?.loss })}
+                >
+                  📣 Phát sân khấu
+                </button>
+              </div>
+            </div>
+
+            <div className={styles.stageFieldFull} style={{ marginTop: 4 }}>
+              <button
+                type="button"
+                className={styles.btn}
+                onClick={() => setSettings((s) => ({ ...s, voiceLines: DEFAULT_STAGE_VOICE_LINES }))}
+              >
+                Khôi phục câu nói mặc định
+              </button>
+            </div>
+          </fieldset>
+
           <label className={styles.stageField}>
             <span className={styles.stageLabel}>Tên dưới camera</span>
             <input className={styles.stageInput} value={settings.host} onChange={(e) => setSettings((s) => ({ ...s, host: e.target.value }))} />

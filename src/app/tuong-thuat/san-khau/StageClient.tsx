@@ -4,28 +4,34 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { XiangqiBoard } from "@/components/board/XiangqiBoard";
 import { useHydrated } from "@/hooks/useHydrated";
 import { useQueryParam } from "@/hooks/useLocationSearch";
-import { STAGE_ROOM_RE, stageSocketUrl, type StageRelayMessage } from "@/lib/stage-protocol";
+import { STAGE_ROOM_RE, stageSocketUrl, type StageRelayMessage, type StageVoiceEvent } from "@/lib/stage-protocol";
 import { formatClock } from "@/lib/vision/zigavn-panels";
 import { PIECE_CHAR, PIECE_NAME } from "@/lib/xiangqi/notation";
-import type { PieceType, Side } from "@/lib/xiangqi/engine";
-import { liveClocks, type BigMoment, type StageClocks, type StagePlayer, type StageState } from "../stage-sync";
+import { inCheck, outcome, type PieceType, type Side } from "@/lib/xiangqi/engine";
+import { playStageVoiceEvent, unlockAudio } from "@/lib/stage-voice";
+import { DEFAULT_STAGE_VOICE_LINES, liveClocks, type BigMoment, type StageClocks, type StagePlayer, type StageState } from "../stage-sync";
 import styles from "./stage.module.css";
 
-/** Thẻ tóm tắt cho người mới vào: tự hiện mỗi chừng này, và mỗi lần người dẫn bấm. */
-const RECAP_EVERY_MS = 60_000;
-const RECAP_SHOW_MS = 8_000;
+/** Thẻ tóm tắt cho người mới vào: chỉ hiện khi người dùng bấm hoặc nhận tin recap từ trang điều khiển. */
+const RECAP_SHOW_MS = 10_000;
 const MOMENT_SHOW_MS = 3_500;
 /** Thẻ luân phiên ở góc dưới (mục tiêu, thành tích, lời mời). */
 const ROTATE_MS = 12_000;
 
 /** Nhận trạng thái từ trang điều khiển qua /ws/stage; tự kết nối lại khi rớt mạng hoặc server khởi động lại. */
-function useStageFeed(room: string | null, onRecap: () => void) {
+function useStageFeed(
+  room: string | null,
+  onRecap: () => void,
+  onVoice: (event: StageVoiceEvent, text?: string) => void,
+) {
   const [state, setState] = useState<StageState | null>(null);
   const [connected, setConnected] = useState(false);
   const onRecapRef = useRef(onRecap);
+  const onVoiceRef = useRef(onVoice);
   useEffect(() => {
     onRecapRef.current = onRecap;
-  }, [onRecap]);
+    onVoiceRef.current = onVoice;
+  }, [onRecap, onVoice]);
 
   useEffect(() => {
     if (!room) return;
@@ -48,6 +54,7 @@ function useStageFeed(room: string | null, onRecap: () => void) {
         }
         if (msg.t === "state") setState(msg.state as StageState);
         else if (msg.t === "recap") onRecapRef.current();
+        else if (msg.t === "voice") onVoiceRef.current(msg.event, msg.text);
       };
       ws.onclose = () => {
         setConnected(false);
@@ -96,8 +103,8 @@ function useMoment(moment: BigMoment | null | undefined) {
   return shown;
 }
 
-/** Thẻ tóm tắt: hiện khi gọi show(), và tự hiện định kỳ khi ván đã đi được vài nước. */
-function useRecap(ply: number) {
+/** Thẻ tóm tắt: CHỈ HIỆN KHI NGƯỜI DÙNG BẤM (hoặc nhận tín hiệu recap). Không tự động hiện theo thời gian. */
+function useRecap() {
   const [shown, setShown] = useState(false);
   const hide = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const show = useCallback(() => {
@@ -105,14 +112,22 @@ function useRecap(ply: number) {
     clearTimeout(hide.current);
     hide.current = setTimeout(() => setShown(false), RECAP_SHOW_MS);
   }, []);
-  const midGame = ply >= 4;
-  useEffect(() => {
-    if (!midGame) return;
-    const every = setInterval(show, RECAP_EVERY_MS);
-    return () => clearInterval(every);
-  }, [midGame, show]);
+  const toggle = useCallback(() => {
+    setShown((prev) => {
+      clearTimeout(hide.current);
+      if (!prev) {
+        hide.current = setTimeout(() => setShown(false), RECAP_SHOW_MS);
+        return true;
+      }
+      return false;
+    });
+  }, []);
+  const close = useCallback(() => {
+    clearTimeout(hide.current);
+    setShown(false);
+  }, []);
   useEffect(() => () => clearTimeout(hide.current), []);
-  return [shown, show] as const;
+  return { shown, show, toggle, close };
 }
 
 function useRotation(count: number) {
@@ -276,11 +291,77 @@ export function StageClient() {
   const room = STAGE_ROOM_RE.test(param) ? param : null;
 
   const [ply, setPly] = useState(0);
-  const [recap, showRecap] = useRecap(ply);
-  const { state, connected } = useStageFeed(room, showRecap);
+  const recap = useRecap();
+  const [speechBubble, setSpeechBubble] = useState<{ text: string; type: StageVoiceEvent } | null>(null);
+  const bubbleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const showBubble = useCallback((text: string, type: StageVoiceEvent) => {
+    setSpeechBubble({ text, type });
+    clearTimeout(bubbleTimer.current);
+    bubbleTimer.current = setTimeout(() => setSpeechBubble(null), 4500);
+  }, []);
+
+  const onVoice = useCallback(
+    (event: StageVoiceEvent, text?: string) => {
+      const lines = state?.settings?.voiceLines ?? DEFAULT_STAGE_VOICE_LINES;
+      const spoken = text || playStageVoiceEvent(event, lines);
+      if (spoken) showBubble(spoken, event);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [showBubble],
+  );
+
+  const { state, connected } = useStageFeed(room, recap.show, onVoice);
   if (state && state.ply !== ply) setPly(state.ply);
   const scale = useFitScale();
   const moment = useMoment(state?.bigMoment);
+
+  // Tự động unlock âm thanh khi người dùng click/chạm vào màn hình
+  useEffect(() => {
+    const handleInteract = () => unlockAudio();
+    window.addEventListener("pointerdown", handleInteract);
+    window.addEventListener("keydown", handleInteract);
+    return () => {
+      window.removeEventListener("pointerdown", handleInteract);
+      window.removeEventListener("keydown", handleInteract);
+    };
+  }, []);
+
+  // Tự động phát âm thanh khi bạn bị chiếu tướng trên bàn cờ ("Người đâu Cứu trẫm")
+  const lastCheckPly = useRef<number | null>(null);
+  useEffect(() => {
+    if (!state || state.ply === 0) return;
+    // Bị chiếu: bên mình (mySide - màu cờ phía dưới) đang bị tướng đối phương chiếu
+    const isMeInCheck =
+      inCheck(state.board, state.mySide) ||
+      (state.turn === state.mySide && (state.checkSquare !== null || Boolean(state.commentary?.isCheck)));
+
+    if (isMeInCheck && lastCheckPly.current !== state.ply) {
+      lastCheckPly.current = state.ply;
+      const lines = state.settings.voiceLines ?? DEFAULT_STAGE_VOICE_LINES;
+      const spoken = playStageVoiceEvent("check", lines);
+      if (spoken) showBubble(spoken, "check");
+    }
+  }, [state, showBubble]);
+
+  // Tự động phát âm thanh khi chiếu bí phân định thắng/thua trên bàn cờ
+  const lastMateId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!state?.bigMoment || state.bigMoment.type !== "mate") return;
+    if (lastMateId.current === state.bigMoment.id) return;
+    lastMateId.current = state.bigMoment.id;
+
+    const over = outcome({ board: state.board, turn: state.turn });
+    if (over.over && over.winner) {
+      const isWin = over.winner === state.mySide;
+      const event: StageVoiceEvent = isWin ? "win" : "loss";
+      const lines = state.settings.voiceLines ?? DEFAULT_STAGE_VOICE_LINES;
+      const spoken = playStageVoiceEvent(event, lines);
+      if (spoken) showBubble(spoken, event);
+    }
+  }, [state, showBubble]);
+
+  useEffect(() => () => clearTimeout(bubbleTimer.current), []);
 
   return (
     <div className={styles.viewport}>
@@ -294,14 +375,40 @@ export function StageClient() {
                 : "Đang kết nối tới trang Tường thuật…"}
           </div>
         ) : (
-          <Stage state={state} connected={connected} moment={moment} recap={recap} />
+          <Stage
+            state={state}
+            connected={connected}
+            moment={moment}
+            recap={recap}
+            speechBubble={speechBubble}
+            onTestVoice={() => {
+              unlockAudio();
+              const lines = state.settings.voiceLines ?? DEFAULT_STAGE_VOICE_LINES;
+              const spoken = playStageVoiceEvent("check", lines);
+              if (spoken) showBubble(spoken, "check");
+            }}
+          />
         )}
       </div>
     </div>
   );
 }
 
-function Stage({ state, connected, moment, recap }: { state: StageState; connected: boolean; moment: BigMoment | null; recap: boolean }) {
+function Stage({
+  state,
+  connected,
+  moment,
+  recap,
+  speechBubble,
+  onTestVoice,
+}: {
+  state: StageState;
+  connected: boolean;
+  moment: BigMoment | null;
+  recap: { shown: boolean; toggle: () => void; close: () => void };
+  speechBubble: { text: string; type: StageVoiceEvent } | null;
+  onTestVoice?: () => void;
+}) {
   const { settings, mySide, turn, captured, commentary } = state;
   const oppSide: Side = mySide === "r" ? "b" : "r";
   // Quân bên kia đã mất = quân bên này đã ăn.
@@ -319,6 +426,24 @@ function Stage({ state, connected, moment, recap }: { state: StageState; connect
           <span className={styles.muted}>Khai cuộc:</span>
           <span className={styles.opening}>{state.openingName ?? "chưa rõ"}</span>
           {settings.site && <span className={styles.site}>Đang chơi trên {settings.site}</span>}
+          {onTestVoice && (
+            <button
+              type="button"
+              className={styles.recapToggleBtn}
+              onClick={onTestVoice}
+              title="Bấm để thử âm thanh / kích hoạt loa cho sân khấu"
+            >
+              🔊 Thử tiếng
+            </button>
+          )}
+          <button
+            type="button"
+            className={styles.recapToggleBtn}
+            onClick={recap.toggle}
+            title="Bấm để xem hoặc ẩn thẻ tóm tắt ván"
+          >
+            {recap.shown ? "✕ Ẩn tóm tắt" : "📋 Tóm tắt"}
+          </button>
         </div>
         <div className={styles.matchRow}>
           <span className={styles.muted}>Hôm nay</span>
@@ -346,15 +471,43 @@ function Stage({ state, connected, moment, recap }: { state: StageState; connect
         />
         {moment && (
           <div className={styles.momentOverlay}>
-            <div className={styles.momentCard} data-type={moment.type}>
-              <span className={styles.momentBadge}>{moment.badge}</span>
-              <span className={styles.momentTitle}>{moment.title}</span>
-              {moment.subtitle && <span className={styles.momentSubtitle}>{moment.subtitle}</span>}
+            {moment.type === "check" ? (
+              <div className={styles.sealCheck} title="Chiếu tướng (將軍)" role="status">
+                <span className={styles.sealInner}>將軍</span>
+              </div>
+            ) : (
+              <div className={styles.momentCard} data-type={moment.type}>
+                <span className={styles.momentBadge}>{moment.badge}</span>
+                <span className={styles.momentTitle}>{moment.title}</span>
+                {moment.subtitle && <span className={styles.momentSubtitle}>{moment.subtitle}</span>}
+              </div>
+            )}
+          </div>
+        )}
+        {speechBubble && (
+          <div className={styles.speechBubble} data-type={speechBubble.type} role="alert">
+            <span className={styles.speechIcon}>
+              {speechBubble.type === "check" ? "👑" : speechBubble.type === "win" ? "🏆" : "💪"}
+            </span>
+            <div className={styles.speechBody}>
+              <span className={styles.speechLabel}>
+                {speechBubble.type === "check" ? "HOÀNG THƯỢNG:" : speechBubble.type === "win" ? "KHÍ THẾ BỪNG BỪNG:" : "ĐỘNG VIÊN:"}
+              </span>
+              <span className={styles.speechText}>"{speechBubble.text}"</span>
             </div>
           </div>
         )}
-        {recap && (
+        {recap.shown && (
           <aside className={styles.recapCard} aria-label="Tóm tắt cho người mới vào">
+            <button
+              type="button"
+              className={styles.recapClose}
+              onClick={recap.close}
+              aria-label="Đóng tóm tắt"
+              title="Đóng tóm tắt"
+            >
+              ✕
+            </button>
             <span className={styles.infoKicker}>MỚI VÀO XEM? TÓM TẮT VÁN</span>
             <span className={styles.recapLine}>{state.recap.roundAndPly}</span>
             <span className={styles.recapLine}>Khai cuộc: {state.recap.openingName}</span>

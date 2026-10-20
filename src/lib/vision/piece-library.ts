@@ -28,8 +28,10 @@ const MAX_EMPTY = 160;
 const MAX_COUNT: Record<string, number> = { k: 1, a: 2, b: 2, n: 2, r: 2, c: 2, p: 5 };
 
 /** Học mẫu từ 90 mẫu (thứ tự ô cờ) của một thế cờ đã biết. */
-export function learnLibrary(boardPatches: Patch[], board: Board): PieceLibrary {
-  return { samples: board.map((p, i) => ({ piece: p ?? "", patch: boardPatches[i] })) };
+export function learnLibrary(boardPatches: Patch[], board: Board, skip?: ReadonlySet<number>): PieceLibrary {
+  return {
+    samples: board.flatMap((p, i) => (skip?.has(i) ? [] : [{ piece: p ?? "", patch: boardPatches[i] }])),
+  };
 }
 
 /** Gộp mẫu mới vào thư viện cũ, mẫu mới đứng trước, cắt bớt mỗi loại. */

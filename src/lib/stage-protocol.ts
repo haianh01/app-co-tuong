@@ -14,8 +14,13 @@ export const STAGE_MAX_PAYLOAD = 256 * 1024;
 
 export type StageRole = "control" | "view";
 
+export type StageVoiceEvent = "check" | "win" | "loss";
+
 /** Điều khiển → server → sân khấu. `state` là StageState (src/app/tuong-thuat/stage-sync.ts); server không đọc nó. */
-export type StageRelayMessage = { t: "state"; state: unknown } | { t: "recap" };
+export type StageRelayMessage =
+  | { t: "state"; state: unknown }
+  | { t: "recap" }
+  | { t: "voice"; event: StageVoiceEvent; text?: string };
 
 /** Server → điều khiển. */
 export type StageServerMessage = { t: "viewers"; n: number };

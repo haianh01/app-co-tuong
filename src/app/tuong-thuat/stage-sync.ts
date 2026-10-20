@@ -31,6 +31,24 @@ export interface StageGoal {
   reward?: string;
 }
 
+export interface StageVoiceLines {
+  /** Câu khi bị chiếu (mặc định: "Người đâu Cứu trẫm") */
+  check: string;
+  /** Câu khi thắng (mặc định: "Bạn sắp đạt đến mục tiêu 2000 elo rồi") */
+  win: string;
+  /** Câu khi thua (mặc định: "Đừng buồn bạn chỉ thiếu chút may mắn thôi") */
+  loss: string;
+  /** Bật/tắt giọng nói */
+  enabled: boolean;
+}
+
+export const DEFAULT_STAGE_VOICE_LINES: StageVoiceLines = {
+  check: "Người đâu Cứu trẫm",
+  win: "Bạn sắp đạt đến mục tiêu 2000 elo rồi",
+  loss: "Đừng buồn bạn chỉ thiếu chút may mắn thôi",
+  enabled: true,
+};
+
 /** Phần người dẫn tự nhập ở trang điều khiển (lưu lại giữa các lần mở trang). */
 export interface StageSettings {
   me: StagePlayer;
@@ -46,6 +64,8 @@ export interface StageSettings {
   cta: string;
   /** Thể thức thời gian của trang nguồn: tổng phút mỗi bên, giây tối đa cho một nước. */
   timeControl: { totalMin: number; perMoveSec: number };
+  /** Câu nói phát âm thanh trên sân khấu khi có sự kiện */
+  voiceLines: StageVoiceLines;
 }
 
 export interface StageCapturedPieces {
@@ -134,6 +154,7 @@ export const DEFAULT_STAGE_SETTINGS: StageSettings = {
   goal: null,
   cta: "Follow để xem ván tiếp theo",
   timeControl: { totalMin: 15, perMoveSec: 60 },
+  voiceLines: DEFAULT_STAGE_VOICE_LINES,
 };
 
 const STANDARD_COUNTS: Record<PieceType, number> = { k: 1, r: 2, c: 2, n: 2, b: 2, a: 2, p: 5 };
@@ -197,7 +218,7 @@ export function detectBigMoment(params: {
     };
   }
   if (inCheck(board, turn)) {
-    return { id: id("check"), type: "check", title: "CHIẾU TƯỚNG!", subtitle: `${who} chiếu`, badge: "CHIẾU" };
+    return { id: id("check"), type: "check", title: "將軍", subtitle: undefined, badge: "將" };
   }
   if (capturedPiece) {
     const t = typeOf(capturedPiece);
@@ -260,22 +281,23 @@ export function buildStageState(params: {
   clocks?: StageClocks | null;
 }): StageState {
   const { board, turn, ply, lastMove, mySide, settings, capturedPiece } = params;
-  const openingName = detectOpeningFromMoves(params.notations.slice(0, ply));
+  const notations = params.notations ?? [];
+  const openingName = detectOpeningFromMoves(notations.slice(0, ply));
   const materialBalance = computeMaterialBalance(board, mySide);
   return {
     board,
     turn,
     ply,
     lastMove,
-    checkSquare: params.checkSquare,
-    arrows: params.arrows,
-    highlights: params.highlights,
+    checkSquare: params.checkSquare ?? null,
+    arrows: params.arrows ?? [],
+    highlights: params.highlights ?? [],
     mySide,
     openingName,
     settings,
     captured: computeCapturedPieces(board),
     materialBalance,
-    commentary: generateCommentary({ board, turn, lastMove, lastNotation: params.notations[ply - 1], capturedPiece, mySide }),
+    commentary: generateCommentary({ board, turn, lastMove, lastNotation: notations[ply - 1], capturedPiece, mySide }),
     bigMoment: detectBigMoment({ board, turn, lastMove, capturedPiece, mySide, ply }),
     recap: generateRecap({ settings, ply, openingName, materialBalance }),
     clocks: params.clocks ?? null,

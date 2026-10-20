@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { initialPosition, toFen, type Board, type Move, type Position, type Side } from "@/lib/xiangqi/engine";
 import {
-  GRID_H, GRID_W, MoveTracker, calibrate, extractPatches, sourceRect, toBoardOrder, type Calibration, type Patch,
+  GRID_H, GRID_W, MoveTracker, calibrate, extractPatches, learnTemplates, sourceRect, toBoardOrder, type Calibration, type Patch, type Templates,
 } from "@/lib/vision/board-reader";
+import { woodGrid } from "@/lib/vision/locate-board";
 import { learnLibrary, mergeLibrary, parseLibrary, readBoard, serializeLibrary } from "@/lib/vision/piece-library";
 import type { Pixels, Region } from "@/lib/vision/zigavn-panels";
 
@@ -14,9 +15,20 @@ const MIN_CONFIDENCE = 0.85;
 const ASPECT_TOLERANCE = 0.01;
 /** Nhịp chụp: đủ nhanh để thấy nước đi gần như tức thì, đủ thưa để không tốn CPU. */
 const TICK_MS = 300;
+/**
+ * Ảnh lệch nhiều ô (≥ RELOCATE_MISMATCH) hoặc bị che liên tục chừng này nhịp, hoặc khung chụp đổi tỉ lệ: bố cục trang
+ * nguồn đã đổi (kéo giãn cửa sổ, phóng to/thu nhỏ), tìm lại bàn cờ. Thử xong chờ RELOCATE_COOLDOWN nhịp mới thử lại.
+ */
+const RELOCATE_FRAMES = 4;
+const RELOCATE_MISMATCH = 6;
+const RELOCATE_COOLDOWN = 6;
+
 /** Lệch liên tục chừng này nhịp (~2 giây) thì thử đọc lại cả thế cờ; thử xong chờ thêm chừng này nhịp mới thử lại. */
 const DESYNC_FRAMES = 7;
 const DESYNC_COOLDOWN = 15;
+
+/** Bắt đầu từ thế ban đầu: chấp nhận lệch tới chừng này ô (bị chữ/nút của trang nguồn đè lên). */
+const START_TOLERANCE = 4;
 
 /** Các mức dịch lưới thử khi góc bấm hơi lệch (theo phần của một ô). */
 const NUDGES = [
@@ -46,11 +58,19 @@ function loadLibrary() {
   }
 }
 
-function saveLibrary(patches: Patch[], bottom: Side, board: Board) {
+function saveLibrary(patches: Patch[], bottom: Side, board: Board, skip?: ReadonlySet<number>) {
   try {
-    const lib = mergeLibrary(loadLibrary(), learnLibrary(toBoardOrder(patches, bottom), board));
+    const lib = mergeLibrary(loadLibrary(), learnLibrary(toBoardOrder(patches, bottom), board, skip));
     localStorage.setItem(LIBRARY_KEY, serializeLibrary(lib));
   } catch {}
+}
+
+/** Lưới tìm lại được sau khi trang nguồn đổi bố cục, kèm độ khớp với thế cờ đang theo dõi. */
+interface LocatedGrid {
+  corners: Point[];
+  misplaced: number;
+  confidence: number;
+  templates: Templates;
 }
 
 /** Thế cờ giữa ván đọc được từ ảnh (chưa biết bên nào đi): chờ người dùng chọn rồi follow() thế đó. */
@@ -210,6 +230,71 @@ export function useScreenMirror(
   }, []);
 
   /**
+   * Tìm lại lưới khi bố cục trang nguồn đổi: đoán từ vùng gỗ của bàn cờ trên toàn khung chụp, rồi dò quanh đó (dịch,
+   * co giãn) lấy lưới mà ảnh khớp thế cờ `board` nhất. null nếu không tìm ra lưới khớp.
+   */
+  const fullCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const relocate = useCallback(
+    (board: Board, bottom: Side): LocatedGrid | null => {
+      const video = videoRef.current;
+      if (!video?.videoWidth) return null;
+      // Thu nhỏ cả khung (đủ để thấy vùng gỗ, nhanh).
+      const scale = Math.min(1, 640 / video.videoWidth);
+      const w = Math.round(video.videoWidth * scale);
+      const h = Math.round(video.videoHeight * scale);
+      const canvas = (fullCanvasRef.current ??= document.createElement("canvas"));
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      if (!ctx) return null;
+      ctx.drawImage(video, 0, 0, w, h);
+      const rect = woodGrid(ctx.getImageData(0, 0, w, h));
+      if (!rect) return null;
+      const x0 = rect.x0 / w;
+      const x1 = rect.x1 / w;
+      const cellX = (x1 - x0) / 8;
+      // Ô gần vuông (theo pixel): chiều cao lưới ≈ 9 ô; vùng gỗ dọc hay lấn thêm hàng quân trên/dưới nên canh giữa.
+      const cellY = (cellX * w) / h;
+      const yc = (rect.y0 + rect.y1) / 2 / h;
+      const search: { best: LocatedGrid | null } = { best: null };
+      const tryCorners = (cand: Point[]) => {
+        const ps = grab(cand);
+        if (!ps) return;
+        const r = calibrate(ps, board, bottom);
+        const b = search.best;
+        if (!b || r.misplaced < b.misplaced || (r.misplaced === b.misplaced && r.confidence > b.confidence)) {
+          search.best = { corners: cand, misplaced: r.misplaced, confidence: r.confidence, templates: r.templates };
+        }
+      };
+      // Thô: tỉ lệ ô cao/rộng và dịch dọc; rồi tinh quanh kết quả tốt nhất.
+      for (const ratio of [1, 1.012, 1.025]) {
+        const gh = 9 * cellY * ratio;
+        for (let dy = -0.3; dy <= 0.301; dy += 0.1) {
+          const top = yc - gh / 2 + dy * cellY;
+          tryCorners([{ x: x0, y: top }, { x: x1, y: top + gh }]);
+        }
+      }
+      const coarse = search.best;
+      if (!coarse) return null;
+      const [a, b] = coarse.corners;
+      for (const dx of [-0.04, 0, 0.04]) {
+        for (const dy of [-0.06, -0.03, 0, 0.03, 0.06]) {
+          for (const sy of [-0.02, 0, 0.02]) {
+            const gh = b.y - a.y;
+            tryCorners([
+              { x: a.x + dx * cellX, y: a.y + dy * cellY },
+              { x: b.x + dx * cellX, y: a.y + dy * cellY + gh * (1 + sy) },
+            ]);
+          }
+        }
+      }
+      const found = search.best;
+      return found && found.confidence >= MIN_CONFIDENCE && found.misplaced <= 2 ? found : null;
+    },
+    [grab],
+  );
+
+  /**
    * Học hình quân từ ảnh trang kia, khi trang kia đang ở đúng thế `start` (thế ban đầu, hoặc thế người dùng đã tự đi
    * tới cho khớp), rồi bắt đầu theo dõi từ đó. Trả về false nếu ảnh không khớp (lỗi ở `error`).
    */
@@ -217,7 +302,7 @@ export function useScreenMirror(
     (start: Position, forceBottom?: Side): boolean => {
       const video = videoRef.current;
       if (corners.length < 2 || !video) return false;
-      const aspect = video.videoWidth / video.videoHeight;
+      let aspect = video.videoWidth / video.videoHeight;
       let bestCorners = corners;
       let patches = grab(bestCorners);
       if (!patches) return false;
@@ -257,13 +342,18 @@ export function useScreenMirror(
 
       // Chỉ giữ góc đã dịch khi nó thật sự khớp thế cờ: trang kia đang giữa ván thì dịch lưới để "khớp" thế ban đầu
       // chỉ ra một lưới lệch.
-      if (bestCorners !== corners && result.confidence >= MIN_CONFIDENCE && result.misplaced === 0) {
+      const fromStart = toFen(start) === toFen(initialPosition());
+      // Trước ván, trang nguồn thường đè chữ đếm ngược / nút "Sẵn sàng" lên giữa bàn cờ: vài ô trông như bị đổi. Bắt
+      // đầu từ thế ban đầu mà chỉ lệch ít ô thì vẫn theo dõi, bỏ các ô đó khỏi mẫu. Nếu trang kia thật ra đã đi một
+      // nước, chính các ô đó khác thế đang theo dõi và bộ theo dõi đọc ra nước ấy ở khung sau.
+      const tolerated =
+        fromStart && result.confidence >= MIN_CONFIDENCE && result.misplaced > 0 && result.misplaced <= START_TOLERANCE;
+      if (bestCorners !== corners && result.confidence >= MIN_CONFIDENCE && (result.misplaced === 0 || tolerated)) {
         setCorners(bestCorners);
       }
 
-      const fromStart = toFen(start) === toFen(initialPosition());
       setDetected(null);
-      if (result.confidence < MIN_CONFIDENCE || result.misplaced > 0) {
+      if ((result.confidence < MIN_CONFIDENCE || result.misplaced > 0) && !tolerated) {
         // Trang kia đang giữa ván: đọc cả thế cờ bằng hình quân đã học ở các lần trước, khỏi phải bày lại từng nước.
         // Thử lại các mức dịch lưới (góc người dùng bấm có thể lệch), lấy mức đọc khớp nhất mà thế cờ hợp lệ.
         const lib = loadLibrary();
@@ -303,7 +393,7 @@ export function useScreenMirror(
         );
         return false;
       }
-      if (result.misplaced > 0) {
+      if (result.misplaced > 0 && !tolerated) {
         setError(
           `Trang kia khác thế cờ trên bàn cờ ở đây ở ${result.misplaced} ô. Hãy tắt chế độ Vẽ và tự đi các nước trên bàn cờ ở đây cho giống hệt trang kia, rồi bấm lại “Bắt đầu theo dõi”.` + libraryHint,
         );
@@ -311,9 +401,33 @@ export function useScreenMirror(
       }
       setError(null);
       setBottom(result.bottom);
-      saveLibrary(patches, result.bottom, start.board);
-      const tracker = new MoveTracker(result.templates, result.bottom, start);
+      const skip = tolerated ? new Set(result.mismatchedSquares) : undefined;
+      saveLibrary(patches, result.bottom, start.board, skip);
+      const templates = skip ? learnTemplates(toBoardOrder(patches, result.bottom), start.board, skip) : result.templates;
+      let tracker = new MoveTracker(templates, result.bottom, start);
       trackerRef.current = tracker;
+      // Lưới đang dùng (đã căn, và cập nhật khi tìm lại bàn cờ sau khi trang kia đổi bố cục).
+      let cur = bestCorners;
+      let relocateStreak = 0;
+      const tryRelocate = (): boolean => {
+        relocateStreak = -RELOCATE_COOLDOWN;
+        const v = videoRef.current;
+        const found = relocate(tracker.position.board, tracker.bottomSide);
+        if (!found || !v) return false;
+        cur = found.corners;
+        aspect = v.videoWidth / v.videoHeight;
+        setCorners(found.corners);
+        // Khớp hẳn thì học lại hình quân ở kích thước mới; còn lệch vài ô (trang kia vừa đi trong lúc đổi bố cục) thì
+        // giữ hình cũ, bộ theo dõi sẽ tự đọc ra nước đó.
+        if (found.misplaced === 0) {
+          const fresh = new MoveTracker(found.templates, tracker.bottomSide, tracker.position);
+          tracker = fresh;
+          trackerRef.current = fresh;
+        } else {
+          tracker.setPosition(tracker.position);
+        }
+        return true;
+      };
       timerRef.current?.terminate();
       const ticker = new Worker(
         URL.createObjectURL(new Blob([`setInterval(() => postMessage(0), ${TICK_MS});`], { type: "text/javascript" })),
@@ -326,17 +440,24 @@ export function useScreenMirror(
       ticker.onmessage = () => {
         const v = videoRef.current;
         if (!v?.videoWidth || trackerRef.current !== tracker) return;
-        // Cùng tỉ lệ (trình duyệt chỉ đổi độ phân giải chụp) thì góc theo tỉ lệ vẫn đúng; khác tỉ lệ thì bố cục đã đổi.
+        // Cùng tỉ lệ (trình duyệt chỉ đổi độ phân giải chụp) thì góc theo tỉ lệ vẫn đúng; khác tỉ lệ thì bố cục đã đổi:
+        // tìm lại bàn cờ (thử lại mỗi vài nhịp tới khi thấy).
         if (Math.abs(v.videoWidth / v.videoHeight - aspect) > ASPECT_TOLERANCE * aspect) {
           frames++;
-          setDiag({ frames, moving: false, mismatched: 0, movingStreak: 0, resized: true, occluded: 0 });
-          return false;
+          if (relocateStreak++ < 0 || !tryRelocate()) {
+            setDiag({ frames, moving: false, mismatched: 0, movingStreak: 0, resized: true, occluded: 0 });
+            return;
+          }
         }
-        const ps = grab(corners);
+        const ps = grab(cur);
         if (!ps) return;
         const moves = tracker.feed(ps);
         if (moves.length) onMovesRef.current(moves);
         else if (tracker.last.restarted) onRestartRef.current?.();
+        // Lệch nhiều ô hay bị che liên tục: có thể trang kia đã phóng to/thu nhỏ (cùng tỉ lệ khung nhưng bàn cờ dời chỗ).
+        const lost = !tracker.last.moving && (tracker.last.mismatched.length >= RELOCATE_MISMATCH || (tracker.last.occluded ?? 0) > 0);
+        relocateStreak = lost || relocateStreak < 0 ? relocateStreak + 1 : 0;
+        if (lost && relocateStreak >= RELOCATE_FRAMES && tryRelocate()) return;
         desyncStreak = !tracker.last.moving && tracker.last.mismatched.length > 0 ? desyncStreak + 1 : 0;
         if (desyncStreak >= DESYNC_FRAMES) {
           desyncStreak = -DESYNC_COOLDOWN;
@@ -362,7 +483,7 @@ export function useScreenMirror(
       setStatus("following");
       return true;
     },
-    [corners, grab],
+    [corners, grab, relocate],
   );
 
   /**

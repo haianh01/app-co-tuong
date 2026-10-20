@@ -102,7 +102,7 @@ describe("StageClient", () => {
     expect(screen.getByText("Nước này 0:45")).toBeDefined();
   });
 
-  it("tin recap từ trang điều khiển bật thẻ tóm tắt cho người mới", () => {
+  it("tin recap từ trang điều khiển bật thẻ tóm tắt cho người mới, có nút đóng", () => {
     render(<StageClient />);
     const ws = FakeSocket.all[0];
     ws.receive({ t: "state", state: stateAfterCentralCannon() });
@@ -110,5 +110,82 @@ describe("StageClient", () => {
     ws.receive({ t: "recap" });
     expect(screen.getByText(/MỚI VÀO XEM/)).toBeDefined();
     expect(screen.getByText("Hôm nay: 3 thắng · 1 hòa · 1 thua")).toBeDefined();
+
+    // Bấm nút đóng trên thẻ tóm tắt
+    act(() => {
+      screen.getByTitle("Đóng tóm tắt").click();
+    });
+    expect(screen.queryByText(/MỚI VÀO XEM/)).toBeNull();
+  });
+
+  it("nút Tóm tắt trên sân khấu cho phép toggle hiện và ẩn", () => {
+    render(<StageClient />);
+    const ws = FakeSocket.all[0];
+    ws.receive({ t: "state", state: stateAfterCentralCannon() });
+    expect(screen.queryByText(/MỚI VÀO XEM/)).toBeNull();
+
+    // Bấm nút "📋 Tóm tắt" trên thanh matchBar
+    act(() => {
+      screen.getByText("📋 Tóm tắt").click();
+    });
+    expect(screen.getByText(/MỚI VÀO XEM/)).toBeDefined();
+
+    // Bấm lại để ẩn
+    act(() => {
+      screen.getByText("✕ Ẩn tóm tắt").click();
+    });
+    expect(screen.queryByText(/MỚI VÀO XEM/)).toBeNull();
+  });
+
+  it("nhận tin voice chiếu/thắng/thua hiện speech bubble tương ứng", () => {
+    render(<StageClient />);
+    const ws = FakeSocket.all[0];
+    ws.receive({ t: "state", state: stateAfterCentralCannon() });
+
+    // Tin nhắn voice khi bị chiếu
+    ws.receive({ t: "voice", event: "check", text: "Người đâu Cứu trẫm" });
+    expect(screen.getByText(/"Người đâu Cứu trẫm"/)).toBeDefined();
+    expect(screen.getByText("HOÀNG THƯỢNG:")).toBeDefined();
+
+    // Tin nhắn voice khi thắng
+    ws.receive({ t: "voice", event: "win", text: "Bạn sắp đạt đến mục tiêu 2000 elo rồi" });
+    expect(screen.getByText(/"Bạn sắp đạt đến mục tiêu 2000 elo rồi"/)).toBeDefined();
+    expect(screen.getByText("KHÍ THẾ BỪNG BỪNG:")).toBeDefined();
+
+    // Tin nhắn voice khi thua
+    ws.receive({ t: "voice", event: "loss", text: "Đừng buồn bạn chỉ thiếu chút may mắn thôi" });
+    expect(screen.getByText(/"Đừng buồn bạn chỉ thiếu chút may mắn thôi"/)).toBeDefined();
+    expect(screen.getByText("ĐỘNG VIÊN:")).toBeDefined();
+  });
+
+  it("cho phép tùy chỉnh câu nói qua settings", () => {
+    render(<StageClient />);
+    const ws = FakeSocket.all[0];
+    const state = stateAfterCentralCannon();
+    state.settings.voiceLines = {
+      check: "Kỳ phùng địch thủ, cứu giá mau!",
+      win: "Đại thắng rồi, phong thần thôi!",
+      loss: "Thua keo này ta bày keo khác!",
+      enabled: true,
+    };
+    ws.receive({ t: "state", state });
+
+    ws.receive({ t: "voice", event: "check", text: state.settings.voiceLines.check });
+    expect(screen.getByText(/"Kỳ phùng địch thủ, cứu giá mau!"/)).toBeDefined();
+  });
+
+  it("khoảnh khắc chiếu tướng hiện con ấn chữ Hán 將軍 nhỏ gọn không che bàn cờ", () => {
+    render(<StageClient />);
+    const ws = FakeSocket.all[0];
+    const state = stateAfterCentralCannon();
+    state.bigMoment = {
+      id: "check-5",
+      type: "check",
+      title: "將軍",
+      badge: "將",
+    };
+    ws.receive({ t: "state", state });
+    expect(screen.getByText("將軍")).toBeDefined();
+    expect(screen.queryByText("CHIẾU TƯỚNG!")).toBeNull();
   });
 });

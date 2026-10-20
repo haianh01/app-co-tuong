@@ -139,11 +139,13 @@ export interface Templates {
   emptyAll: Patch[];
 }
 
-export function learnTemplates(patches: Patch[], board: Board): Templates {
+/** `skip`: các ô không lấy làm mẫu (đang bị thứ khác đè lên, ví dụ chữ đếm ngược trước ván). */
+export function learnTemplates(patches: Patch[], board: Board, skip?: ReadonlySet<number>): Templates {
   const pieces: Record<Side, Patch[]> = { r: [], b: [] };
   const emptyAt: (Patch | null)[] = Array(90).fill(null);
   const emptyAll: Patch[] = [];
   board.forEach((p, i) => {
+    if (skip?.has(i)) return;
     if (p) pieces[sideOf(p)].push(patches[i]);
     else {
       emptyAt[i] = patches[i];

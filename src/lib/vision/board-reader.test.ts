@@ -6,7 +6,7 @@ import { MASTER_GAMES } from "@/lib/xiangqi/master-games.generated";
 import { convertChineseGame } from "@/lib/xiangqi/chinese-notation";
 import { Board, Move, Side, applyMove, initialPosition, parseFen } from "@/lib/xiangqi/engine";
 import { m } from "@/test/xiangqi";
-import { CELL_PX, GRID_H, GRID_W, MoveTracker, calibrate, extractPatches, sourceRect, screenToSquare, toBoardOrder } from "./board-reader";
+import { CELL_PX, GRID_H, GRID_W, MoveTracker, calibrate, extractPatches, learnTemplates, sourceRect, screenToSquare, toBoardOrder } from "./board-reader";
 import { learnLibrary, mergeLibrary, parseLibrary, readBoard, serializeLibrary } from "./piece-library";
 
 type RGB = [number, number, number];
@@ -376,5 +376,38 @@ describe("khung hình bị che (thông báo, hiệu ứng đè lên bàn cờ)",
     const covered = () => cover(patchesOf({ board: after.board, bottom: "r", lastMove: game.moves[4], shift: 1, seed: 11 }), BLOCK);
     expect([...t.feed(covered()), ...t.feed(covered())]).toEqual([]);
     expect(feedStable(t, { board: after.board, bottom: "r", lastMove: game.moves[4], shift: 1 })).toEqual([game.moves[4]]);
+  });
+});
+
+describe("bắt đầu theo dõi khi trang kia còn chữ đếm ngược / nút Sẵn sàng đè lên bàn cờ", () => {
+  // Như useScreenMirror.follow khi bắt đầu từ thế ban đầu mà lệch ít ô: bỏ các ô lệch khỏi mẫu rồi theo dõi.
+  function startTolerant(screenPatches: Float32Array[]) {
+    const cal = calibrate(screenPatches, start.board);
+    const skip = new Set(cal.mismatchedSquares);
+    return { cal, tracker: new MoveTracker(learnTemplates(toBoardOrder(screenPatches, cal.bottom), start.board, skip), cal.bottom, start) };
+  }
+  /** Chữ sáng đè lên vài ô giữa bàn (một ô có Tốt). */
+  function overlay(patches: Float32Array[]) {
+    for (const i of [3 * 9 + 4, 4 * 9 + 4, 4 * 9 + 5]) patches[i] = patches[i].map((v, k) => (k % 3 === 2 ? 0.2 : 0.97));
+    return patches;
+  }
+
+  it("lệch vài ô vì chữ đè: vẫn bắt đầu được, bỏ chữ thì theo dõi đúng từng nước", () => {
+    const { cal, tracker } = startTolerant(overlay(patchesOf({ board: start.board, bottom: "r", shift: 1, seed: 7 })));
+    expect(cal.misplaced).toBeGreaterThan(0);
+    expect(cal.misplaced).toBeLessThanOrEqual(4);
+    expect(cal.confidence).toBeGreaterThanOrEqual(0.85);
+    const game = convertChineseGame(MASTER_GAMES[0].movesCN);
+    const seen: Move[] = [];
+    for (let i = 0; i < 10; i++) seen.push(...feedStable(tracker, { board: game.positions[i + 1].board, bottom: "r", lastMove: game.moves[i], shift: 1 }));
+    expect(seen).toEqual(game.moves.slice(0, 10));
+  });
+
+  it("trang kia thật ra đã đi một nước trước khi bấm theo dõi: đọc ra nước đó ngay", () => {
+    const game = convertChineseGame(MASTER_GAMES[0].movesCN);
+    const { cal, tracker } = startTolerant(patchesOf({ board: game.positions[1].board, bottom: "r", lastMove: game.moves[0], shift: 1, seed: 7 }));
+    expect(cal.misplaced).toBeGreaterThan(0);
+    expect(cal.misplaced).toBeLessThanOrEqual(4);
+    expect(feedStable(tracker, { board: game.positions[1].board, bottom: "r", lastMove: game.moves[0], shift: 1 })).toEqual([game.moves[0]]);
   });
 });

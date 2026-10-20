@@ -10,7 +10,9 @@ import { playSound } from "@/lib/sound";
 import { moveNotation } from "@/lib/xiangqi/notation";
 import { applyMove, findKing, inCheck, legalMovesFrom, outcome, parseFen, sideOf, toFen, type Board, type Move, type Position, type Side } from "@/lib/xiangqi/engine";
 import { gameReducer, newGame, type GameAction, type GameState } from "@/lib/xiangqi/game";
+import Link from "next/link";
 import styles from "./broadcast.module.css";
+import zigaStyles from "./ziga/ziga.module.css";
 import { EMPTY_DRAWING, drawingReducer } from "./drawing";
 import { StagePanel, useStageLink, useStageSettings } from "./StagePanel";
 import { changeResult, nextRound, resultOnBoard, type StageResult } from "./stage-round";
@@ -208,6 +210,9 @@ export function BroadcastClient() {
   // Mặc định đặt bàn cờ như trang nguồn (phe ngồi dưới ở đó cũng ở dưới ở đây).
   const baseOrientation: Side = bottom ?? "r";
   const orientation: Side = flipped ? (baseOrientation === "r" ? "b" : "r") : baseOrientation;
+  // Người dẫn luôn ở ô trái, và màu cờ của người dẫn luôn là màu cờ phía dưới bàn cờ (orientation).
+  const mySide: Side = orientation;
+  const oppSide: Side = mySide === "r" ? "b" : "r";
 
   const turnNow = livePos.turn;
   const noClock = clock === null;
@@ -220,19 +225,18 @@ export function BroadcastClient() {
       // Lấy mốc khi vừa đặt đồng hồ, hoặc khi chưa có đồng hồ nào (vào giữa lúc đang theo dõi).
       if (me === null || opp === null || (!clockSync.current && !noClock)) return;
       clockSync.current = false;
-      const oppSide: Side = baseOrientation === "r" ? "b" : "r";
       setClock((prev) => {
         const c = prev ?? startClock(timeControl, null, r.at);
         return {
           ...c,
-          remaining: { [baseOrientation]: me * 1000, [oppSide]: opp * 1000 } as Record<Side, number>,
+          remaining: { [mySide]: me * 1000, [oppSide]: opp * 1000 } as Record<Side, number>,
           // Trang kia đã chạy giờ (ô điểm thành đồng hồ) mà chưa thấy nước nào: ván vừa bắt đầu.
           running: c.running ?? turnNow,
           since: r.at,
         };
       });
     },
-    [setStageSettings, baseOrientation, turnNow, timeControl, noClock],
+    [setStageSettings, mySide, oppSide, turnNow, timeControl, noClock],
   );
   usePanelReader(grabRegion, autoRead && status === "following", onPanels);
 
@@ -250,7 +254,7 @@ export function BroadcastClient() {
   /** Hết ván (có nước đi): tự ghi kết quả nếu bàn cờ đã phân thắng thua mà chưa bấm, rồi sang ván sau. */
   function finishRound() {
     if (game.moves.length === 0) return;
-    const onBoard = resultOnBoard(game.history[game.moves.length], baseOrientation);
+    const onBoard = resultOnBoard(game.history[game.moves.length], mySide);
     setStageSettings((s) => nextRound(s, roundResult, onBoard));
     setRoundResult(null);
   }
@@ -279,19 +283,17 @@ export function BroadcastClient() {
     if (!clock) return null;
     const now = Date.now();
     const v = readClock(clock, now);
-    const oppSide: Side = baseOrientation === "r" ? "b" : "r";
     return {
-      me: v.total[baseOrientation],
+      me: v.total[mySide],
       opponent: v.total[oppSide],
-      running: clock.running === null ? null : clock.running === baseOrientation ? "me" : "opponent",
+      running: clock.running === null ? null : clock.running === mySide ? "me" : "opponent",
       perMove: v.perMove,
       perMoveTotal: clock.control.perMoveMs,
       sentAt: now,
     };
-  }, [clock, baseOrientation]);
+  }, [clock, mySide, oppSide]);
 
-  // Gửi trạng thái sang trang sân khấu (OBS Browser Source) qua /ws/stage. Phe của người dẫn = phe ngồi dưới ở
-  // trang nguồn (không theo nút lật bàn ở đây).
+  // Gửi trạng thái sang trang sân khấu (OBS Browser Source) qua /ws/stage. Phe của người dẫn = màu cờ phía dưới bàn cờ.
   const { send: sendStage } = stageLink;
   useEffect(() => {
     sendStage({
@@ -305,14 +307,14 @@ export function BroadcastClient() {
         notations: game.moves.map((m) => m.notation),
         arrows: sketch.present.arrows,
         highlights: sketch.present.marks,
-        mySide: baseOrientation,
+        mySide,
         settings: stageSettings,
         capturedPiece: lastCapturedPiece,
         // Đồng hồ chỉ đúng với thế cờ đang diễn ra; xem lại nước cũ thì ẩn.
         clocks: live ? stageClocks : null,
       }),
     });
-  }, [sendStage, pos, ply, lastMove, checkSquare, game.moves, sketch.present, baseOrientation, stageSettings, lastCapturedPiece, live, stageClocks]);
+  }, [sendStage, pos, ply, lastMove, checkSquare, game.moves, sketch.present, mySide, stageSettings, lastCapturedPiece, live, stageClocks]);
 
   const toggleFullscreen = () => {
     if (typeof document === "undefined") return;
@@ -431,6 +433,15 @@ export function BroadcastClient() {
 
   return (
     <main className={styles.layout}>
+      <nav aria-label="Chế độ tường thuật" className={zigaStyles.subnav}>
+        <Link href="/tuong-thuat" className={`${zigaStyles.subnavLink} ${zigaStyles.subnavActive}`}>
+          📷 Thị giác máy tính (Chụp màn hình)
+        </Link>
+        <Link href="/tuong-thuat/ziga" className={zigaStyles.subnavLink}>
+          ⚡ Đồng bộ WebSocket trực tiếp (Ziga Hook)
+        </Link>
+      </nav>
+
       <div ref={boardColRef} className={styles.boardCol}>
         <XiangqiBoard
           board={pos.board}
@@ -507,6 +518,8 @@ export function BroadcastClient() {
           autoRead={autoRead}
           onAutoRead={setAutoRead}
           clocks={stageClocks}
+          mySide={mySide}
+          onToggleSide={() => setFlipped((f) => !f)}
         />
 
         <section className={styles.card}>

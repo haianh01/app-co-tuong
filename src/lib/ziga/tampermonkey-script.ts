@@ -6,7 +6,7 @@ export function generateTampermonkeyScript(serverOrigin = "http://localhost:3000
   return `// ==UserScript==
 // @name         Ziga to App Cờ Tướng Relay
 // @namespace    https://app-co-tuong/
-// @version      1.2
+// @version      1.3
 // @description  Bắt gói tin WebSocket từ Ziga và chuyển tiếp thời gian thực về App Cờ Tướng
 // @author       App Co Tuong
 // @match        *://*.zigavn.com/*
@@ -18,6 +18,7 @@ export function generateTampermonkeyScript(serverOrigin = "http://localhost:3000
 // @connect      localhost
 // @connect      127.0.0.1
 // @run-at       document-start
+// @sandbox      JavaScript
 // ==/UserScript==
 
 (function () {

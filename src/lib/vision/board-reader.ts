@@ -9,7 +9,7 @@
 // (Phân biệt từng loại quân qua ảnh thì không chắc: trên ảnh thật một ô chỉ vài chục px, lệch nửa px khi chọn góc
 // đã đủ làm hai quân xe khác nhau hơn một xe và một mã.)
 
-import { Board, Move, Piece, Position, Side, applyMove, legalMoves, sideOf, toFen } from "@/lib/xiangqi/engine";
+import { Board, Move, Piece, Position, Side, applyMove, initialPosition, legalMoves, sideOf, toFen } from "@/lib/xiangqi/engine";
 
 /** Số px của một ô trên ảnh chuẩn hóa (vùng bàn cờ được co về 9×10 ô). */
 export const CELL_PX = 24;
@@ -246,6 +246,22 @@ const MAX_MISSED = 6;
 const SEARCH_BUDGET = 40_000;
 /** Cần thấy dấu "nước vừa đi" ở chừng này nước trước khi tin vào nó. */
 const MARK_MIN_SAMPLES = 2;
+/**
+ * Ván mới bên trang kia: ảnh lệch thế đang theo dõi ít nhất chừng này ô (một nước chỉ đổi 2 ô, nên ảnh đúng ở nước
+ * thứ nhất không bao giờ bị tưởng là ván mới)…
+ */
+const RESTART_MIN_MISMATCH = 4;
+/**
+ * Ô "bị che": không giống quân nào, cũng không giống ô trống (khoảng cách tới mẫu gần nhất vượt OCCLUDE_FACTOR lần độ
+ * nhiễu). Có từ OCCLUDE_MIN ô như vậy thì khung hình đang bị thứ khác đè lên (thông báo, hiệu ứng, cửa sổ khác khi
+ * chia sẻ cả màn hình): không suy ra nước nào, chờ khung sau. Nếu suy ra, ô bị che dễ bị hiểu thành "quân bị ăn".
+ */
+// Đo trên ảnh dựng: ô bình thường tới ~90 lần (ô vừa trống chưa có mẫu riêng, dấu nước vừa đi), ô bị khối tối che
+// ~880 lần.
+const OCCLUDE_FACTOR = 200;
+const OCCLUDE_MIN = 2;
+/** …và lệch thế ban đầu không quá chừng này ô (chừa cho chữ đếm ngược, nút "Sẵn sàng" đè lên bàn cờ). */
+const RESTART_MAX_DIFF = 1;
 
 /** Tích vô hướng (chia số phần tử, cùng thang với `patchDistance`) của (a − b) với r. */
 function projection(a: Patch, b: Patch, r: Patch): number {
@@ -264,7 +280,7 @@ export class MoveTracker {
    * Chẩn đoán khung gần nhất (hiện cho người dùng): ảnh còn đang chuyển động không, và (khi ảnh đứng yên, sau khi
    * đã xét nước mới) bao nhiêu ô trên ảnh khác thế cờ đang theo dõi. Lệch nhiều ô kéo dài = mất dấu ván.
    */
-  last: { moving: boolean; mismatched: number[] } = { moving: false, mismatched: [] };
+  last: { moving: boolean; mismatched: number[]; restarted?: boolean; occluded?: number } = { moving: false, mismatched: [] };
   private prev: Patch[] | null = null;
   /**
    * Ảnh (nhãn từng ô) + thế cờ của lần tìm gần nhất không ra lời giải: ảnh còn đứng yên từ đó thì khỏi tìm lại mỗi
@@ -286,6 +302,11 @@ export class MoveTracker {
     position: Position,
   ) {
     this.position = position;
+  }
+
+  /** Phe ngồi dưới trên trang nguồn. */
+  get bottomSide(): Side {
+    return this.bottom;
   }
 
   /** Đặt lại thế cờ (sau khi người dùng sửa tay hoặc lùi nước). */
@@ -311,6 +332,15 @@ export class MoveTracker {
       }
     }
 
+    let occluded = 0;
+    for (let i = 0; i < 90; i++) {
+      if (LABELS.every((l) => this.dist(patches[i], l, i) > OCCLUDE_FACTOR * noise)) occluded++;
+    }
+    if (occluded >= OCCLUDE_MIN) {
+      this.last = { moving: false, mismatched: this.last.mismatched, occluded };
+      return [];
+    }
+
     const moves = this.infer(patches, noise);
     this.learnMark(moves, patches);
     for (const m of moves) this.position = applyMove(this.position, m);
@@ -320,9 +350,22 @@ export class MoveTracker {
     // mẫu chụp bây giờ lẫn cả dấu (learnMark lấy lại khi dấu đã chuyển đi).
     for (const m of moves.slice(0, -1)) if (!this.templates.emptyAt[m.from] && !board[m.from]) this.templates.emptyAt[m.from] = patches[m.from];
     const mismatched: number[] = [];
+    const seen: Label[] = [];
     for (let i = 0; i < 90; i++) {
       const label = labelOf(board[i]);
-      if ((["", "r", "b"] as Label[]).some((l) => l !== label && this.dist(patches[i], l, i) < this.dist(patches[i], label, i))) mismatched.push(i);
+      seen.push(LABELS.reduce((a, l) => (this.dist(patches[i], l, i) < this.dist(patches[i], a, i) ? l : a), label));
+      if (seen[i] !== label) mismatched.push(i);
+    }
+    if (!moves.length && mismatched.length >= RESTART_MIN_MISMATCH) {
+      const start = initialPosition();
+      const diff = start.board.reduce((n, p, i) => (labelOf(p) === seen[i] ? n : n + 1), 0);
+      if (diff <= RESTART_MAX_DIFF) {
+        // Trang kia đã bày lại thế ban đầu: theo dõi ván mới từ đầu.
+        this.setPosition(start);
+        this.prev = patches;
+        this.last = { moving: false, mismatched: [], restarted: true };
+        return [];
+      }
     }
     this.last = { moving: false, mismatched };
     return moves;

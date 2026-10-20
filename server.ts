@@ -18,6 +18,7 @@ async function main() {
   const { purgeExpiredSessions } = await import("./src/server/auth");
   const { promoteAdmins } = await import("./src/server/admin");
   const { awardPreviousSeasonIfDue } = await import("./src/server/economy");
+  const { StageRelay } = await import("./src/server/stage-relay");
 
   const port = Number(process.env.PORT ?? 3000);
   const server = createServer();
@@ -36,6 +37,10 @@ async function main() {
   const restored = await games.restore();
   if (restored) console.log(`> Khôi phục ${restored} ván đang chơi dở`);
   games.attach(server);
+
+  // Kênh tường thuật → sân khấu livestream (OBS Browser Source), tại /ws/stage.
+  const stage = new StageRelay({ allowedOrigins: process.env.ALLOWED_ORIGINS?.split(",").map((s) => s.trim()).filter(Boolean) });
+  stage.attach(server);
 
   // Dọn phiên đăng nhập hết hạn: lúc khởi động và mỗi 6 giờ.
   const purge = () => purgeExpiredSessions(dbHandle.db).catch((err) => console.error("Không dọn được phiên cũ", err));
@@ -64,6 +69,7 @@ async function main() {
     if (closing) return;
     closing = true;
     await games.close();
+    stage.close();
     server.close();
     await dbHandle.close();
     process.exit(0);

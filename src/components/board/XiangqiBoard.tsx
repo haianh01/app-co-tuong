@@ -105,6 +105,12 @@ export interface XiangqiBoardProps {
    * Chế độ vẽ (bình luận): một lớp phủ nhận thao tác thay cho quân cờ. Kéo từ ô này sang ô khác gọi
    * onAnnotate(từ, đến) để vẽ mũi tên; bấm một ô gọi onAnnotate(ô, ô) để khoanh ô đó.
    */
+  /** Tùy chọn độ phóng to bề dày mũi tên và đầu mũi tên (cho màn hình điện thoại / livestream sân khấu). */
+  arrowWidthScale?: number;
+  /** Bật hiệu ứng vẽ từ từ của mũi tên (stroke-dashoffset animation). */
+  animateArrows?: boolean;
+  /** Lớp CSS gắn ngoài viền bàn cờ để ghi đè kích thước/bố cục nếu cần. */
+  className?: string;
   onAnnotate?: (from: number, to: number) => void;
 }
 
@@ -124,6 +130,9 @@ export function XiangqiBoard({
   arrows = [],
   highlights = [],
   sketchColor = "#3b82f6",
+  arrowWidthScale = 1,
+  animateArrows = false,
+  className,
   onAnnotate,
 }: XiangqiBoardProps) {
   const { user } = useSession();
@@ -266,7 +275,7 @@ export function XiangqiBoard({
   } as CSSProperties;
 
   return (
-    <div className={styles.rim} style={theme}>
+    <div className={`${styles.rim} ${className ?? ""}`.trim()} style={theme}>
       <div ref={boardRef} className={styles.board} style={BOARD_VARS} data-disabled={disabled || undefined}>
         <svg className={styles.lines} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
           <rect x={PAD_X - 7} y={PAD_Y - 7} width={8 * CELL + 14} height={9 * CELL + 14} className={styles.frame} />
@@ -380,7 +389,7 @@ export function XiangqiBoard({
                     r={24}
                     fill={fillColor}
                     stroke={color}
-                    strokeWidth={2.5}
+                    strokeWidth={2.5 * arrowWidthScale}
                     strokeDasharray="5 3"
                   />
                 </g>
@@ -400,8 +409,8 @@ export function XiangqiBoard({
               const uy = dy / dist;
               const startX = p1.x + ux * 16;
               const startY = p1.y + uy * 16;
-              const endX = p2.x - ux * 22;
-              const endY = p2.y - uy * 22;
+              const endX = p2.x - ux * (20 + 2 * arrowWidthScale);
+              const endY = p2.y - uy * (20 + 2 * arrowWidthScale);
 
               const kind = a.kind ?? "played";
               const strokeColor =
@@ -430,16 +439,22 @@ export function XiangqiBoard({
                   ? (a.color && colorMarkerMap[a.color]) ?? "arrowhead-custom"
                   : "arrowhead-played";
 
+              const isDashed = a.dashed || kind === "reply";
+              const arrowClass = animateArrows && !isDashed ? styles.animatedArrow : undefined;
+              const arrowStyle = animateArrows && !isDashed ? ({ "--arrow-len": Math.ceil(dist) } as CSSProperties) : undefined;
+
               return (
                 <line
                   key={`arrow-${idx}-${a.from}-${a.to}`}
+                  className={arrowClass}
+                  style={arrowStyle}
                   x1={startX}
                   y1={startY}
                   x2={endX}
                   y2={endY}
                   stroke={strokeColor}
-                  strokeWidth={kind === "reply" ? 3.5 : 4.5}
-                  strokeDasharray={a.dashed || kind === "reply" ? "6 4" : undefined}
+                  strokeWidth={(kind === "reply" ? 3.5 : 4.5) * arrowWidthScale}
+                  strokeDasharray={isDashed ? "6 4" : undefined}
                   strokeLinecap="round"
                   opacity={0.9}
                   markerEnd={`url(#${markerId})`}

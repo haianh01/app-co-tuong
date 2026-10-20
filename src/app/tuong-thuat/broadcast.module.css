@@ -247,3 +247,121 @@
   color: var(--muted);
   font-size: 14px;
 }
+
+/* Sân khấu Livestream & OBS */
+.stageCard {
+  border: 1.5px solid var(--gold);
+  background: linear-gradient(180deg, rgba(217, 164, 65, 0.08) 0%, var(--surface) 100%);
+  border-radius: var(--radius);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.stageTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--gold-text);
+}
+
+.stagePulseDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 8px #22c55e;
+}
+
+.stageSettingsForm {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface-sunken);
+  border-radius: 8px;
+  border: 1px solid var(--line);
+}
+
+.stageField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stageFieldFull {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stageLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stageInput {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.stageInput:focus {
+  outline: none;
+  border-color: var(--gold);
+}
+
+
+.stagePulseDot[data-off] {
+  background: var(--muted);
+  box-shadow: none;
+}
+
+.stageFieldset {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.stageFieldset .stageFieldFull {
+  grid-column: 1 / -1;
+}
+
+.detectBox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1.5px solid var(--gold);
+  background: var(--surface-sunken);
+}
+
+.detectBoard {
+  width: min(100%, 260px) !important;
+  padding: 6px !important;
+  align-self: center;
+}

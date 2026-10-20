@@ -4,12 +4,20 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { XiangqiBoard } from "@/components/board/XiangqiBoard";
 import { PositionAnalysisModal } from "@/components/board/PositionAnalysisModal";
 import { usePositionAnalysis } from "@/hooks/usePositionAnalysis";
+import { usePanelReader, type PanelsReading } from "@/hooks/usePanelReader";
 import { useScreenMirror, type Point } from "@/hooks/useScreenMirror";
 import { playSound } from "@/lib/sound";
-import { applyMove, findKing, inCheck, legalMovesFrom, sideOf, toFen, type Move, type Position, type Side } from "@/lib/xiangqi/engine";
+import { moveNotation } from "@/lib/xiangqi/notation";
+import { applyMove, findKing, inCheck, legalMovesFrom, outcome, parseFen, sideOf, toFen, type Board, type Move, type Position, type Side } from "@/lib/xiangqi/engine";
 import { gameReducer, newGame, type GameAction, type GameState } from "@/lib/xiangqi/game";
 import styles from "./broadcast.module.css";
 import { EMPTY_DRAWING, drawingReducer } from "./drawing";
+import { StagePanel, useStageLink, useStageSettings } from "./StagePanel";
+import { changeResult, nextRound, resultOnBoard, type StageResult } from "./stage-round";
+import { findRepair } from "./board-repair";
+import { clockAfterMove, readClock, startClock, stopClock, type GameClock } from "./game-clock";
+import { buildStageState, mergePanelReading, type StageClocks } from "./stage-sync";
+import { clockSeconds } from "@/lib/vision/zigavn-panels";
 
 const COLORS = [
   { value: "#3b82f6", label: "Xanh dương" },
@@ -31,8 +39,8 @@ function playMoveSound(prevPos: Position, move: Move) {
  * Ván trên trang nguồn là chuẩn: kể cả khi luật của app đã xử kết thúc (ví dụ lặp nước), vẫn ghi tiếp
  * nước đọc được để bàn cờ không lệch với trang kia.
  */
-function broadcastReducer(state: GameState, action: GameAction | { type: "reset" }): GameState {
-  if (action.type === "reset") return newGame();
+function broadcastReducer(state: GameState, action: GameAction | { type: "reset"; fen?: string }): GameState {
+  if (action.type === "reset") return newGame(action.fen);
   if (action.type === "move" && state.result) return gameReducer({ ...state, result: null }, action);
   return gameReducer(state, action);
 }
@@ -49,6 +57,20 @@ export function BroadcastClient() {
   const [clearOnMove, setClearOnMove] = useState(true);
   const [flipped, setFlipped] = useState(false);
   const [copied, setCopied] = useState<"fen" | "moves" | null>(null);
+  const [stageSettings, setStageSettings] = useStageSettings();
+  const stageLink = useStageLink();
+  /** Kết quả người dẫn đã bấm cho ván đang chơi (đã cộng vào thành tích hôm nay). */
+  const [roundResult, setRoundResult] = useState<StageResult | null>(null);
+  /** Tự đọc nick, điểm, đồng hồ từ ô người chơi hai bên bàn cờ zigavn. */
+  const [autoRead, setAutoRead] = useState(true);
+  /**
+   * Đồng hồ ván tự tính theo nước đi đọc được. running = null là đang chờ ván bắt đầu. `clockSync`: lần tới đọc được
+   * giờ trên trang nguồn thì lấy làm mốc một lần (vào giữa ván, hoặc lúc trang kia bắt đầu chạy giờ ván mới).
+   */
+  const [clock, setClock] = useState<GameClock | null>(null);
+  const clockSync = useRef(false);
+  /** Thông báo lần tự sửa bàn cờ gần nhất (nhận nhầm nước), hoặc lời nhắc khi không tự sửa được. */
+  const [repairNote, setRepairNote] = useState<{ ok: boolean; text: string } | null>(null);
   const boardColRef = useRef<HTMLDivElement>(null);
   const movesContainerRef = useRef<HTMLDivElement>(null);
   const activePlyRef = useRef<HTMLButtonElement>(null);
@@ -56,22 +78,108 @@ export function BroadcastClient() {
 
   const clearDrawings = useCallback(() => draw({ type: "clear" }), []);
 
+  const timeControl = useMemo(
+    () => ({ totalMs: stageSettings.timeControl.totalMin * 60_000, perMoveMs: stageSettings.timeControl.perMoveSec * 1000 }),
+    [stageSettings.timeControl],
+  );
+
+  /**
+   * Chốt giờ cho các nước vừa đi (đọc được hoặc đi bù bằng tay), dừng đồng hồ nếu ván đã phân thắng thua. Chưa có đồng
+   * hồ (vd. trang được nạp lại code giữa lúc đang theo dõi) thì tạo mới, để sân khấu không bao giờ thiếu đồng hồ.
+   */
+  const tickClock = useCallback((before: Position, moves: Move[]) => {
+    const now = Date.now();
+    setClock((prev) => {
+      let c = prev ?? startClock(timeControl, null, now);
+      if (!prev) clockSync.current = true;
+      let p = before;
+      for (const m of moves) {
+        c = clockAfterMove(c, p.turn, now);
+        p = applyMove(p, m);
+      }
+      return outcome(p).over ? stopClock(c, now) : c;
+    });
+  }, [timeControl]);
+
   const onMoves = useCallback(
     (moves: Move[]) => {
-      let currentPos = game.history[game.history.length - 1];
+      const before = game.history[game.history.length - 1];
+      let currentPos = before;
       for (const move of moves) {
         playMoveSound(currentPos, move);
         currentPos = applyMove(currentPos, move);
         dispatch({ type: "move", move });
       }
+      tickClock(before, moves);
       setSelected(null);
       if (clearOnMove) clearDrawings();
     },
-    [clearOnMove, clearDrawings, game.history],
+    [clearOnMove, clearDrawings, game.history, tickClock],
   );
+
+  /** Đặt đồng hồ cho ván bắt đầu theo dõi: `toMove` null = chờ ván bắt đầu (thế ban đầu). */
+  const armClock = (toMove: Side | null) => {
+    setClock(startClock(timeControl, toMove, Date.now()));
+    clockSync.current = true;
+  };
+  // Trang kia bày lại thế ban đầu (sang ván mới): ghi kết quả ván cũ, bàn cờ ở đây cũng về đầu. Bộ theo dõi đã tự
+  // về thế ban đầu nên không cần resync.
+  const onRestart = () => {
+    finishRound();
+    armClock(null);
+    dispatch({ type: "reset" });
+    setViewPly(null);
+    setSelected(null);
+    clearDrawings();
+  };
+  // Ảnh trang kia đứng yên mà vẫn khác bàn cờ ở đây (đã nhận nhầm một nước): app đọc lại cả thế cờ, tìm nước nhầm
+  // trong 1–2 nước gần nhất và thay bằng nước đúng, giữ nguyên phần biên bản trước đó.
+  const onDesync = (board: Board) => {
+    const fix = findRepair(game.history, board);
+    if (!fix) {
+      setRepairNote({
+        ok: false,
+        text: "Bàn cờ ở đây đang khác trang kia và app không tự sửa được. Bấm “Dừng”, rồi “Chọn cửa sổ” và “Bắt đầu theo dõi” lại: app sẽ tự đọc thế cờ đang có.",
+      });
+      return;
+    }
+    const n = game.history.length - 1;
+    let p = game.history[n - fix.undo];
+    const names: string[] = [];
+    if (fix.undo) dispatch({ type: "undo", plies: fix.undo });
+    for (const m of fix.moves) {
+      names.push(moveNotation(p.board, m));
+      dispatch({ type: "move", move: m });
+      p = applyMove(p, m);
+    }
+    resync(p);
+    // Đồng hồ đã tính cho các nước bị lùi; chỉ tính thêm phần nước đi lại vượt quá.
+    if (fix.moves.length > fix.undo) tickClock(game.history[n], fix.moves.slice(fix.undo));
+    setViewPly(null);
+    const removed = game.moves.slice(n - fix.undo).map((m) => m.notation);
+    setRepairNote({
+      ok: true,
+      text: `Đã tự sửa bàn cờ cho khớp trang kia: ${removed.length ? `bỏ ${removed.join(", ")} (nhận nhầm)` : "thêm nước bị sót"}${names.length ? `, ghi lại ${names.join(", ")}` : ""}.`,
+    });
+  };
   const {
-    videoRef, status, error: captureError, corners, bottom, diag, surface, start, stop, addCorner, follow, resync, repick,
-  } = useScreenMirror(onMoves);
+    videoRef, status, error: captureError, corners, bottom, diag, surface, start, stop, addCorner, follow, resync, repick, grabRegion, detected, clearDetected,
+  } = useScreenMirror(onMoves, onRestart, onDesync);
+
+  /** Bắt đầu theo dõi từ thế cờ giữa ván app vừa đọc được, khi người dùng chọn bên đang tới lượt. */
+  const followDetected = (turn: Side) => {
+    if (!detected) return;
+    const fen = toFen({ board: detected.board, turn });
+    dispatch({ type: "reset", fen });
+    setViewPly(null);
+    setSelected(null);
+    clearDrawings();
+    clearDetected();
+    if (follow(parseFen(fen), detected.bottom)) {
+      setDrawing(true);
+      armClock(turn);
+    }
+  };
 
   const live = viewPly === null;
   const ply = viewPly ?? game.moves.length;
@@ -87,7 +195,10 @@ export function BroadcastClient() {
       const move = { from: selected, to: i };
       playMoveSound(livePos, move);
       dispatch({ type: "move", move });
-      if (status === "following") resync(applyMove(livePos, move));
+      if (status === "following") {
+        resync(applyMove(livePos, move));
+        tickClock(livePos, [move]);
+      }
       setSelected(null);
       return;
     }
@@ -97,6 +208,33 @@ export function BroadcastClient() {
   // Mặc định đặt bàn cờ như trang nguồn (phe ngồi dưới ở đó cũng ở dưới ở đây).
   const baseOrientation: Side = bottom ?? "r";
   const orientation: Side = flipped ? (baseOrientation === "r" ? "b" : "r") : baseOrientation;
+
+  const turnNow = livePos.turn;
+  const noClock = clock === null;
+  const onPanels = useCallback(
+    (r: PanelsReading) => {
+      setStageSettings((s) => mergePanelReading(s, r.me, r.opponent));
+      // Giờ trên trang nguồn chỉ lấy làm mốc một lần; sau đó app tự tính theo nước đi.
+      const me = r.me.clock ? clockSeconds(r.me.clock) : null;
+      const opp = r.opponent.clock ? clockSeconds(r.opponent.clock) : null;
+      // Lấy mốc khi vừa đặt đồng hồ, hoặc khi chưa có đồng hồ nào (vào giữa lúc đang theo dõi).
+      if (me === null || opp === null || (!clockSync.current && !noClock)) return;
+      clockSync.current = false;
+      const oppSide: Side = baseOrientation === "r" ? "b" : "r";
+      setClock((prev) => {
+        const c = prev ?? startClock(timeControl, null, r.at);
+        return {
+          ...c,
+          remaining: { [baseOrientation]: me * 1000, [oppSide]: opp * 1000 } as Record<Side, number>,
+          // Trang kia đã chạy giờ (ô điểm thành đồng hồ) mà chưa thấy nước nào: ván vừa bắt đầu.
+          running: c.running ?? turnNow,
+          since: r.at,
+        };
+      });
+    },
+    [setStageSettings, baseOrientation, turnNow, timeControl, noClock],
+  );
+  usePanelReader(grabRegion, autoRead && status === "following", onPanels);
 
   const onAnnotate = useCallback((from: number, to: number) => draw({ type: "annotate", from, to, color }), [color]);
 
@@ -109,19 +247,84 @@ export function BroadcastClient() {
     setSelected(null);
   };
 
+  /** Hết ván (có nước đi): tự ghi kết quả nếu bàn cờ đã phân thắng thua mà chưa bấm, rồi sang ván sau. */
+  function finishRound() {
+    if (game.moves.length === 0) return;
+    const onBoard = resultOnBoard(game.history[game.moves.length], baseOrientation);
+    setStageSettings((s) => nextRound(s, roundResult, onBoard));
+    setRoundResult(null);
+  }
+
+  const recordResult = (r: StageResult | null) => {
+    setStageSettings((s) => ({ ...s, today: changeResult(s.today, roundResult, r) }));
+    setRoundResult(r);
+  };
+
   const newMatch = () => {
+    finishRound();
+    if (status === "following") armClock(null);
     dispatch({ type: "reset" });
     resync(newGame().history[0]);
     setViewPly(null);
     clearDrawings();
   };
 
+  const lastCapturedPiece =
+    ply > 0 && game.moves[ply - 1]
+      ? game.history[ply - 1].board[game.moves[ply - 1].move.to]
+      : null;
+
+  // Ảnh chụp đồng hồ để gửi sân khấu: chỉ đổi khi có nước đi / lấy mốc, sân khấu tự đếm lùi giữa các lần đó.
+  const stageClocks = useMemo((): StageClocks | null => {
+    if (!clock) return null;
+    const now = Date.now();
+    const v = readClock(clock, now);
+    const oppSide: Side = baseOrientation === "r" ? "b" : "r";
+    return {
+      me: v.total[baseOrientation],
+      opponent: v.total[oppSide],
+      running: clock.running === null ? null : clock.running === baseOrientation ? "me" : "opponent",
+      perMove: v.perMove,
+      perMoveTotal: clock.control.perMoveMs,
+      sentAt: now,
+    };
+  }, [clock, baseOrientation]);
+
+  // Gửi trạng thái sang trang sân khấu (OBS Browser Source) qua /ws/stage. Phe của người dẫn = phe ngồi dưới ở
+  // trang nguồn (không theo nút lật bàn ở đây).
+  const { send: sendStage } = stageLink;
+  useEffect(() => {
+    sendStage({
+      t: "state",
+      state: buildStageState({
+        board: pos.board,
+        turn: pos.turn,
+        ply,
+        lastMove,
+        checkSquare,
+        notations: game.moves.map((m) => m.notation),
+        arrows: sketch.present.arrows,
+        highlights: sketch.present.marks,
+        mySide: baseOrientation,
+        settings: stageSettings,
+        capturedPiece: lastCapturedPiece,
+        // Đồng hồ chỉ đúng với thế cờ đang diễn ra; xem lại nước cũ thì ẩn.
+        clocks: live ? stageClocks : null,
+      }),
+    });
+  }, [sendStage, pos, ply, lastMove, checkSquare, game.moves, sketch.present, baseOrientation, stageSettings, lastCapturedPiece, live, stageClocks]);
+
   const toggleFullscreen = () => {
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void boardColRef.current?.requestFullscreen();
+    if (typeof document === "undefined") return;
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {});
+    } else {
+      void document.documentElement.requestFullscreen().catch(() => {});
+    }
   };
 
   useEffect(() => {
+
     if (activePlyRef.current) {
       activePlyRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
     } else if (movesContainerRef.current) {
@@ -295,9 +498,47 @@ export function BroadcastClient() {
       </div>
 
       <aside className={styles.panel}>
+        <StagePanel
+          settings={stageSettings}
+          setSettings={setStageSettings}
+          link={stageLink}
+          result={roundResult}
+          onResult={recordResult}
+          autoRead={autoRead}
+          onAutoRead={setAutoRead}
+          clocks={stageClocks}
+        />
+
         <section className={styles.card}>
           <h1 className={styles.title}>Tường thuật</h1>
           <p className={styles.step}>{step}</p>
+          {repairNote && (
+            <p className={repairNote.ok ? styles.warn : styles.error} role="status">
+              {repairNote.text}{" "}
+              <button type="button" className={styles.btn} onClick={() => setRepairNote(null)}>
+                Đã hiểu
+              </button>
+            </p>
+          )}
+          {detected && (
+            <div className={styles.detectBox} role="status">
+              <p className={styles.step}>
+                Đã đọc được thế cờ giữa ván trên trang kia. Kiểm tra bàn cờ nhỏ bên dưới cho khớp, rồi chọn bên đang tới lượt đi:
+              </p>
+              <XiangqiBoard board={detected.board} orientation={detected.bottom} disabled className={styles.detectBoard} />
+              <div className={styles.row}>
+                <button type="button" className={styles.btnGold} onClick={() => followDetected("r")}>
+                  Đỏ đang tới lượt
+                </button>
+                <button type="button" className={styles.btnGold} onClick={() => followDetected("b")}>
+                  Đen đang tới lượt
+                </button>
+                <button type="button" className={styles.btn} onClick={clearDetected}>
+                  Không đúng
+                </button>
+              </div>
+            </div>
+          )}
           {captureError && (
             <div className={styles.errorBox} role="alert">
               <p className={styles.error}>{captureError}</p>
@@ -319,7 +560,9 @@ export function BroadcastClient() {
           )}
           {status === "following" && diag && (
             <p className={styles.diag} aria-live="polite">
-              {diag.resized
+              {diag.occluded
+                ? `Có thứ đang đè lên bàn cờ (${diag.occluded} ô): thông báo, hiệu ứng, hoặc cửa sổ khác. App tạm dừng đọc nước cho tới khi bàn cờ hiện rõ lại.${surface !== "browser" ? " Nên chia sẻ dạng “Tab” để cửa sổ khác (kể cả màn hình sân khấu) không lọt vào khung chụp." : ""}`
+                : diag.resized
                 ? "Khung chụp đã đổi kích thước (cửa sổ trang kia bị co giãn hoặc phóng to) nên bàn cờ không còn ở chỗ cũ. Đưa cửa sổ về như cũ hoặc bấm “Chọn lại góc”."
                 : diag.movingStreak >= 10
                 ? "Ảnh bàn cờ thay đổi liên tục nên chưa đọc được. Trong vùng bàn cờ có thứ đang chuyển động (hiệu ứng, con trỏ chuột, đồng hồ…): đưa chuột ra khỏi bàn cờ hoặc tắt hiệu ứng của trang kia."
@@ -362,7 +605,11 @@ export function BroadcastClient() {
                     onClick={() => {
                       setViewPly(null);
                       setSelected(null);
-                      if (follow(livePos)) setDrawing(true);
+                      if (follow(livePos)) {
+                        setDrawing(true);
+                        // Theo dõi từ thế ban đầu: chờ ván bắt đầu; từ thế đã bày lại: bên tới lượt đang chạy giờ.
+                        armClock(game.moves.length === 0 ? null : livePos.turn);
+                      }
                     }}
                   >
                     Bắt đầu theo dõi

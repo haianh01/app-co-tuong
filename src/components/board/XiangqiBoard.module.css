@@ -224,3 +224,19 @@
   cursor: crosshair;
   touch-action: none;
 }
+
+@keyframes drawArrow {
+  from {
+    stroke-dashoffset: var(--arrow-len, 300);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.animatedArrow {
+  stroke-dasharray: var(--arrow-len, 300);
+  stroke-dashoffset: var(--arrow-len, 300);
+  animation: drawArrow 0.45s cubic-bezier(0.2, 0.8, 0.25, 1) forwards;
+}
+

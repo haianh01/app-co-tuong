@@ -6,7 +6,8 @@ import { MASTER_GAMES } from "@/lib/xiangqi/master-games.generated";
 import { convertChineseGame } from "@/lib/xiangqi/chinese-notation";
 import { Board, Move, Side, applyMove, initialPosition, parseFen } from "@/lib/xiangqi/engine";
 import { m } from "@/test/xiangqi";
-import { CELL_PX, GRID_H, GRID_W, MoveTracker, calibrate, extractPatches, sourceRect, screenToSquare } from "./board-reader";
+import { CELL_PX, GRID_H, GRID_W, MoveTracker, calibrate, extractPatches, sourceRect, screenToSquare, toBoardOrder } from "./board-reader";
+import { learnLibrary, mergeLibrary, parseLibrary, readBoard, serializeLibrary } from "./piece-library";
 
 type RGB = [number, number, number];
 const BOARD: RGB = [233, 200, 142];
@@ -291,5 +292,89 @@ describe("ảnh không phải ván đang theo dõi", () => {
     const t = trackerFor("r");
     const other = parseFen("4k4/9/9/9/9/9/9/9/9/4K4 w");
     expect(feedStable(t, { board: other.board, bottom: "r" })).toEqual([]);
+  });
+});
+
+describe("trang kia sang ván mới", () => {
+  it("ảnh về thế ban đầu giữa ván: tự theo dõi lại từ đầu rồi đọc tiếp ván mới", () => {
+    const game = convertChineseGame(MASTER_GAMES[0].movesCN);
+    const t = trackerFor("r");
+    for (let i = 0; i < 10; i++) feedStable(t, { board: game.positions[i + 1].board, bottom: "r", lastMove: game.moves[i], shift: 1 });
+    expect(t.position.board).toEqual(game.positions[10].board);
+
+    expect(feedStable(t, { board: start.board, bottom: "r", shift: 1 })).toEqual([]);
+    expect(t.last.restarted).toBe(true);
+    expect(t.position.board).toEqual(start.board);
+
+    const seen: Move[] = [];
+    for (let i = 0; i < 6; i++) seen.push(...feedStable(t, { board: game.positions[i + 1].board, bottom: "r", lastMove: game.moves[i], shift: 1 }));
+    expect(seen).toEqual(game.moves.slice(0, 6));
+    expect(t.last.restarted).toBeFalsy();
+  });
+
+  it("nước đầu tiên của ván không bị tưởng là ván mới", () => {
+    const game = convertChineseGame(MASTER_GAMES[0].movesCN);
+    const t = trackerFor("r");
+    expect(feedStable(t, { board: game.positions[1].board, bottom: "r", lastMove: game.moves[0], shift: 1 })).toEqual([game.moves[0]]);
+    expect(t.last.restarted).toBeFalsy();
+    expect(t.position.board).toEqual(game.positions[1].board);
+  });
+});
+
+describe("thư viện hình quân: đọc thế cờ giữa ván không cần bày lại", () => {
+  it.each<[number, number, Side]>([
+    [0, 30, "r"],
+    [1, 41, "b"],
+    [2, 25, "r"],
+  ])("ván %i, nước %i, phe %s ngồi dưới: học từ thế ban đầu, đọc đúng cả thế cờ", (gameIdx, ply, bottom) => {
+    const startPatches = patchesOf({ board: start.board, bottom, shift: 1, seed: 7 });
+    const cal = calibrate(startPatches, start.board);
+    // Như app: gộp vào thư viện (có giới hạn số mẫu), lưu chuỗi, đọc lại.
+    const learned = learnLibrary(toBoardOrder(startPatches, cal.bottom), start.board);
+    const lib = parseLibrary(serializeLibrary(mergeLibrary(mergeLibrary(null, learned), learned)))!;
+    const game = convertChineseGame(MASTER_GAMES[gameIdx].movesCN);
+    const mid = game.positions[ply];
+    const read = readBoard(patchesOf({ board: mid.board, bottom, lastMove: game.moves[ply - 1], shift: 1, seed: 21 }), lib);
+    expect(read?.bottom).toBe(bottom);
+    expect(read?.board).toEqual(mid.board);
+  });
+
+  it("thư viện chưa có mẫu ô trống / Tướng: không đoán bừa", () => {
+    expect(readBoard(patchesOf({ board: start.board, bottom: "r" }), { samples: [] })).toBeNull();
+  });
+});
+
+describe("khung hình bị che (thông báo, hiệu ứng đè lên bàn cờ)", () => {
+  /** Đè một khối tối đặc lên các ô (theo thứ tự màn hình), như một thẻ thông báo che bàn cờ. */
+  function cover(patches: Float32Array[], screens: number[]) {
+    for (const i of screens) patches[i] = patches[i].map((_, k) => [0.11, 0.13, 0.12][k % 3]);
+    return patches;
+  }
+  // Khối 3×4 ô giữa bàn phía Đỏ, che cả Pháo đỏ ở hàng 7.
+  const BLOCK = [6, 7].flatMap((r) => [1, 2, 3, 4].map((c) => r * 9 + c)).concat([7 * 9 + 5, 7 * 9 + 6, 7 * 9 + 7]);
+
+  it("thẻ thông báo che mất Pháo: không nhận thành nước ăn quân; bỏ che thì theo tiếp bình thường", () => {
+    const game = convertChineseGame(MASTER_GAMES[0].movesCN);
+    const t = trackerFor("r");
+    for (let i = 0; i < 6; i++) feedStable(t, { board: game.positions[i + 1].board, bottom: "r", lastMove: game.moves[i], shift: 1 });
+    const pos = game.positions[6];
+    const covered = () => cover(patchesOf({ board: pos.board, bottom: "r", lastMove: game.moves[5], shift: 1, seed: 11 }), BLOCK);
+    expect([...t.feed(covered()), ...t.feed(covered()), ...t.feed(covered())]).toEqual([]);
+    expect(t.last.occluded).toBeGreaterThanOrEqual(2);
+    expect(t.position.board).toEqual(pos.board);
+
+    const seen: Move[] = [];
+    for (let i = 6; i < 12; i++) seen.push(...feedStable(t, { board: game.positions[i + 1].board, bottom: "r", lastMove: game.moves[i], shift: 1 }));
+    expect(seen).toEqual(game.moves.slice(6, 12));
+  });
+
+  it("đối phương đi đúng lúc đang bị che: chờ bỏ che rồi mới đọc nước đó", () => {
+    const game = convertChineseGame(MASTER_GAMES[0].movesCN);
+    const t = trackerFor("r");
+    for (let i = 0; i < 4; i++) feedStable(t, { board: game.positions[i + 1].board, bottom: "r", lastMove: game.moves[i], shift: 1 });
+    const after = game.positions[5];
+    const covered = () => cover(patchesOf({ board: after.board, bottom: "r", lastMove: game.moves[4], shift: 1, seed: 11 }), BLOCK);
+    expect([...t.feed(covered()), ...t.feed(covered())]).toEqual([]);
+    expect(feedStable(t, { board: after.board, bottom: "r", lastMove: game.moves[4], shift: 1 })).toEqual([game.moves[4]]);
   });
 });

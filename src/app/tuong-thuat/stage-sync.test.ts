@@ -1,0 +1,105 @@
+import { describe, expect, it } from "vitest";
+import { applyMove, initialPosition, parseFen, START_FEN, type Move } from "@/lib/xiangqi/engine";
+import { moveNotation } from "@/lib/xiangqi/notation";
+import {
+  DEFAULT_STAGE_SETTINGS,
+  buildStageState,
+  computeCapturedPieces,
+  computeMaterialBalance,
+  detectBigMoment,
+  generateCommentary,
+  mergePanelReading,
+} from "./stage-sync";
+
+/** Đi một chuỗi nước từ thế ban đầu, trả về thế cuối, ký hiệu và quân bị ăn ở nước cuối. */
+function play(moves: Move[]) {
+  let pos = initialPosition();
+  const notations: string[] = [];
+  let captured: string | null = null;
+  for (const m of moves) {
+    notations.push(moveNotation(pos.board, m));
+    captured = pos.board[m.to];
+    pos = applyMove(pos, m);
+  }
+  return { pos, notations, captured };
+}
+
+describe("stage-sync", () => {
+  it("đếm quân đã bị ăn của mỗi bên", () => {
+    const board = [...parseFen(START_FEN).board];
+    board[89] = null; // Xe đỏ
+    board[19] = null; // Pháo đen
+    expect(computeCapturedPieces(board)).toEqual({ redLost: ["r"], blackLost: ["c"] });
+  });
+
+  it("chênh lệch quân lực gọi theo Bạn / Đối thủ", () => {
+    const board = [...parseFen(START_FEN).board];
+    board[19] = null; // Đen mất Pháo
+    expect(computeMaterialBalance(board, "r").text).toBe("Bạn hơn 1 Pháo");
+    expect(computeMaterialBalance(board, "b").text).toBe("Đối thủ hơn 1 Pháo");
+    expect(computeMaterialBalance(parseFen(START_FEN).board, "r").text).toBe("Hai bên ngang quân");
+  });
+
+  it("pháo đỏ ăn mã: bình luận và khoảnh khắc lớn đúng bên vừa đi", () => {
+    // Pháo 2 (cột 7, hàng 7) bắn qua tốt ăn Mã đen ở (0,7).
+    const cannonTakesHorse = { from: 7 * 9 + 7, to: 0 * 9 + 7 };
+    const { pos, notations, captured } = play([cannonTakesHorse]);
+    expect(captured).toBe("n");
+
+    const asRed = generateCommentary({ board: pos.board, turn: pos.turn, lastMove: cannonTakesHorse, lastNotation: notations[0], capturedPiece: captured, mySide: "r" });
+    expect(asRed).toMatchObject({ who: "Bạn", note: "Ăn Mã!", isCapture: true });
+    const asBlack = generateCommentary({ board: pos.board, turn: pos.turn, lastMove: cannonTakesHorse, lastNotation: notations[0], capturedPiece: captured, mySide: "b" });
+    expect(asBlack?.who).toBe("Đối thủ");
+
+    const moment = detectBigMoment({ board: pos.board, turn: pos.turn, lastMove: cannonTakesHorse, capturedPiece: captured, mySide: "r", ply: 1 });
+    expect(moment).toMatchObject({ type: "bigCapture", title: "ĂN MÃ!", id: "cap-n-1" });
+  });
+
+  it("không có nước nào: không bình luận, không khoảnh khắc", () => {
+    const pos = initialPosition();
+    expect(generateCommentary({ board: pos.board, turn: pos.turn, lastMove: null, mySide: "r" })).toBeNull();
+    expect(detectBigMoment({ board: pos.board, turn: pos.turn, lastMove: null, mySide: "r", ply: 0 })).toBeNull();
+  });
+
+  it("buildStageState: không mang điểm engine, có khai cuộc và tóm tắt", () => {
+    const centralCannon = { from: 7 * 9 + 7, to: 7 * 9 + 4 };
+    const { pos, notations } = play([centralCannon]);
+    const state = buildStageState({
+      board: pos.board,
+      turn: pos.turn,
+      ply: 1,
+      lastMove: centralCannon,
+      checkSquare: null,
+      notations,
+      arrows: [],
+      highlights: [],
+      mySide: "r",
+      settings: { ...DEFAULT_STAGE_SETTINGS, round: 3, today: { win: 2, draw: 0, loss: 1 } },
+    });
+    expect(state).not.toHaveProperty("eval");
+    expect(state.commentary).toMatchObject({ who: "Bạn", notation: notations[0] });
+    expect(state.recap).toMatchObject({ roundAndPly: "Ván 3 · Nước 1", recordText: "2 thắng · 0 hòa · 1 thua" });
+    expect(state.bigMoment).toBeNull();
+  });
+});
+
+describe("mergePanelReading", () => {
+  const none = { name: null, points: null, stars: null };
+
+  it("điền nick, điểm, sao đọc được; đối thủ đổi nick thì bỏ thông tin cũ", () => {
+    const s = { ...DEFAULT_STAGE_SETTINGS, me: { name: "Bạn", title: "Tập Sự" }, opponent: { name: "A1", points: "900", title: "Kỳ Thủ" } };
+    const next = mergePanelReading(s, { name: "W39823757", points: "1000", stars: 2 }, { name: "A40745895", points: null, stars: 2 });
+    expect(next.me).toEqual({ name: "W39823757", points: "1000", stars: 2, title: "Tập Sự" });
+    expect(next.opponent).toEqual({ name: "A40745895", stars: 2 });
+  });
+
+  it("cùng đối thủ: chỉ cập nhật phần mới đọc được, giữ phần còn lại", () => {
+    const s = { ...DEFAULT_STAGE_SETTINGS, opponent: { name: "A40745895", points: "1020", title: "Tập Sự" } };
+    expect(mergePanelReading(s, none, { name: "A40745895", points: null, stars: 2 }).opponent).toEqual({ name: "A40745895", points: "1020", title: "Tập Sự", stars: 2 });
+  });
+
+  it("không có gì đổi: trả lại đúng object cũ", () => {
+    const s = { ...DEFAULT_STAGE_SETTINGS, me: { name: "W1", stars: 2 } };
+    expect(mergePanelReading(s, { name: "W1", points: null, stars: 2 }, none)).toBe(s);
+  });
+});

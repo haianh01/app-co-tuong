@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import Link from "next/link";
 import { XiangqiBoard } from "@/components/board/XiangqiBoard";
 import { PositionAnalysisModal } from "@/components/board/PositionAnalysisModal";
@@ -25,11 +25,13 @@ import styles from "../broadcast.module.css";
 import zigaStyles from "./ziga.module.css";
 import { EMPTY_DRAWING, drawingReducer } from "../drawing";
 import { StagePanel, useStageLink, useStageSettings } from "../StagePanel";
-import { changeResult, type StageResult } from "../stage-round";
+import { changeResult, nextRound, resultOnBoard, type StageResult } from "../stage-round";
 import { clockAfterMove, readClock, startClock, stopClock, type GameClock } from "../game-clock";
 import { buildStageState, type StageClocks } from "../stage-sync";
+import { TrialBar, useTrialMoves } from "../trial";
+import { scrollMoveIntoBox } from "../scroll-moves";
 import { generateTampermonkeyScript } from "@/lib/ziga/tampermonkey-script";
-import { parseZigaPacket, type ZigaParsedMessage } from "@/lib/ziga/ziga-parser";
+import type { ZigaPlayer, ZigaSelection } from "@/lib/ziga/ziga-parser";
 import type { ZigaRelayPacket } from "@/app/api/tuong-thuat/ziga-relay/route";
 
 const COLORS = [
@@ -48,7 +50,20 @@ function playMoveSound(prevPos: Position, move: Move) {
   else playSound("move");
 }
 
-function broadcastReducer(state: GameState, action: GameAction | { type: "reset"; fen?: string }): GameState {
+type BroadcastAction = GameAction | { type: "reset"; fen?: string };
+
+const START_POSITION = newGame().history[0];
+
+const sameMove = (a: Move | null | undefined, b: Move) => !!a && a.from === b.from && a.to === b.to;
+
+/** "Bạn" / "Đối thủ" nếu biết ghế của mình, không thì "Đỏ" / "Đen", cuối cùng là số ghế. */
+function seatLabel(seat: number, seats: { red: number; black: number } | null, mySeat: number | null): string {
+  if (mySeat !== null) return seat === mySeat ? "Bạn" : "Đối thủ";
+  if (seats) return seat === seats.red ? "Đỏ" : "Đen";
+  return `Ghế ${seat}`;
+}
+
+function broadcastReducer(state: GameState, action: BroadcastAction): GameState {
   if (action.type === "reset") return newGame(action.fen);
   if (action.type === "move" && state.result) return gameReducer({ ...state, result: null }, action);
   return gameReducer(state, action);
@@ -56,6 +71,15 @@ function broadcastReducer(state: GameState, action: GameAction | { type: "reset"
 
 export function ZigaBroadcastClient() {
   const [game, dispatch] = useReducer(broadcastReducer, undefined, () => newGame());
+  // Bản sao đồng bộ của game: nhiều gói tới sát nhau vẫn đọc đúng thế cờ mới nhất (không chờ re-render)
+  const gameRef = useRef(game);
+  useLayoutEffect(() => {
+    gameRef.current = game;
+  }, [game]);
+  const applyGameAction = useCallback((action: BroadcastAction) => {
+    gameRef.current = broadcastReducer(gameRef.current, action);
+    dispatch(action);
+  }, []);
   const [viewPly, setViewPly] = useState<number | null>(null);
   const [sketch, draw] = useReducer(drawingReducer, EMPTY_DRAWING);
   const [drawing, setDrawing] = useState(false);
@@ -68,6 +92,10 @@ export function ZigaBroadcastClient() {
   const [stageSettings, setStageSettings] = useStageSettings();
   const stageLink = useStageLink();
   const [roundResult, setRoundResult] = useState<StageResult | null>(null);
+  const roundResultRef = useRef(roundResult);
+  useLayoutEffect(() => {
+    roundResultRef.current = roundResult;
+  }, [roundResult]);
   const [autoApply, setAutoApply] = useState(true);
 
   // Trạng thái kết nối SSE tới relay
@@ -75,6 +103,19 @@ export function ZigaBroadcastClient() {
   const [packets, setPackets] = useState<ZigaRelayPacket[]>([]);
   const [customTestInput, setCustomTestInput] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
+  // Quân người dẫn đang chọn trên Ziga + chấm nước (script đọc từ engine Cocos)
+  const [zigaSelection, setZigaSelection] = useState<ZigaSelection | null>(null);
+  // Bàn Ziga có 2 ghế (0 | 1). Ghế nào cầm Đỏ biết từ gói bắt đầu ván; ghế của mình biết từ nước mình gửi đi.
+  const [readySeats, setReadySeats] = useState<Record<number, boolean>>({});
+  const [seats, setSeats] = useState<{ red: number; black: number } | null>(null);
+  const [mySeat, setMySeat] = useState<number | null>(null);
+  const seatsRef = useRef(seats);
+  const mySeatRef = useRef(mySeat);
+  // Vừa bấm "Sẵn sàng" trên Ziga → gói 0x2c sẵn sàng kế tiếp là của ghế mình
+  const pendingReadyRef = useRef(false);
+  // Tên tài khoản của người dẫn (gói đăng nhập) + người đang ngồi ở từng ghế (tên, elo)
+  const myNameRef = useRef<string | null>(null);
+  const rosterRef = useRef<Record<number, ZigaPlayer>>({});
 
   // Đồng hồ ván đấu
   const [clock, setClock] = useState<GameClock | null>(null);
@@ -111,6 +152,19 @@ export function ZigaBroadcastClient() {
   const lastMove = ply > 0 ? game.moves[ply - 1].move : null;
   const checkSquare = inCheck(pos.board, pos.turn) ? findKing(pos.board, pos.turn) : null;
   const livePos = game.history[game.moves.length];
+  // Chỉ hiện quân chọn của Ziga khi đang xem thế cờ mới nhất và quân đó thực sự nằm ở ô ấy
+  const liveZigaSelection =
+    live && zigaSelection?.from != null && livePos.board[zigaSelection.from] ? zigaSelection : null;
+  const liveNotations = useMemo(() => game.moves.map((m) => m.notation), [game.moves]);
+  const trial = useTrialMoves(liveNotations);
+  // Trạng thái sẵn sàng cho sân khấu: chỉ khi đang chờ ván (ván bắt đầu thì xoá) và đã biết ghế của mình
+  const stageReady = useMemo(
+    () =>
+      mySeat === null || Object.keys(readySeats).length === 0
+        ? null
+        : { me: readySeats[mySeat] ?? false, opponent: readySeats[1 - mySeat] ?? false },
+    [mySeat, readySeats],
+  );
 
   const orientation: Side = flipped ? "b" : "r";
   const mySide: Side = orientation;
@@ -161,76 +215,274 @@ export function ZigaBroadcastClient() {
         });
       }
 
-      // 3. Nếu có nước cờ và đang bật tự động nhận nước
+      // 3. Trạng thái bàn: sẵn sàng, bắt đầu ván, chiếu/hết giờ/đầu hàng, kết thúc ván
+      if (packet.direction === "out" && parsed.eventType === "ready_sent") pendingReadyRef.current = true;
+
+      // Tên, elo hai bên: gói đăng nhập cho tên mình, gói thông tin bàn / vào / rời bàn / elo sau ván cho từng ghế
+      let rosterChanged = false;
+      if (parsed.login) {
+        myNameRef.current = parsed.login.userName;
+        rosterChanged = true;
+      }
+      if (parsed.roster) {
+        const next: Record<number, ZigaPlayer> = parsed.roster.replace ? {} : { ...rosterRef.current };
+        for (const p of parsed.roster.list) next[p.seat] = p;
+        rosterRef.current = next;
+        rosterChanged = true;
+      }
+      if (parsed.playerLeave) {
+        const next = { ...rosterRef.current };
+        delete next[parsed.playerLeave.seat];
+        rosterRef.current = next;
+        rosterChanged = true;
+      }
+      if (parsed.eloUpdate) {
+        const cur = rosterRef.current[parsed.eloUpdate.seat];
+        if (cur) {
+          rosterRef.current = { ...rosterRef.current, [cur.seat]: { ...cur, elo: parsed.eloUpdate.elo } };
+          rosterChanged = true;
+        }
+      }
+      if (rosterChanged) {
+        const roster = rosterRef.current;
+        const mine = Object.values(roster).find((p) => p.name === myNameRef.current);
+        if (mine && mySeatRef.current !== mine.seat) {
+          mySeatRef.current = mine.seat;
+          setMySeat(mine.seat);
+        }
+        const seat = mySeatRef.current;
+        if (seat !== null) {
+          const me = roster[seat];
+          const opp = roster[1 - seat];
+          setStageSettings((st) => ({
+            ...st,
+            me: me ? { ...st.me, name: me.name, points: String(me.elo) } : st.me,
+            opponent: opp ? { ...st.opponent, name: opp.name, points: String(opp.elo) } : { name: "Đối thủ" },
+          }));
+        }
+      }
+
+      // Vào bàn giữa ván: Ziga gửi nguyên thế cờ → bày lại bàn (nếu khác), lấy giờ hai bên, biết ghế Đỏ/Đen
+      if (parsed.tableSnapshot) {
+        const snap = parsed.tableSnapshot;
+        const nextSeats = { red: snap.redSeat, black: snap.blackSeat };
+        seatsRef.current = nextSeats;
+        setSeats(nextSeats);
+        setReadySeats({});
+        const fen = toFen({ board: snap.board, turn: snap.turn });
+        const current = gameRef.current;
+        if (toFen(current.history[current.moves.length]) !== fen) {
+          applyGameAction({ type: "reset", fen });
+          setViewPly(null);
+          setSelected(null);
+          setZigaSelection(null);
+          clearDrawings();
+          setNotice("Đã vào bàn giữa ván — bày lại thế cờ đang diễn ra trên Ziga.");
+        }
+        const now = Date.now();
+        setClock(startClock(timeControl, snap.turn, now, { r: snap.redRemainingSec * 1000, b: snap.blackRemainingSec * 1000 }));
+        const seat = mySeatRef.current;
+        if (seat !== null) setFlipped(seat === snap.blackSeat);
+      }
+
+      if (parsed.timeControl) {
+        const totalMin = parsed.timeControl.totalSec / 60;
+        const perMoveSec = parsed.timeControl.perMoveSec;
+        setStageSettings((st) =>
+          st.timeControl.totalMin === totalMin && st.timeControl.perMoveSec === perMoveSec
+            ? st
+            : { ...st, timeControl: { totalMin, perMoveSec } },
+        );
+      }
+
+      if (parsed.playerStatus) {
+        const { seat, ready } = parsed.playerStatus;
+        setReadySeats((prev) => ({ ...prev, [seat]: ready }));
+        if (ready && pendingReadyRef.current) {
+          pendingReadyRef.current = false;
+          if (mySeatRef.current !== seat) {
+            mySeatRef.current = seat;
+            setMySeat(seat);
+          }
+        }
+      }
+
+      if (parsed.gameStart) {
+        const { redSeat, blackSeat } = parsed.gameStart;
+        const next = { red: redSeat, black: blackSeat };
+        seatsRef.current = next;
+        setSeats(next);
+        setReadySeats({});
+        // Ván trước đã có nước → sang ván kế (tăng số ván, xoá tên đối thủ cũ)
+        if (gameRef.current.moves.length > 0) {
+          setStageSettings((s) => nextRound(s, roundResultRef.current, null));
+        }
+        applyGameAction({ type: "reset" });
+        setViewPly(null);
+        setSelected(null);
+        setZigaSelection(null);
+        setRoundResult(null);
+        roundResultRef.current = null;
+        // Đỏ đi trước: đồng hồ Đỏ chạy ngay khi ván bắt đầu
+        setClock(startClock(timeControl, "r", Date.now()));
+        clearDrawings();
+        const seat = mySeatRef.current;
+        if (seat !== null) setFlipped(seat === blackSeat);
+        setNotice(
+          seat === null
+            ? "Ván mới bắt đầu trên Ziga."
+            : `Ván mới bắt đầu — bạn cầm ${seat === redSeat ? "Đỏ (đi trước)" : "Đen"}.`,
+        );
+      }
+
+      // Nước mình gửi đi (chưa xác nhận): lúc này đang tới lượt mình → biết mình ngồi ghế nào
+      if (packet.direction === "out" && parsed.eventType === "move_sent" && seatsRef.current) {
+        const turn = gameRef.current.history[gameRef.current.moves.length].turn;
+        const seat = turn === "r" ? seatsRef.current.red : seatsRef.current.black;
+        if (mySeatRef.current !== seat) {
+          mySeatRef.current = seat;
+          setMySeat(seat);
+          setFlipped(turn === "b");
+        }
+      }
+
+      if (parsed.gameEvent && parsed.gameEvent.reason !== "check") {
+        const { reason, seat } = parsed.gameEvent;
+        const who = seatLabel(seat, seatsRef.current, mySeatRef.current);
+        const what = { checkmate: "chiếu hết", timeout: "hết giờ", resign: "đầu hàng", other: "phạm luật", check: "chiếu" }[reason];
+        setNotice(`${who}: ${what}.`);
+      }
+
+      if (parsed.gameEnd) {
+        const { winnerSeat } = parsed.gameEnd;
+        const s = seatsRef.current;
+        const now = Date.now();
+        setClock((prev) => (prev ? stopClock(prev, now) : prev));
+        if (winnerSeat === null || s) {
+          const winnerSide: Side | null = winnerSeat === null ? null : winnerSeat === s?.red ? "r" : "b";
+          const result: StageResult = winnerSide === null ? "draw" : winnerSide === mySide ? "win" : "loss";
+          const previous = roundResultRef.current;
+          setStageSettings((st) => ({ ...st, today: changeResult(st.today, previous, result) }));
+          roundResultRef.current = result;
+          setRoundResult(result);
+          setNotice(
+            `Ván kết thúc — ${winnerSide === null ? "hoà" : `${winnerSide === "r" ? "Đỏ" : "Đen"} thắng`} (đã ghi: ${
+              { win: "thắng", draw: "hoà", loss: "thua" }[result]
+            }).`,
+          );
+        } else {
+          setNotice(`Ván kết thúc — ghế ${winnerSeat} thắng (chưa biết ghế nào cầm Đỏ nên chưa tự ghi kết quả).`);
+        }
+      }
+
+      // 4. Quân đang chọn trên Ziga
+      if (parsed.selection) {
+        setZigaSelection(parsed.selection.from === null ? null : parsed.selection);
+      }
+
+      // 5. Nếu có nước cờ và đang bật tự động nhận nước
       if (parsed.move && autoApply) {
         const move = parsed.move;
-        // Kiểm tra xem nước cờ có đi từ thế hiện tại được không
-        const currentLive = game.history[game.moves.length];
-        const legal = legalMovesFrom(currentLive, move.from).some((m) => m.to === move.to);
+        const current = gameRef.current;
+        const currentLive = current.history[current.moves.length];
 
-        if (legal) {
+        // Ziga hay gửi lại đúng nước vừa đi (gói out của mình + gói in xác nhận) → bỏ qua
+        if (sameMove(current.moves.at(-1)?.move, move)) return;
+
+        if (legalMovesFrom(currentLive, move.from).some((m) => m.to === move.to)) {
           playMoveSound(currentLive, move);
-          dispatch({ type: "move", move });
+          applyGameAction({ type: "move", move });
+          setZigaSelection(null);
           tickClock(currentLive, [move]);
+          // Lấy giờ còn lại của bên vừa đi theo server Ziga, để đồng hồ sân khấu khớp Ziga không bị trôi
+          const remainingSec = parsed.moverRemainingSec;
+          if (remainingSec !== undefined && remainingSec >= 0) {
+            const mover = currentLive.turn;
+            setClock((prev) => (prev ? { ...prev, remaining: { ...prev.remaining, [mover]: remainingSec * 1000 } } : prev));
+          }
           if (clearOnMove) clearDrawings();
           setNotice(`Đã nhận nước cờ từ Ziga: ${moveNotation(currentLive.board, move)}`);
+        } else if (current.moves.length > 0 && legalMovesFrom(START_POSITION, move.from).some((m) => m.to === move.to)) {
+          // Không đi được từ thế hiện tại nhưng là nước mở đầu hợp lệ → ván mới đã bắt đầu
+          applyGameAction({ type: "reset" });
+          applyGameAction({ type: "move", move });
+          setZigaSelection(null);
+          setViewPly(null);
+          setSelected(null);
+          setRoundResult(null);
+          setClock(null);
+          tickClock(START_POSITION, [move]);
+          clearDrawings();
+          playMoveSound(START_POSITION, move);
+          setNotice(`Phát hiện ván mới — đã đặt lại bàn và nhận nước: ${moveNotation(START_POSITION.board, move)}`);
         } else {
-          setNotice(
-            `Nhận nước cờ ${move.from} → ${move.to} nhưng không hợp lệ ở thế cờ hiện tại. Có thể ván mới đã bắt đầu?`,
-          );
+          setNotice(`Nhận nước cờ ${move.from} → ${move.to} nhưng không hợp lệ ở thế cờ hiện tại.`);
         }
       }
     },
-    [autoApply, clearDrawings, clearOnMove, game.history, game.moves.length, setStageSettings, tickClock, timeControl],
+    [applyGameAction, autoApply, clearDrawings, clearOnMove, mySide, oppSide, setStageSettings, tickClock, timeControl],
   );
 
-  // Mở luồng Server-Sent Events nhận dữ liệu từ Ziga Relay
+  // Luôn trỏ tới handler mới nhất để EventSource không phải đóng/mở lại mỗi khi state đổi
+  const handlerRef = useRef(handleIncomingPacket);
+  useLayoutEffect(() => {
+    handlerRef.current = handleIncomingPacket;
+  }, [handleIncomingPacket]);
+  // seq lớn nhất đã xử lý — chống xử lý trùng khi server phát bù lúc nối lại
+  const lastSeqRef = useRef(0);
+
+  // Mở luồng Server-Sent Events nhận dữ liệu từ Ziga Relay (một lần cho cả vòng đời trang)
   useEffect(() => {
     let evtSource: EventSource | null = null;
-    let reconnectTimer: NodeJS.Timeout | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let disposed = false;
 
     function connect() {
-      try {
-        evtSource = new EventSource("/api/tuong-thuat/ziga-relay");
+      if (disposed) return;
+      // Nối lại thủ công thì kèm mốc để server phát bù; trình duyệt tự nối lại thì đã có Last-Event-ID
+      const since = lastSeqRef.current > 0 ? `?since=${lastSeqRef.current}` : "";
+      evtSource = new EventSource(`/api/tuong-thuat/ziga-relay${since}`);
 
-        evtSource.onopen = () => {
-          setSseConnected(true);
-        };
+      evtSource.onopen = () => setSseConnected(true);
 
-        evtSource.addEventListener("init", (event: MessageEvent) => {
-          try {
-            const list = JSON.parse(event.data) as ZigaRelayPacket[];
-            if (Array.isArray(list)) {
-              setPackets(list.reverse());
-            }
-          } catch {}
-        });
+      evtSource.addEventListener("init", (event: MessageEvent) => {
+        try {
+          const init = JSON.parse(event.data) as { lastSeq: number; packets: ZigaRelayPacket[] };
+          // Gói cũ chỉ để hiển thị, không áp lại lên bàn cờ
+          lastSeqRef.current = init.lastSeq;
+          setPackets([...init.packets].reverse());
+        } catch {}
+      });
 
-        evtSource.onmessage = (event: MessageEvent) => {
-          try {
-            const packet = JSON.parse(event.data) as ZigaRelayPacket;
-            handleIncomingPacket(packet);
-          } catch {}
-        };
+      evtSource.onmessage = (event: MessageEvent) => {
+        try {
+          const packet = JSON.parse(event.data) as ZigaRelayPacket;
+          if (packet.seq <= lastSeqRef.current) return;
+          lastSeqRef.current = packet.seq;
+          handlerRef.current(packet);
+        } catch {}
+      };
 
-        evtSource.onerror = () => {
-          setSseConnected(false);
-          evtSource?.close();
-          reconnectTimer = setTimeout(connect, 3000);
-        };
-      } catch {
+      evtSource.onerror = () => {
         setSseConnected(false);
-        reconnectTimer = setTimeout(connect, 3000);
-      }
+        // CONNECTING: trình duyệt đang tự nối lại (giữ Last-Event-ID). CLOSED: phải tự mở lại.
+        if (evtSource?.readyState === EventSource.CLOSED && !reconnectTimer) {
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            connect();
+          }, 2000);
+        }
+      };
     }
 
     connect();
 
     return () => {
+      disposed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       evtSource?.close();
     };
-  }, [handleIncomingPacket]);
+  }, []);
 
   // Đồng bộ sang sân khấu OBS (/ws/stage)
   const stageClocks = useMemo((): StageClocks | null => {
@@ -263,13 +515,20 @@ export function ZigaBroadcastClient() {
         notations: game.moves.map((m) => m.notation),
         arrows: sketch.present.arrows,
         highlights: sketch.present.marks,
+        selected: liveZigaSelection?.from ?? null,
+        targets: liveZigaSelection?.targets ?? [],
+        ready: stageReady,
         mySide,
         settings: stageSettings,
         capturedPiece: lastCapturedPiece,
         clocks: live ? stageClocks : null,
+        // Đi thử: bàn cờ là biến thử, còn lượt đi / đồng hồ vẫn của ván thật đang chạy ngầm.
+        ...(trial.stage && { ...trial.stage, turn: livePos.turn, ply: game.moves.length, capturedPiece: null, clocks: stageClocks }),
       }),
     });
   }, [
+    trial.stage,
+    livePos.turn,
     sendStage,
     pos,
     ply,
@@ -282,6 +541,8 @@ export function ZigaBroadcastClient() {
     lastCapturedPiece,
     live,
     stageClocks,
+    liveZigaSelection,
+    stageReady,
   ]);
 
   // Click ô đi quân bằng tay (hoặc bày lại thế cờ)
@@ -291,7 +552,7 @@ export function ZigaBroadcastClient() {
     if (selected !== null && targets.includes(i)) {
       const move = { from: selected, to: i };
       playMoveSound(livePos, move);
-      dispatch({ type: "move", move });
+      applyGameAction({ type: "move", move });
       tickClock(livePos, [move]);
       setSelected(null);
       return;
@@ -299,21 +560,101 @@ export function ZigaBroadcastClient() {
     const piece = livePos.board[i];
     setSelected(piece && sideOf(piece) === livePos.turn && i !== selected ? i : null);
   };
+  // Thoát đi thử thì trả chế độ vẽ về như trước (tắt vẽ thì bấm bàn cờ là đi thật).
+  const drawingBeforeTrial = useRef(false);
+  const toggleTrial = () => {
+    if (trial.trial) {
+      trial.exit();
+      setDrawing(drawingBeforeTrial.current);
+      return;
+    }
+    drawingBeforeTrial.current = drawing;
+    trial.start(pos);
+    setDrawing(false);
+    setSelected(null);
+  };
 
   const onAnnotate = useCallback((from: number, to: number) => draw({ type: "annotate", from, to, color }), [color]);
 
+  /** Hết ván (có nước đi): tự ghi kết quả nếu bàn cờ đã phân thắng thua mà chưa bấm, rồi sang ván sau. */
+  const finishRound = () => {
+    if (game.moves.length === 0) return;
+    const onBoard = resultOnBoard(game.history[game.moves.length], mySide);
+    setStageSettings((s) => nextRound(s, roundResult, onBoard));
+    setRoundResult(null);
+  };
+
   const newMatch = () => {
-    dispatch({ type: "reset" });
+    finishRound();
+    applyGameAction({ type: "reset" });
     setViewPly(null);
     setSelected(null);
+    setZigaSelection(null);
     clearDrawings();
-    setRoundResult(null);
+    setClock(null);
     setNotice("Đã đặt lại bàn cờ về đầu.");
   };
 
+  const toggleFullscreen = () => {
+    if (typeof document === "undefined") return;
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {});
+    } else {
+      void document.documentElement.requestFullscreen().catch(() => {});
+    }
+  };
+
+  // Tự cuộn biên bản tới nước đang xem
+  useEffect(() => {
+    scrollMoveIntoBox(movesContainerRef.current, activePlyRef.current);
+  }, [ply, game.moves.length]);
+
+  // Phím tắt giống chế độ thị giác máy tính
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      const key = e.key.toLowerCase();
+      if (e.ctrlKey || e.metaKey) {
+        // Ctrl+Z hoàn tác nét vẽ; Ctrl+Y hoặc Ctrl+Shift+Z làm lại. Các tổ hợp khác (Ctrl+C…) để trình duyệt xử lý.
+        if (key === "z" && !e.shiftKey) draw({ type: "undo" });
+        else if (key === "y" || (key === "z" && e.shiftKey)) draw({ type: "redo" });
+        else return;
+        e.preventDefault();
+        return;
+      }
+      if (e.altKey) return;
+      if (e.key === " ") {
+        e.preventDefault();
+        setDrawing((d) => !d);
+        setSelected(null);
+        return;
+      }
+      if (e.key === "Home") {
+        e.preventDefault();
+        setViewPly(0);
+        return;
+      }
+      if (e.key === "End") {
+        e.preventDefault();
+        setViewPly(null);
+        return;
+      }
+      if (["1", "2", "3", "4"].includes(e.key)) {
+        const idx = Number(e.key) - 1;
+        if (COLORS[idx]) setColor(COLORS[idx].value);
+        return;
+      }
+      if (e.key === "Escape" || key === "c") clearDrawings();
+      else if (e.key === "ArrowLeft") setViewPly((v) => Math.max(0, (v ?? game.moves.length) - 1));
+      else if (e.key === "ArrowRight") setViewPly((v) => (v === null || v + 1 >= game.moves.length ? null : v + 1));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [clearDrawings, game.moves.length]);
+
   const undoMove = () => {
     if (game.moves.length === 0) return;
-    dispatch({ type: "undo", plies: 1 });
+    applyGameAction({ type: "undo", plies: 1 });
     setViewPly(null);
     setSelected(null);
   };
@@ -395,14 +736,14 @@ export function ZigaBroadcastClient() {
       {/* Cột bàn cờ */}
       <div ref={boardColRef} className={styles.boardCol}>
         <XiangqiBoard
-          board={pos.board}
+          board={trial.stage?.board ?? pos.board}
           orientation={orientation}
-          lastMove={lastMove}
-          checkSquare={checkSquare}
-          selected={canMove ? selected : null}
-          targets={targets}
-          onSquareClick={onSquareClick}
-          disabled={!canMove}
+          lastMove={trial.stage ? trial.stage.lastMove : lastMove}
+          checkSquare={trial.stage ? trial.stage.checkSquare : checkSquare}
+          selected={trial.stage ? trial.stage.selected : (liveZigaSelection?.from ?? (canMove ? selected : null))}
+          targets={trial.stage ? trial.stage.targets : (liveZigaSelection?.targets ?? targets)}
+          onSquareClick={trial.stage ? trial.onSquareClick : onSquareClick}
+          disabled={trial.stage ? drawing : !canMove}
           arrows={sketch.present.arrows}
           highlights={sketch.present.marks}
           sketchColor={color}
@@ -414,33 +755,49 @@ export function ZigaBroadcastClient() {
             type="button"
             className={styles.btn}
             aria-pressed={drawing}
+            title={drawing ? "Tắt vẽ để đi quân bằng tay (Phím Space)" : "Bật chế độ vẽ mũi tên & khoanh ô (Phím Space)"}
             onClick={() => {
               setDrawing((d) => !d);
               setSelected(null);
             }}
           >
-            {drawing ? "✏️ Đang vẽ bình luận" : "♟️ Đang đi quân"}
+            ✏️ {drawing ? "Đang vẽ" : "Vẽ"}
           </button>
-          {drawing && (
-            <>
-              {COLORS.map((c) => (
-                <button
-                  key={c.value}
-                  type="button"
-                  className={styles.swatch}
-                  style={{ background: c.value }}
-                  aria-label={c.label}
-                  aria-pressed={color === c.value}
-                  onClick={() => setColor(c.value)}
-                />
-              ))}
-              <button type="button" className={styles.btn} onClick={clearDrawings}>
-                Xóa nét vẽ
-              </button>
-            </>
-          )}
+          <button
+            type="button"
+            className={styles.btn}
+            aria-pressed={!!trial.trial}
+            title="Bày biến trên bàn cờ tạm để giải thích; ván thật vẫn chạy ngầm, sân khấu ghi rõ BIẾN THỬ"
+            onClick={toggleTrial}
+          >
+            🧪 {trial.trial ? "Thoát đi thử" : "Đi thử"}
+          </button>
+          {COLORS.map((c, idx) => (
+            <button
+              key={c.value}
+              type="button"
+              className={styles.swatch}
+              style={{ background: c.value }}
+              aria-label={`Màu ${c.label}`}
+              title={`Màu ${c.label} (Phím ${idx + 1})`}
+              aria-pressed={color === c.value}
+              onClick={() => setColor(c.value)}
+            />
+          ))}
+          <button type="button" className={styles.btn} onClick={() => draw({ type: "undo" })} disabled={sketch.past.length === 0} title="Hoàn tác nét vẽ (Ctrl+Z)" aria-label="Hoàn tác nét vẽ">
+            ↶
+          </button>
+          <button type="button" className={styles.btn} onClick={() => draw({ type: "redo" })} disabled={sketch.future.length === 0} title="Làm lại (Ctrl+Y)" aria-label="Làm lại nét vẽ">
+            ↷
+          </button>
+          <button type="button" className={styles.btn} onClick={clearDrawings} title="Phím C hoặc Esc">
+            Xóa nét vẽ
+          </button>
           <button type="button" className={styles.btn} onClick={() => setFlipped((f) => !f)}>
-            🔄 Đổi góc nhìn
+            ⇅ Lật bàn
+          </button>
+          <button type="button" className={styles.btn} onClick={toggleFullscreen}>
+            ⛶ Toàn màn hình
           </button>
         </div>
 
@@ -452,6 +809,7 @@ export function ZigaBroadcastClient() {
             </button>
           </div>
         )}
+        <TrialBar t={trial} onExit={toggleTrial} />
       </div>
 
       {/* Cột bảng điều khiển */}
@@ -481,6 +839,15 @@ export function ZigaBroadcastClient() {
             </div>
             <span className={styles.muted}>{packets.length} gói tin</span>
           </div>
+          {Object.keys(readySeats).length > 0 && (
+            <div className={zigaStyles.readyBar} aria-label="Trạng thái sẵn sàng">
+              {[0, 1].map((seat) => (
+                <span key={seat} className={readySeats[seat] ? zigaStyles.readyOn : zigaStyles.readyOff}>
+                  {seatLabel(seat, seats, mySeat)}: {readySeats[seat] ? "✓ Sẵn sàng" : "… chưa sẵn sàng"}
+                </span>
+              ))}
+            </div>
+          )}
 
           {notice && (
             <p className={styles.warn} role="status">
@@ -543,7 +910,11 @@ export function ZigaBroadcastClient() {
                 <div key={p.id} className={zigaStyles.packetItem}>
                   <div className={zigaStyles.packetMeta}>
                     <span className={p.direction === "in" ? zigaStyles.badgeIn : zigaStyles.badgeOut}>
-                      {p.direction === "in" ? "⬇ NHẬN (Ziga → Client)" : "⬆ GỬI (Client → Ziga)"}
+                      {p.direction === "in"
+                        ? "⬇ NHẬN (Ziga → Client)"
+                        : p.direction === "ui"
+                          ? "🖱 GIAO DIỆN (bàn cờ Ziga)"
+                          : "⬆ GỬI (Client → Ziga)"}
                     </span>
                     <span>{new Date(p.timestamp).toLocaleTimeString()}</span>
                   </div>
@@ -611,7 +982,7 @@ export function ZigaBroadcastClient() {
               className={styles.btn}
               disabled={game.moves.length === 0}
               onClick={() => {
-                const text = game.moves.map((m, i) => `${i + 1}. ${m.notation}`).join(" ");
+                const text = pairs.map((p) => `${p.round}. ${p.plies.map((x) => x.text).join(" ")}`).join("\n");
                 void navigator.clipboard.writeText(text);
                 setCopied("moves");
                 setTimeout(() => setCopied(null), 2000);

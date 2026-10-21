@@ -19,6 +19,8 @@ import { changeResult, nextRound, resultOnBoard, type StageResult } from "./stag
 import { findRepair } from "./board-repair";
 import { clockAfterMove, readClock, startClock, stopClock, type GameClock } from "./game-clock";
 import { buildStageState, mergePanelReading, type StageClocks } from "./stage-sync";
+import { TrialBar, useTrialMoves } from "./trial";
+import { scrollMoveIntoBox } from "./scroll-moves";
 import { clockSeconds } from "@/lib/vision/zigavn-panels";
 
 const COLORS = [
@@ -207,6 +209,21 @@ export function BroadcastClient() {
     const piece = livePos.board[i];
     setSelected(piece && sideOf(piece) === livePos.turn && i !== selected ? i : null);
   };
+  const liveNotations = useMemo(() => game.moves.map((m) => m.notation), [game.moves]);
+  const trial = useTrialMoves(liveNotations);
+  // Thoát đi thử thì trả chế độ vẽ về như trước (đang theo dõi thường là đang vẽ; tắt vẽ thì bấm bàn cờ là đi thật).
+  const drawingBeforeTrial = useRef(false);
+  const toggleTrial = () => {
+    if (trial.trial) {
+      trial.exit();
+      setDrawing(drawingBeforeTrial.current);
+      return;
+    }
+    drawingBeforeTrial.current = drawing;
+    trial.start(pos);
+    setDrawing(false);
+    setSelected(null);
+  };
   // Mặc định đặt bàn cờ như trang nguồn (phe ngồi dưới ở đó cũng ở dưới ở đây).
   const baseOrientation: Side = bottom ?? "r";
   const orientation: Side = flipped ? (baseOrientation === "r" ? "b" : "r") : baseOrientation;
@@ -312,9 +329,11 @@ export function BroadcastClient() {
         capturedPiece: lastCapturedPiece,
         // Đồng hồ chỉ đúng với thế cờ đang diễn ra; xem lại nước cũ thì ẩn.
         clocks: live ? stageClocks : null,
+        // Đi thử: bàn cờ là biến thử, còn lượt đi / đồng hồ vẫn của ván thật đang chạy ngầm.
+        ...(trial.stage && { ...trial.stage, turn: livePos.turn, ply: game.moves.length, capturedPiece: null, clocks: stageClocks }),
       }),
     });
-  }, [sendStage, pos, ply, lastMove, checkSquare, game.moves, sketch.present, mySide, stageSettings, lastCapturedPiece, live, stageClocks]);
+  }, [sendStage, pos, ply, lastMove, checkSquare, game.moves, sketch.present, mySide, stageSettings, lastCapturedPiece, live, stageClocks, trial.stage, livePos.turn]);
 
   const toggleFullscreen = () => {
     if (typeof document === "undefined") return;
@@ -326,12 +345,7 @@ export function BroadcastClient() {
   };
 
   useEffect(() => {
-
-    if (activePlyRef.current) {
-      activePlyRef.current.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    } else if (movesContainerRef.current) {
-      movesContainerRef.current.scrollTop = movesContainerRef.current.scrollHeight;
-    }
+    scrollMoveIntoBox(movesContainerRef.current, activePlyRef.current);
   }, [ply, game.moves.length]);
 
   useEffect(() => {
@@ -444,14 +458,14 @@ export function BroadcastClient() {
 
       <div ref={boardColRef} className={styles.boardCol}>
         <XiangqiBoard
-          board={pos.board}
+          board={trial.stage?.board ?? pos.board}
           orientation={orientation}
-          lastMove={lastMove}
-          checkSquare={checkSquare}
-          selected={canMove ? selected : null}
-          targets={targets}
-          onSquareClick={onSquareClick}
-          disabled={!canMove}
+          lastMove={trial.stage ? trial.stage.lastMove : lastMove}
+          checkSquare={trial.stage ? trial.stage.checkSquare : checkSquare}
+          selected={trial.stage ? trial.stage.selected : canMove ? selected : null}
+          targets={trial.stage?.targets ?? targets}
+          onSquareClick={trial.stage ? trial.onSquareClick : onSquareClick}
+          disabled={trial.stage ? drawing : !canMove}
           arrows={sketch.present.arrows}
           highlights={sketch.present.marks}
           sketchColor={color}
@@ -469,6 +483,15 @@ export function BroadcastClient() {
             }}
           >
             ✏️ {drawing ? "Đang vẽ" : "Vẽ"}
+          </button>
+          <button
+            type="button"
+            className={styles.btn}
+            aria-pressed={!!trial.trial}
+            title="Bày biến trên bàn cờ tạm để giải thích; ván thật vẫn chạy ngầm, sân khấu ghi rõ BIẾN THỬ"
+            onClick={toggleTrial}
+          >
+            🧪 {trial.trial ? "Thoát đi thử" : "Đi thử"}
           </button>
           {COLORS.map((c, idx) => (
             <button
@@ -506,6 +529,7 @@ export function BroadcastClient() {
             </button>
           </div>
         )}
+        <TrialBar t={trial} onExit={toggleTrial} />
       </div>
 
       <aside className={styles.panel}>

@@ -6,7 +6,7 @@ import { useHydrated } from "@/hooks/useHydrated";
 import { useQueryParam } from "@/hooks/useLocationSearch";
 import { STAGE_ROOM_RE, stageSocketUrl, type StageRelayMessage, type StageVoiceEvent } from "@/lib/stage-protocol";
 import { formatClock } from "@/lib/vision/zigavn-panels";
-import { PIECE_CHAR, PIECE_NAME } from "@/lib/xiangqi/notation";
+import { PIECE_CHAR } from "@/lib/xiangqi/notation";
 import { inCheck, outcome, type PieceType, type Side } from "@/lib/xiangqi/engine";
 import { playStageVoiceEvent, unlockAudio } from "@/lib/stage-voice";
 import { DEFAULT_STAGE_VOICE_LINES, liveClocks, type BigMoment, type StageClocks, type StagePlayer, type StageState } from "../stage-sync";
@@ -153,17 +153,26 @@ function useNow(ms: number, active: boolean) {
 
 export interface ClockView {
   total: string;
-  /** Thời gian còn cho nước này (chỉ bên đang chạy), và phần còn lại (0..1) để vẽ thanh. */
-  perMove?: { text: string; left: number };
+  /** Tổng giờ còn dưới 30 giây. */
+  critical: boolean;
+  /** Thời gian còn cho nước này (chỉ bên đang chạy): chữ, số giây, phần còn lại (0..1) để vẽ vòng. */
+  perMove?: { text: string; seconds: number; left: number };
 }
+
+const CRITICAL_TOTAL_MS = 30_000;
+// Vòng đếm giờ nước đi bao quanh logo người chơi (logo 60px, vòng 76px)
+const RING_SIZE = 76;
+const RING_R = 35;
+const RING_C = 2 * Math.PI * RING_R;
 
 /** Giờ hiển thị của một bên lúc `now` (sân khấu tự đếm lùi giữa hai lần trang điều khiển gửi). */
 function clockView(clocks: StageClocks | null, who: "me" | "opponent", now: number): ClockView | null {
   if (!clocks) return null;
   const v = liveClocks(clocks, now);
-  const view: ClockView = { total: formatClock(Math.ceil(v[who] / 1000)) };
+  const view: ClockView = { total: formatClock(Math.ceil(v[who] / 1000)), critical: v[who] < CRITICAL_TOTAL_MS };
   if (clocks.running === who && v.perMove !== null) {
-    view.perMove = { text: formatClock(Math.ceil(v.perMove / 1000)), left: v.perMove / clocks.perMoveTotal };
+    const seconds = Math.ceil(v.perMove / 1000);
+    view.perMove = { text: formatClock(seconds), seconds, left: Math.max(0, Math.min(1, v.perMove / clocks.perMoveTotal)) };
   }
   return view;
 }
@@ -173,31 +182,59 @@ const pieceChar = (side: Side, t: PieceType) => PIECE_CHAR[side === "r" ? t.toUp
 function PlayerCard({
   player,
   side,
-  lost,
   isMe,
   toMove,
   clock,
+  ready = null,
 }: {
   player: StagePlayer;
   side: Side;
-  /** Quân của bên KIA mà người này đã ăn. */
-  lost: PieceType[];
   isMe: boolean;
   toMove: boolean;
   clock: ClockView | null;
+  /** Trước ván: đã bấm sẵn sàng chưa (null = không hiện). */
+  ready?: boolean | null;
 }) {
-  const other: Side = side === "r" ? "b" : "r";
   const stars = player.stars ?? 0;
+  const turnLabel = toMove ? (isMe ? "ĐẾN LƯỢT" : "ĐANG NGHĨ") : side === "r" ? "ĐỎ" : "ĐEN";
+  const perMove = clock?.perMove;
+  const low = !!perMove && perMove.left <= 1 / 6;
   return (
     <div className={styles.playerCard} data-active={toMove || undefined}>
-      <div className={styles.avatar} data-side={side}>
-        {pieceChar(side, "k")}
+      <div className={styles.avatarWrap} data-low={low || undefined}>
+        {perMove && (
+          <svg
+            className={styles.avatarRing}
+            viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}
+            role="timer"
+            aria-label={`Nước này ${perMove.text}`}
+          >
+            <circle className={styles.ringTrack} cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={RING_R} />
+            <circle
+              className={styles.ringFill}
+              cx={RING_SIZE / 2}
+              cy={RING_SIZE / 2}
+              r={RING_R}
+              strokeDasharray={RING_C}
+              strokeDashoffset={RING_C * (1 - perMove.left)}
+            />
+          </svg>
+        )}
+        <div className={styles.avatar} data-side={side}>
+          {pieceChar(side, "k")}
+        </div>
+        {perMove && <span className={styles.avatarSeconds}>{perMove.seconds}</span>}
       </div>
       <div className={styles.playerInfo}>
         <div className={styles.playerNameRow}>
           <span className={styles.playerName}>{player.name}</span>
           {player.points && <span className={styles.points}>{player.points} điểm</span>}
           {isMe && <span className={styles.meBadge}>BẠN</span>}
+          {ready !== null && (
+            <span key={String(ready)} className={styles.readyBadge} data-ready={ready || undefined} role="status">
+              {ready ? "✓ SẴN SÀNG" : "CHƯA SẴN SÀNG"}
+            </span>
+          )}
         </div>
         {(player.title || stars > 0) && (
           <div className={styles.playerTitle}>
@@ -211,25 +248,21 @@ function PlayerCard({
           </div>
         )}
       </div>
-      <div className={styles.captured} aria-label={`Đã ăn: ${lost.map((t) => PIECE_NAME[t]).join(", ") || "chưa có"}`}>
-        {lost.map((t, i) => (
-          <span key={i} className={styles.miniPiece} data-side={other}>
-            {pieceChar(other, t)}
-          </span>
-        ))}
-      </div>
-      <div className={styles.turnPill} data-active={toMove || undefined} data-clock={clock ? true : undefined}>
-        <span className={styles.turnLabel}>{toMove ? (isMe ? "ĐẾN LƯỢT" : "ĐANG NGHĨ") : side === "r" ? "ĐỎ" : "ĐEN"}</span>
-        {clock && <span className={styles.clock}>{clock.total}</span>}
-        {clock?.perMove && (
-          <span className={styles.perMove} data-low={clock.perMove.left <= 1 / 6 || undefined}>
-            <span className={styles.perMoveText}>Nước này {clock.perMove.text}</span>
-            <span className={styles.perMoveTrack}>
-              <span className={styles.perMoveFill} style={{ width: `${clock.perMove.left * 100}%` }} />
-            </span>
-          </span>
-        )}
-      </div>
+      {clock ? (
+        <div
+          className={styles.clockBox}
+          data-active={toMove || undefined}
+          data-critical={clock.critical || undefined}
+          data-low={low || undefined}
+        >
+          <span className={styles.clockLabel}>{turnLabel}</span>
+          <span className={styles.clockTime}>{clock.total}</span>
+        </div>
+      ) : (
+        <div className={styles.turnPill} data-active={toMove || undefined}>
+          <span className={styles.turnLabel}>{turnLabel}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -301,20 +334,26 @@ export function StageClient() {
     bubbleTimer.current = setTimeout(() => setSpeechBubble(null), 4500);
   }, []);
 
+  // Tin voice đến qua socket bất kỳ lúc nào, nên đọc câu thoại/cờ bật tắt từ trạng thái mới nhất qua ref.
+  const stateRef = useRef<StageState | null>(null);
   const onVoice = useCallback(
     (event: StageVoiceEvent, text?: string) => {
-      const lines = state?.settings?.voiceLines ?? DEFAULT_STAGE_VOICE_LINES;
-      const spoken = text || playStageVoiceEvent(event, lines);
+      const lines = stateRef.current?.settings?.voiceLines ?? DEFAULT_STAGE_VOICE_LINES;
+      // Câu trang điều khiển gửi kèm thay cho câu đã lưu, nhưng vẫn phát tiếng và vẫn theo nút tắt giọng.
+      const spoken = playStageVoiceEvent(event, text ? { ...lines, [event]: text } : lines);
       if (spoken) showBubble(spoken, event);
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [showBubble],
   );
 
   const { state, connected } = useStageFeed(room, recap.show, onVoice);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
   if (state && state.ply !== ply) setPly(state.ply);
   const scale = useFitScale();
-  const moment = useMoment(state?.bigMoment);
+  // Sân khấu không hiện thẻ "ĂN XE!/ĂN PHÁO!…" — chỉ giữ chiếu tướng và kết thúc ván.
+  const moment = useMoment(state?.bigMoment?.type === "bigCapture" ? null : state?.bigMoment);
 
   // Tự động unlock âm thanh khi người dùng click/chạm vào màn hình
   useEffect(() => {
@@ -330,7 +369,8 @@ export function StageClient() {
   // Tự động phát âm thanh khi bạn bị chiếu tướng trên bàn cờ ("Người đâu Cứu trẫm")
   const lastCheckPly = useRef<number | null>(null);
   useEffect(() => {
-    if (!state || state.ply === 0) return;
+    // Biến thử không phải ván thật: không kêu "bị chiếu".
+    if (!state || state.ply === 0 || state.trial) return;
     // Bị chiếu: bên mình (mySide - màu cờ phía dưới) đang bị tướng đối phương chiếu
     const isMeInCheck =
       inCheck(state.board, state.mySide) ||
@@ -409,16 +449,29 @@ function Stage({
   speechBubble: { text: string; type: StageVoiceEvent } | null;
   onTestVoice?: () => void;
 }) {
-  const { settings, mySide, turn, captured, commentary } = state;
+  const { settings, mySide, turn, commentary } = state;
   const oppSide: Side = mySide === "r" ? "b" : "r";
-  // Quân bên kia đã mất = quân bên này đã ăn.
-  const lostOf = (s: Side) => (s === "r" ? captured.redLost : captured.blackLost);
-  const shaking = moment?.type === "bigCapture" || moment?.type === "check";
+  const shaking = moment?.type === "check";
   const now = useNow(250, !!state.clocks);
+  const trial = state.trial ?? null;
+  const over = outcome({ board: state.board, turn });
+  const turnText = trial
+    ? "Không phải nước thật"
+    : over.over
+    ? over.winner
+      ? over.winner === mySide
+        ? "Kết thúc: Bạn thắng"
+        : "Kết thúc: Đối thủ thắng"
+      : "Kết thúc: Hòa"
+    : turn === mySide
+      ? "Đến lượt bạn"
+      : "Đối thủ đang nghĩ…";
 
   return (
     <>
       {!connected && <div className={styles.offline}>Mất kết nối, đang nối lại…</div>}
+      {/* Đi thử: làm tối cả sân khấu, chỉ bàn cờ biến thử và ribbon nổi lên, để người xem biết đây không phải ván thật. */}
+      {trial && <div className={styles.trialDim} aria-hidden="true" />}
 
       <section className={styles.matchBar}>
         <div className={styles.matchRow}>
@@ -454,9 +507,14 @@ function Stage({
         </div>
       </section>
 
-      <PlayerCard player={settings.opponent} side={oppSide} lost={lostOf(mySide)} isMe={false} toMove={turn === oppSide} clock={clockView(state.clocks, "opponent", now)} />
+      <PlayerCard player={settings.opponent} side={oppSide} isMe={false} toMove={turn === oppSide} clock={clockView(state.clocks, "opponent", now)} ready={state.ready?.opponent ?? null} />
 
-      <div className={styles.boardWrap} data-shake={shaking || undefined}>
+      <div className={styles.boardWrap} data-shake={shaking || undefined} data-trial={trial ? true : undefined}>
+        {trial && (
+          <div className={styles.trialBadge} role="status">
+            BIẾN THỬ
+          </div>
+        )}
         <XiangqiBoard
           board={state.board}
           orientation={mySide}
@@ -464,6 +522,8 @@ function Stage({
           checkSquare={state.checkSquare}
           arrows={state.arrows}
           highlights={state.highlights}
+          selected={state.selected ?? null}
+          targets={state.targets ?? []}
           arrowWidthScale={1.8}
           animateArrows
           className={styles.boardRim}
@@ -517,20 +577,27 @@ function Stage({
         )}
       </div>
 
-      <PlayerCard player={settings.me} side={mySide} lost={lostOf(oppSide)} isMe toMove={turn === mySide} clock={clockView(state.clocks, "me", now)} />
+      <PlayerCard player={settings.me} side={mySide} isMe toMove={turn === mySide} clock={clockView(state.clocks, "me", now)} ready={state.ready?.me ?? null} />
 
-      <section className={styles.ribbon} data-check={commentary?.isCheck || undefined}>
-        <span className={styles.ribbonTag}>NƯỚC {Math.ceil(state.ply / 2)}</span>
-        {commentary ? (
+      <section className={styles.ribbon} data-check={commentary?.isCheck || undefined} data-trial={trial ? true : undefined}>
+        <span className={styles.ribbonTag}>{trial ? "BIẾN THỬ" : `NƯỚC ${Math.ceil(state.ply / 2)}`}</span>
+        {trial ? (
+          <span className={styles.ribbonMove}>
+            {/* Chuỗi dài thì giữ mấy nước cuối cho vừa ribbon. */}
+            {trial.notations.length
+              ? `${trial.notations.length > 3 ? "… " : ""}${trial.notations.slice(-3).join(" → ")}`
+              : "BLV đang bày biến…"}
+          </span>
+        ) : commentary ? (
           <>
             <span className={styles.ribbonWho}>{commentary.who}</span>
             <span className={styles.ribbonMove}>{commentary.notation}</span>
-            {commentary.note && <span className={styles.ribbonNote}>{commentary.note}</span>}
+            {commentary.isCheck && commentary.note && <span className={styles.ribbonNote}>{commentary.note}</span>}
           </>
         ) : (
           <span className={styles.ribbonMove}>Ván mới bắt đầu</span>
         )}
-        <span className={styles.ribbonTurn}>{turn === mySide ? "Đến lượt bạn" : "Đối thủ đang nghĩ…"}</span>
+        <span className={styles.ribbonTurn}>{turnText}</span>
       </section>
 
       <InfoCard state={state} />

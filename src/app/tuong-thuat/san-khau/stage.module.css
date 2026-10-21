@@ -57,6 +57,8 @@
   color: #ffd2c9;
   font-size: 18px;
   font-weight: 700;
+  /* Nổi trên lớp làm tối của đi thử. */
+  z-index: 8;
 }
 
 .muted {
@@ -138,6 +140,61 @@
   border-color: var(--accent);
 }
 
+.avatarWrap {
+  position: relative;
+  flex: none;
+  width: 76px;
+  height: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.avatarRing {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+  pointer-events: none;
+}
+
+.avatarWrap[data-low] .avatarRing {
+  filter: drop-shadow(0 0 6px rgba(255, 107, 91, 0.8));
+  animation: ringPulse 1s ease-in-out infinite;
+}
+
+.avatarWrap[data-low] .ringFill {
+  stroke: #ff6b5b;
+}
+
+.avatarSeconds {
+  position: absolute;
+  right: -4px;
+  bottom: -2px;
+  min-width: 30px;
+  padding: 2px 6px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #1a1408;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px var(--panel);
+}
+
+.avatarWrap[data-low] .avatarSeconds {
+  background: #ff6b5b;
+  color: #fff;
+}
+
+@keyframes ringPulse {
+  50% { opacity: 0.55; }
+}
+
 .avatar {
   width: 60px;
   height: 60px;
@@ -203,6 +260,23 @@
   font-weight: 800;
 }
 
+.readyBadge {
+  flex: none;
+  padding: 2px 10px;
+  border-radius: 8px;
+  border: 2px solid var(--muted);
+  color: var(--muted);
+  font-size: 17px;
+  font-weight: 800;
+  animation: pop 320ms ease-out;
+}
+
+.readyBadge[data-ready] {
+  border-color: #22c55e;
+  background: #22c55e;
+  color: #fff;
+}
+
 .playerTitle {
   font-size: 18px;
   color: var(--muted);
@@ -219,38 +293,8 @@
   color: #4a534e;
 }
 
-.captured {
-  margin-left: auto;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 4px;
-  max-width: 320px;
-}
-
-.miniPiece {
-  width: 32px;
-  height: 32px;
-  box-sizing: border-box;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-han, serif);
-  font-size: 17px;
-  font-weight: 900;
-  background: #f4ecdb;
-  color: #1c1f22;
-  border: 2px solid #1c1f22;
-}
-
-.miniPiece[data-side="r"] {
-  background: #fbf3e2;
-  color: #b3261e;
-  border-color: #b3261e;
-}
-
 .turnPill {
+  margin-left: auto;
   flex: none;
   min-width: 130px;
   padding: 10px 14px;
@@ -268,22 +312,91 @@
   color: #1a1408;
 }
 
-.turnPill[data-clock] {
-  padding: 4px 14px;
+/* Đồng hồ: giờ tổng chữ lớn. Thời gian cho nước đang đi là vòng quanh logo người chơi (.avatarRing). */
+.clockBox {
+  margin-left: auto;
+  flex: none;
+  height: 66px;
+  min-width: 150px;
+  box-sizing: border-box;
+  padding: 0 18px;
+  border-radius: 14px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
+  line-height: 1;
+  background: #0d120f;
+  border: 2px solid var(--panel-line);
+  color: var(--muted);
+  transition: border-color 0.3s, box-shadow 0.3s, background 0.3s, color 0.3s;
 }
 
-.turnPill[data-clock] .turnLabel {
-  font-size: 13px;
+.clockBox[data-active] {
+  border-color: var(--accent);
+  background: linear-gradient(180deg, #2b2213 0%, #15110a 100%);
+  color: var(--ink);
+  box-shadow: 0 0 22px rgba(227, 168, 58, 0.3);
 }
 
-.clock {
+
+.clockLabel {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: var(--muted);
+}
+
+.clockBox[data-active] .clockLabel {
+  color: var(--accent);
+}
+
+.clockTime {
+  margin-top: 5px;
   font-size: 38px;
-  line-height: 1.05;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
+  letter-spacing: 0.5px;
+}
+
+.clockBox[data-critical] .clockTime {
+  color: #ff6b5b;
+}
+
+
+
+.ringTrack {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.1);
+  stroke-width: 5;
+}
+
+.ringFill {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 5;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.25s linear, stroke 0.3s;
+}
+
+
+.clockBox[data-low] {
+  border-color: var(--red);
+  box-shadow: 0 0 22px rgba(194, 59, 43, 0.45);
+  animation: clockPulse 1s ease-in-out infinite;
+}
+
+
+
+@keyframes clockPulse {
+  50% { box-shadow: 0 0 6px rgba(194, 59, 43, 0.2); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clockBox[data-low],
+  .avatarWrap[data-low] .avatarRing {
+    animation: none;
+  }
 }
 
 /* Bàn cờ */
@@ -311,6 +424,61 @@
   padding: 10px !important;
   border-radius: 18px !important;
   box-shadow: 0 0 0 3px #5b3b17, 0 24px 60px rgba(0, 0, 0, 0.6) !important;
+}
+
+/* Đi thử: viền bàn cờ đổi màu và có nhãn, để người xem không tưởng là nước thật. */
+.trialDim {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  background: rgba(4, 7, 6, 0.68);
+  animation: trialDimIn 0.35s ease-out;
+  pointer-events: none;
+}
+
+@keyframes trialDimIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.boardWrap[data-trial],
+.ribbon[data-trial] {
+  position: relative;
+  z-index: 7;
+}
+
+.boardWrap[data-trial] .boardRim {
+  box-shadow: 0 0 0 6px #3d8bd9, 0 0 36px rgba(61, 139, 217, 0.55), 0 24px 60px rgba(0, 0, 0, 0.6) !important;
+}
+
+.trialBadge {
+  position: absolute;
+  top: -22px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  padding: 6px 22px;
+  border-radius: 999px;
+  background: #3d8bd9;
+  color: #fff;
+  font-size: 24px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.ribbon[data-trial] .ribbonMove {
+  min-width: 0;
+  font-size: 26px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ribbon[data-trial] .ribbonTag {
+  background: #3d8bd9;
+  color: #fff;
 }
 
 .momentOverlay {
@@ -750,63 +918,4 @@
   50% { opacity: 0.35; }
 }
 
-/* Đồng hồ từng nước: chữ nhỏ + thanh rút dần, đỏ khi còn dưới 1/6 thời gian. */
-.perMove {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 3px;
-  width: 100%;
-  margin-top: 2px;
-}
 
-.perMoveText {
-  font-size: 14px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0;
-}
-
-.perMoveTrack {
-  display: block;
-  height: 6px;
-  border-radius: 3px;
-  background: rgba(0, 0, 0, 0.25);
-  overflow: hidden;
-}
-
-.perMoveFill {
-  display: block;
-  height: 100%;
-  background: #1a1408;
-  transition: width 0.25s linear;
-}
-
-.perMove[data-low] .perMoveText {
-  color: var(--red);
-}
-
-.perMove[data-low] .perMoveFill {
-  background: var(--red);
-}
-
-/* Bên đang chạy có thêm dòng "Nước này": thu nhỏ để vừa thẻ cao 84px. */
-.turnPill:has(.perMove) {
-  padding: 3px 12px 6px;
-}
-
-.turnPill:has(.perMove) .clock {
-  font-size: 30px;
-}
-
-.turnPill:has(.perMove) .turnLabel {
-  font-size: 11px;
-}
-
-.turnPill:has(.perMove) .perMoveText {
-  font-size: 13px;
-}
-
-.turnPill:has(.perMove) .perMoveTrack {
-  height: 5px;
-}

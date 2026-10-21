@@ -182,6 +182,30 @@
   pointer-events: none;
 }
 
+/* 4 góc vuông xanh ngọc: mỗi góc là 2 vạch (ngang + dọc) vẽ bằng gradient, kích thước tính theo % của khung. */
+.lastCorners {
+  --corner: #3ccfb4;
+  --len: 30%;
+  --thick: 7%;
+  position: absolute;
+  width: calc(var(--piece-size) * 1.22);
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  pointer-events: none;
+  z-index: 2;
+  background:
+    linear-gradient(var(--corner), var(--corner)) left top / var(--len) var(--thick),
+    linear-gradient(var(--corner), var(--corner)) left top / var(--thick) var(--len),
+    linear-gradient(var(--corner), var(--corner)) right top / var(--len) var(--thick),
+    linear-gradient(var(--corner), var(--corner)) right top / var(--thick) var(--len),
+    linear-gradient(var(--corner), var(--corner)) left bottom / var(--len) var(--thick),
+    linear-gradient(var(--corner), var(--corner)) left bottom / var(--thick) var(--len),
+    linear-gradient(var(--corner), var(--corner)) right bottom / var(--len) var(--thick),
+    linear-gradient(var(--corner), var(--corner)) right bottom / var(--thick) var(--len);
+  background-repeat: no-repeat;
+  filter: drop-shadow(0 0 4px rgba(60, 207, 180, 0.6)) drop-shadow(0 1px 1px rgba(0, 0, 0, 0.4));
+}
+
 .overlays {
   position: absolute;
   inset: 0;

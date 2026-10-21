@@ -99,7 +99,20 @@ describe("StageClient", () => {
     FakeSocket.all[0].receive({ t: "state", state });
     expect(screen.getByText("14:02")).toBeDefined();
     expect(screen.getByText("14:31")).toBeDefined();
-    expect(screen.getByText("Nước này 0:45")).toBeDefined();
+    expect(screen.getByRole("timer", { name: "Nước này 0:45" })).toBeDefined();
+    expect(screen.getByText("45")).toBeDefined();
+  });
+
+  it("trước ván: hiện sẵn sàng / chưa sẵn sàng trên thẻ hai bên, đang đánh thì ẩn", () => {
+    render(<StageClient />);
+    const ws = FakeSocket.all[0];
+    ws.receive({ t: "state", state: { ...stateAfterCentralCannon(), ready: { me: true, opponent: false } } });
+    expect(screen.getByText("✓ SẴN SÀNG")).toBeDefined();
+    expect(screen.getByText("CHƯA SẴN SÀNG")).toBeDefined();
+
+    ws.receive({ t: "state", state: { ...stateAfterCentralCannon(), ready: null } });
+    expect(screen.queryByText("✓ SẴN SÀNG")).toBeNull();
+    expect(screen.queryByText("CHƯA SẴN SÀNG")).toBeNull();
   });
 
   it("tin recap từ trang điều khiển bật thẻ tóm tắt cho người mới, có nút đóng", () => {
@@ -172,6 +185,46 @@ describe("StageClient", () => {
 
     ws.receive({ t: "voice", event: "check", text: state.settings.voiceLines.check });
     expect(screen.getByText(/"Kỳ phùng địch thủ, cứu giá mau!"/)).toBeDefined();
+  });
+
+  it("tắt giọng nói trong settings thì tin voice từ trang điều khiển không hiện bubble", () => {
+    render(<StageClient />);
+    const ws = FakeSocket.all[0];
+    const state = stateAfterCentralCannon();
+    state.settings.voiceLines = { ...state.settings.voiceLines!, enabled: false };
+    ws.receive({ t: "state", state });
+
+    ws.receive({ t: "voice", event: "check", text: "Người đâu Cứu trẫm" });
+    expect(screen.queryByText(/"Người đâu Cứu trẫm"/)).toBeNull();
+  });
+
+  it("hết ván: ribbon hiện kết quả thay cho lượt đi", () => {
+    render(<StageClient />);
+    const ws = FakeSocket.all[0];
+    // Tướng đen bị Xe đỏ ở cột 4 chiếu, hai ô bên bị Xe đỏ ở cột 3/5 khống chế → đỏ chiếu bí.
+    const board: (string | null)[] = Array(90).fill(null);
+    board[4] = "k";
+    board[9 * 9 + 4] = "K";
+    board[9 * 9 + 3] = "R";
+    board[9 * 9 + 5] = "R";
+    board[5 * 9 + 4] = "R";
+    const state = stateAfterCentralCannon();
+    ws.receive({ t: "state", state: { ...state, board: board as typeof state.board, turn: "b" } });
+
+    expect(screen.getByText("Kết thúc: Bạn thắng")).toBeDefined();
+    expect(screen.queryByText("Đối thủ đang nghĩ…")).toBeNull();
+  });
+
+  it("đi thử: bàn cờ có nhãn BIẾN THỬ, ribbon hiện chuỗi nước thử thay cho nước thật", () => {
+    render(<StageClient />);
+    const ws = FakeSocket.all[0];
+    const state = stateAfterCentralCannon();
+    ws.receive({ t: "state", state: { ...state, trial: { notations: ["Mã 2 tiến 3", "Mã 8 tiến 7"] } } });
+
+    expect(screen.getAllByText("BIẾN THỬ").length).toBe(2);
+    expect(screen.getByText("Mã 2 tiến 3 → Mã 8 tiến 7")).toBeDefined();
+    expect(screen.getByText("Không phải nước thật")).toBeDefined();
+    expect(document.querySelector("[class*=trialDim]")).not.toBeNull();
   });
 
   it("khoảnh khắc chiếu tướng hiện con ấn chữ Hán 將軍 nhỏ gọn không che bàn cờ", () => {

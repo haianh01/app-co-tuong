@@ -203,3 +203,26 @@
   outline: none;
   border-color: var(--gold);
 }
+
+.readyBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.readyOn,
+.readyOff {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+
+.readyOn {
+  color: #22c55e;
+}
+
+.readyOff {
+  color: #a1a1aa;
+}

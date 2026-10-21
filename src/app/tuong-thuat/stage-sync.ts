@@ -68,6 +68,11 @@ export interface StageSettings {
   voiceLines: StageVoiceLines;
 }
 
+export interface StageReady {
+  me: boolean;
+  opponent: boolean;
+}
+
 export interface StageCapturedPieces {
   /** Quân Đỏ đã mất (bị Đen ăn), mạnh trước. */
   redLost: PieceType[];
@@ -131,6 +136,11 @@ export interface StageState {
   checkSquare: number | null;
   arrows: BoardArrow[];
   highlights: (number | BoardHighlight)[];
+  /** Quân người dẫn đang chọn trên trang nguồn và các ô đi được (không có thì không vẽ). */
+  selected?: number | null;
+  targets?: number[];
+  /** Trạng thái sẵn sàng trước ván (null: đang đánh hoặc không biết). */
+  ready?: StageReady | null;
   /** Phe của người dẫn = phe ngồi dưới trên trang cờ nguồn. */
   mySide: Side;
   openingName?: string;
@@ -141,7 +151,14 @@ export interface StageState {
   bigMoment: BigMoment | null;
   recap: StageRecap;
   clocks: StageClocks | null;
+  /** Người dẫn đang bày biến thử: bàn cờ là biến thử, không phải ván thật (null/không có = ván thật). */
+  trial?: StageTrial | null;
   timestamp: number;
+}
+
+export interface StageTrial {
+  /** Các nước đã đi thử, tính từ thế cờ bắt đầu thử. */
+  notations: string[];
 }
 
 export const DEFAULT_STAGE_SETTINGS: StageSettings = {
@@ -275,12 +292,18 @@ export function buildStageState(params: {
   notations: string[];
   arrows: BoardArrow[];
   highlights: (number | BoardHighlight)[];
+  selected?: number | null;
+  targets?: number[];
+  ready?: StageReady | null;
   mySide: Side;
   settings: StageSettings;
   capturedPiece?: string | null;
   clocks?: StageClocks | null;
+  /** Có thì `board`/`lastMove`/`checkSquare` là của biến thử; `turn`, `ply`, `notations` vẫn của ván thật. */
+  trial?: StageTrial | null;
 }): StageState {
   const { board, turn, ply, lastMove, mySide, settings, capturedPiece } = params;
+  const trial = params.trial ?? null;
   const notations = params.notations ?? [];
   const openingName = detectOpeningFromMoves(notations.slice(0, ply));
   const materialBalance = computeMaterialBalance(board, mySide);
@@ -292,15 +315,20 @@ export function buildStageState(params: {
     checkSquare: params.checkSquare ?? null,
     arrows: params.arrows ?? [],
     highlights: params.highlights ?? [],
+    selected: params.selected ?? null,
+    targets: params.targets ?? [],
+    ready: params.ready ?? null,
     mySide,
     openingName,
     settings,
     captured: computeCapturedPieces(board),
     materialBalance,
-    commentary: generateCommentary({ board, turn, lastMove, lastNotation: notations[ply - 1], capturedPiece, mySide }),
-    bigMoment: detectBigMoment({ board, turn, lastMove, capturedPiece, mySide, ply }),
+    // Biến thử không phải nước thật: không bình luận, không bật khoảnh khắc chiếu/thắng.
+    commentary: trial ? null : generateCommentary({ board, turn, lastMove, lastNotation: notations[ply - 1], capturedPiece, mySide }),
+    bigMoment: trial ? null : detectBigMoment({ board, turn, lastMove, capturedPiece, mySide, ply }),
     recap: generateRecap({ settings, ply, openingName, materialBalance }),
     clocks: params.clocks ?? null,
+    trial,
     timestamp: Date.now(),
   };
 }

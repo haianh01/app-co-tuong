@@ -293,6 +293,8 @@ export function XiangqiBoard({
         </svg>
 
         {lastMove && <span className={styles.lastFrom} style={at(lastMove.from)} aria-hidden="true" />}
+        {/* Khung 4 góc xanh quanh quân vừa đi tới, dễ nhận ra nước vừa đi trên livestream. */}
+        {lastMove && <span className={styles.lastCorners} style={at(lastMove.to)} aria-hidden="true" />}
 
         {board.map((p, i) => {
           if (!p) return null;

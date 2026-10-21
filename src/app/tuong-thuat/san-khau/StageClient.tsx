@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { XiangqiBoard } from "@/components/board/XiangqiBoard";
 import { useHydrated } from "@/hooks/useHydrated";
 import { useQueryParam } from "@/hooks/useLocationSearch";
@@ -160,9 +160,9 @@ export interface ClockView {
 }
 
 const CRITICAL_TOTAL_MS = 30_000;
-// Vòng đếm giờ nước đi bao quanh logo người chơi (logo 60px, vòng 76px)
-const RING_SIZE = 76;
-const RING_R = 35;
+// Vòng đếm giờ nước đi bao quanh logo người chơi (logo + vòng vàng 108px, vòng 124px)
+const RING_SIZE = 124;
+const RING_R = 58;
 const RING_C = 2 * Math.PI * RING_R;
 
 /** Giờ hiển thị của một bên lúc `now` (sân khấu tự đếm lùi giữa hai lần trang điều khiển gửi). */
@@ -178,6 +178,161 @@ function clockView(clocks: StageClocks | null, who: "me" | "opponent", now: numb
 }
 
 const pieceChar = (side: Side, t: PieceType) => PIECE_CHAR[side === "r" ? t.toUpperCase() : t];
+
+// Huy hiệu danh hiệu kiểu ziga (viewBox 150×70): nhánh nguyệt quế hai bên, vương miện, dải băng xanh viền vàng.
+function RankEmblem({ title }: { title: string }) {
+  const id = useId();
+  const crown = `${id}-crown`;
+  const leaf = `${id}-leaf`;
+  const leafBorder = `${id}-leafBorder`;
+  const gold = `${id}-gold`;
+  const bannerBg = `${id}-bannerBg`;
+
+  return (
+    <svg className={styles.rankEmblem} viewBox="0 0 140 56" role="img" aria-label={title}>
+      <defs>
+        <linearGradient id={crown} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#fff9bf" />
+          <stop offset="35%" stopColor="#f5c942" />
+          <stop offset="100%" stopColor="#a3630f" />
+        </linearGradient>
+        <linearGradient id={leaf} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#a4ee56" />
+          <stop offset="45%" stopColor="#5eb126" />
+          <stop offset="100%" stopColor="#25580f" />
+        </linearGradient>
+        <linearGradient id={leafBorder} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#fff8b5" />
+          <stop offset="100%" stopColor="#825a14" />
+        </linearGradient>
+        <linearGradient id={gold} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#fff5b5" />
+          <stop offset="40%" stopColor="#eab438" />
+          <stop offset="100%" stopColor="#8a5010" />
+        </linearGradient>
+        <linearGradient id={bannerBg} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#2e1f13" />
+          <stop offset="50%" stopColor="#18100a" />
+          <stop offset="100%" stopColor="#0c0704" />
+        </linearGradient>
+      </defs>
+
+      {/* Nhánh lá nguyệt quế trái */}
+      <g>
+        <ellipse cx="27" cy="22" rx="7.5" ry="3.8" fill={`url(#${leaf})`} stroke={`url(#${leafBorder})`} strokeWidth="0.9" transform="rotate(-42 27 22)" />
+        <ellipse cx="23" cy="30" rx="7.8" ry="4" fill={`url(#${leaf})`} stroke={`url(#${leafBorder})`} strokeWidth="0.9" transform="rotate(-20 23 30)" />
+        <ellipse cx="26" cy="39" rx="7.8" ry="4" fill={`url(#${leaf})`} stroke={`url(#${leafBorder})`} strokeWidth="0.9" transform="rotate(8 26 39)" />
+        <ellipse cx="36" cy="46" rx="7.5" ry="3.8" fill={`url(#${leaf})`} stroke={`url(#${leafBorder})`} strokeWidth="0.9" transform="rotate(35 36 46)" />
+        <ellipse cx="33" cy="18" rx="6.5" ry="3.2" fill={`url(#${leaf})`} stroke={`url(#${leafBorder})`} strokeWidth="0.9" transform="rotate(-52 33 18)" />
+        <ellipse cx="42" cy="14" rx="5.5" ry="2.8" fill={`url(#${leaf})`} stroke={`url(#${leafBorder})`} strokeWidth="0.9" transform="rotate(-65 42 14)" />
+      </g>
+
+      {/* Nhánh lá nguyệt quế phải (lật gương) */}
+      <g transform="translate(140 0) scale(-1 1)">
+        <ellipse cx="27" cy="22" rx="7.5" ry="3.8" fill={`url(#${leaf})`} stroke={`url(#${leafBorder})`} strokeWidth="0.9" transform="rotate(-42 27 22)" />
+        <ellipse cx="23" cy="30" rx="7.8" ry="4" fill={`url(#${leaf})`} stroke={`url(#${leafBorder})`} strokeWidth="0.9" transform="rotate(-20 23 30)" />
+        <ellipse cx="26" cy="39" rx="7.8" ry="4" fill={`url(#${leaf})`} stroke={`url(#${leafBorder})`} strokeWidth="0.9" transform="rotate(8 26 39)" />
+        <ellipse cx="36" cy="46" rx="7.5" ry="3.8" fill={`url(#${leaf})`} stroke={`url(#${leafBorder})`} strokeWidth="0.9" transform="rotate(35 36 46)" />
+        <ellipse cx="33" cy="18" rx="6.5" ry="3.2" fill={`url(#${leaf})`} stroke={`url(#${leafBorder})`} strokeWidth="0.9" transform="rotate(-52 33 18)" />
+        <ellipse cx="42" cy="14" rx="5.5" ry="2.8" fill={`url(#${leaf})`} stroke={`url(#${leafBorder})`} strokeWidth="0.9" transform="rotate(-65 42 14)" />
+      </g>
+
+      {/* Vương miện vàng 3 chóp uốn lượn sắc sảo */}
+      <g transform="translate(70 11)">
+        <path
+          d="M -16 8 Q -16 0 -13 -6 Q -10 1 -7 3 Q -4 -3 0 -11 Q 4 -3 7 3 Q 10 1 13 -6 Q 16 0 16 8 Z"
+          fill={`url(#${crown})`}
+          stroke="#522f08"
+          strokeWidth="1.2"
+          strokeLinejoin="round"
+        />
+        <circle cx="0" cy="-11" r="1.8" fill="#fff9bf" stroke="#522f08" strokeWidth="0.6" />
+        <circle cx="-13" cy="-6" r="1.5" fill="#fff9bf" stroke="#522f08" strokeWidth="0.6" />
+        <circle cx="13" cy="-6" r="1.5" fill="#fff9bf" stroke="#522f08" strokeWidth="0.6" />
+        {/* Ngọc đính giữa vương miện */}
+        <circle cx="0" cy="0" r="2.2" fill="#d42626" stroke="#4a1818" strokeWidth="0.6" />
+      </g>
+
+      {/* Dải băng danh hiệu nền đen viền vàng kim */}
+      <rect
+        x="33"
+        y="18"
+        width="74"
+        height="26"
+        rx="13"
+        fill={`url(#${bannerBg})`}
+        stroke={`url(#${gold})`}
+        strokeWidth="2.2"
+      />
+      <rect
+        x="35"
+        y="20"
+        width="70"
+        height="22"
+        rx="11"
+        fill="none"
+        stroke="#5a350e"
+        strokeWidth="0.8"
+      />
+
+      {/* Chữ danh hiệu (ví dụ: Tập Sự) */}
+      <text
+        x="70"
+        y="36"
+        textAnchor="middle"
+        className={styles.rankText}
+        {...(title.length > 7 ? { textLength: 64, lengthAdjust: "spacingAndGlyphs" } : {})}
+      >
+        {title}
+      </text>
+    </svg>
+  );
+}
+
+// 3 Ngôi sao 5 cánh đặt trực tiếp dưới huy hiệu danh hiệu như trong ảnh mẫu (không có socket tròn to)
+const STAR_POLY = "0,-8.5 2.6,-2.8 8.4,-2.2 4,-0.8 5.2,5.2 0,2 -5.2,5.2 -4,-0.8 -8.4,-2.2 -2.6,-2.8";
+
+function RankStars({ stars }: { stars: number }) {
+  const id = useId();
+  const on = Math.max(0, Math.min(3, stars));
+  const litGrad = `${id}-litStar`;
+  const unlitGrad = `${id}-unlitStar`;
+
+  return (
+    <svg className={styles.stars} viewBox="0 0 90 24" role="img" aria-label={`${on} sao`}>
+      <defs>
+        {/* Sao vàng rực khi đạt */}
+        <linearGradient id={litGrad} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#fff8b5" />
+          <stop offset="45%" stopColor="#ffc024" />
+          <stop offset="100%" stopColor="#cc7708" />
+        </linearGradient>
+        {/* Sao đồng tối màu như trong ảnh mẫu khi chưa đạt */}
+        <linearGradient id={unlitGrad} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#432e1c" />
+          <stop offset="50%" stopColor="#2c1d11" />
+          <stop offset="100%" stopColor="#1a110a" />
+        </linearGradient>
+      </defs>
+
+      {[
+        { x: 26, y: 11, lit: on >= 1 },
+        { x: 45, y: 12.5, lit: on >= 2 },
+        { x: 64, y: 11, lit: on >= 3 },
+      ].map((s, i) => (
+        <g key={i} transform={`translate(${s.x} ${s.y})`}>
+          <polygon
+            points={STAR_POLY}
+            fill={s.lit ? `url(#${litGrad})` : `url(#${unlitGrad})`}
+            stroke={s.lit ? "#663b06" : "#140c06"}
+            strokeWidth="1.2"
+            strokeLinejoin="round"
+          />
+        </g>
+      ))}
+    </svg>
+  );
+}
 
 function PlayerCard({
   player,
@@ -199,6 +354,9 @@ function PlayerCard({
   const turnLabel = toMove ? (isMe ? "ĐẾN LƯỢT" : "ĐANG NGHĨ") : side === "r" ? "ĐỎ" : "ĐEN";
   const perMove = clock?.perMove;
   const low = !!perMove && perMove.left <= 1 / 6;
+  const defaultAvatar = side === "r" ? "/stage/avatar_red.jpg" : "/stage/avatar_black.jpg";
+  const avatarSrc = player.avatarUrl || defaultAvatar;
+
   return (
     <div className={styles.playerCard} data-active={toMove || undefined}>
       <div className={styles.avatarWrap} data-low={low || undefined}>
@@ -220,34 +378,45 @@ function PlayerCard({
             />
           </svg>
         )}
-        <div className={styles.avatar} data-side={side}>
-          {pieceChar(side, "k")}
+        <div className={styles.avatarFrame}>
+          <img
+            src={avatarSrc}
+            alt={player.name}
+            className={styles.avatarImg}
+            onError={(e) => {
+              // fallback nếu không tải được ảnh
+              e.currentTarget.style.display = "none";
+              const fb = e.currentTarget.nextElementSibling;
+              if (fb) (fb as HTMLElement).style.display = "flex";
+            }}
+          />
+          <div className={styles.avatarFallback} data-side={side} style={{ display: "none" }}>
+            {pieceChar(side, "k")}
+          </div>
         </div>
+        {isMe && <span className={styles.meBadge}>BẠN</span>}
+        {ready !== null && (
+          <span key={String(ready)} className={styles.readyBadge} data-ready={ready || undefined} role="status">
+            {ready ? "Sẵn sàng" : "CHƯA SẴN SÀNG"}
+          </span>
+        )}
         {perMove && <span className={styles.avatarSeconds}>{perMove.seconds}</span>}
       </div>
-      <div className={styles.playerInfo}>
-        <div className={styles.playerNameRow}>
-          <span className={styles.playerName}>{player.name}</span>
-          {player.points && <span className={styles.points}>{player.points} điểm</span>}
-          {isMe && <span className={styles.meBadge}>BẠN</span>}
-          {ready !== null && (
-            <span key={String(ready)} className={styles.readyBadge} data-ready={ready || undefined} role="status">
-              {ready ? "✓ SẴN SÀNG" : "CHƯA SẴN SÀNG"}
-            </span>
-          )}
-        </div>
-        {(player.title || stars > 0) && (
-          <div className={styles.playerTitle}>
-            {player.title}
-            {stars > 0 && (
-              <span className={styles.stars} aria-label={`${stars} sao`}>
-                {"★".repeat(Math.min(3, stars))}
-                <span className={styles.starOff}>{"★".repeat(Math.max(0, 3 - stars))}</span>
-              </span>
-            )}
-          </div>
-        )}
+
+      <RankEmblem title={player.title || "Tập Sự"} />
+      <RankStars stars={stars} />
+
+      <div className={styles.playerName} title={player.name}>
+        {player.name}
       </div>
+
+      {player.points && (
+        <div className={styles.eloBox} title="Điểm ELO">
+          <img src="/stage/piece_icon.png" alt="Quân cờ tướng" className={styles.eloPieceIcon} />
+          <span className={styles.eloValue}>{player.points}</span>
+        </div>
+      )}
+
       {clock ? (
         <div
           className={styles.clockBox}
@@ -507,77 +676,80 @@ function Stage({
         </div>
       </section>
 
-      <PlayerCard player={settings.opponent} side={oppSide} isMe={false} toMove={turn === oppSide} clock={clockView(state.clocks, "opponent", now)} ready={state.ready?.opponent ?? null} />
+      {/* Như ziga: Bạn bên trái, Đối thủ bên phải bàn cờ. */}
+      <div className={styles.arena}>
+        <PlayerCard player={settings.me} side={mySide} isMe toMove={turn === mySide} clock={clockView(state.clocks, "me", now)} ready={state.ready?.me ?? null} />
 
-      <div className={styles.boardWrap} data-shake={shaking || undefined} data-trial={trial ? true : undefined}>
-        {trial && (
-          <div className={styles.trialBadge} role="status">
-            BIẾN THỬ
-          </div>
-        )}
-        <XiangqiBoard
-          board={state.board}
-          orientation={mySide}
-          lastMove={state.lastMove}
-          checkSquare={state.checkSquare}
-          arrows={state.arrows}
-          highlights={state.highlights}
-          selected={state.selected ?? null}
-          targets={state.targets ?? []}
-          arrowWidthScale={1.8}
-          animateArrows
-          className={styles.boardRim}
-          disabled
-        />
-        {moment && (
-          <div className={styles.momentOverlay}>
-            {moment.type === "check" ? (
-              <div className={styles.sealCheck} title="Chiếu tướng (將軍)" role="status">
-                <span className={styles.sealInner}>將軍</span>
-              </div>
-            ) : (
-              <div className={styles.momentCard} data-type={moment.type}>
-                <span className={styles.momentBadge}>{moment.badge}</span>
-                <span className={styles.momentTitle}>{moment.title}</span>
-                {moment.subtitle && <span className={styles.momentSubtitle}>{moment.subtitle}</span>}
-              </div>
-            )}
-          </div>
-        )}
-        {speechBubble && (
-          <div className={styles.speechBubble} data-type={speechBubble.type} role="alert">
-            <span className={styles.speechIcon}>
-              {speechBubble.type === "check" ? "👑" : speechBubble.type === "win" ? "🏆" : "💪"}
-            </span>
-            <div className={styles.speechBody}>
-              <span className={styles.speechLabel}>
-                {speechBubble.type === "check" ? "HOÀNG THƯỢNG:" : speechBubble.type === "win" ? "KHÍ THẾ BỪNG BỪNG:" : "ĐỘNG VIÊN:"}
-              </span>
-              <span className={styles.speechText}>"{speechBubble.text}"</span>
+        <div className={styles.boardWrap} data-shake={shaking || undefined} data-trial={trial ? true : undefined}>
+          {trial && (
+            <div className={styles.trialBadge} role="status">
+              BIẾN THỬ
             </div>
-          </div>
-        )}
-        {recap.shown && (
-          <aside className={styles.recapCard} aria-label="Tóm tắt cho người mới vào">
-            <button
-              type="button"
-              className={styles.recapClose}
-              onClick={recap.close}
-              aria-label="Đóng tóm tắt"
-              title="Đóng tóm tắt"
-            >
-              ✕
-            </button>
-            <span className={styles.infoKicker}>MỚI VÀO XEM? TÓM TẮT VÁN</span>
-            <span className={styles.recapLine}>{state.recap.roundAndPly}</span>
-            <span className={styles.recapLine}>Khai cuộc: {state.recap.openingName}</span>
-            <span className={styles.recapLine}>{state.recap.materialText}</span>
-            <span className={styles.recapLine}>Hôm nay: {state.recap.recordText}</span>
-          </aside>
-        )}
-      </div>
+          )}
+          <XiangqiBoard
+            board={state.board}
+            orientation={mySide}
+            lastMove={state.lastMove}
+            checkSquare={state.checkSquare}
+            arrows={state.arrows}
+            highlights={state.highlights}
+            selected={state.selected ?? null}
+            targets={state.targets ?? []}
+            arrowWidthScale={1.8}
+            animateArrows
+            className={styles.boardRim}
+            disabled
+          />
+          {moment && (
+            <div className={styles.momentOverlay}>
+              {moment.type === "check" ? (
+                <div className={styles.sealCheck} title="Chiếu tướng (將軍)" role="status">
+                  <span className={styles.sealInner}>將軍</span>
+                </div>
+              ) : (
+                <div className={styles.momentCard} data-type={moment.type}>
+                  <span className={styles.momentBadge}>{moment.badge}</span>
+                  <span className={styles.momentTitle}>{moment.title}</span>
+                  {moment.subtitle && <span className={styles.momentSubtitle}>{moment.subtitle}</span>}
+                </div>
+              )}
+            </div>
+          )}
+          {speechBubble && (
+            <div className={styles.speechBubble} data-type={speechBubble.type} role="alert">
+              <span className={styles.speechIcon}>
+                {speechBubble.type === "check" ? "👑" : speechBubble.type === "win" ? "🏆" : "💪"}
+              </span>
+              <div className={styles.speechBody}>
+                <span className={styles.speechLabel}>
+                  {speechBubble.type === "check" ? "HOÀNG THƯỢNG:" : speechBubble.type === "win" ? "KHÍ THẾ BỪNG BỪNG:" : "ĐỘNG VIÊN:"}
+                </span>
+                <span className={styles.speechText}>"{speechBubble.text}"</span>
+              </div>
+            </div>
+          )}
+          {recap.shown && (
+            <aside className={styles.recapCard} aria-label="Tóm tắt cho người mới vào">
+              <button
+                type="button"
+                className={styles.recapClose}
+                onClick={recap.close}
+                aria-label="Đóng tóm tắt"
+                title="Đóng tóm tắt"
+              >
+                ✕
+              </button>
+              <span className={styles.infoKicker}>MỚI VÀO XEM? TÓM TẮT VÁN</span>
+              <span className={styles.recapLine}>{state.recap.roundAndPly}</span>
+              <span className={styles.recapLine}>Khai cuộc: {state.recap.openingName}</span>
+              <span className={styles.recapLine}>{state.recap.materialText}</span>
+              <span className={styles.recapLine}>Hôm nay: {state.recap.recordText}</span>
+            </aside>
+          )}
+        </div>
 
-      <PlayerCard player={settings.me} side={mySide} isMe toMove={turn === mySide} clock={clockView(state.clocks, "me", now)} ready={state.ready?.me ?? null} />
+        <PlayerCard player={settings.opponent} side={oppSide} isMe={false} toMove={turn === oppSide} clock={clockView(state.clocks, "opponent", now)} ready={state.ready?.opponent ?? null} />
+      </div>
 
       <section className={styles.ribbon} data-check={commentary?.isCheck || undefined} data-trial={trial ? true : undefined}>
         <span className={styles.ribbonTag}>{trial ? "BIẾN THỬ" : `NƯỚC ${Math.ceil(state.ply / 2)}`}</span>

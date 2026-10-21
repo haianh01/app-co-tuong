@@ -4,6 +4,7 @@ import { ZigaBroadcastClient } from "./ZigaBroadcastClient";
 import { uciToMove, type ZigaParsedMessage } from "@/lib/ziga/ziga-parser";
 import { parseFen } from "@/lib/xiangqi/engine";
 import type { ZigaRelayPacket } from "@/app/api/tuong-thuat/ziga-relay/route";
+import { zigaReplay } from "@/lib/ziga/ziga-replay";
 
 class FakeEventSource {
   static CLOSED = 2;
@@ -22,8 +23,9 @@ class FakeEventSource {
   close() {
     this.readyState = FakeEventSource.CLOSED;
   }
-  emitInit(lastSeq: number) {
-    this.listeners.get("init")?.({ data: JSON.stringify({ lastSeq, packets: [] }) } as MessageEvent);
+  emitInit(lastSeq: number, history: ZigaRelayPacket[] = []) {
+    const data = { lastSeq, packets: history.slice(-20), replay: zigaReplay(history) };
+    this.listeners.get("init")?.({ data: JSON.stringify(data) } as MessageEvent);
   }
   emit(packet: ZigaRelayPacket) {
     this.onmessage?.({ data: JSON.stringify(packet) } as MessageEvent);
@@ -224,5 +226,43 @@ describe("ZigaBroadcastClient", () => {
     // Pháo đỏ đã sang e2: ô e2 có quân, ô h2 trống
     expect(container.querySelector(`[data-square="${uciToMove("e2e3")!.from}"]`)?.getAttribute("aria-label")).toMatch(/Pháo đỏ/);
     expect(container.querySelector(`[data-square="${uciToMove("h2h3")!.from}"]`)).toBeNull();
+  });
+
+  it("mở lại trang giữa ván: phát lại gói relay còn giữ để bày đúng thế cờ, không ghi thêm kết quả ván cũ", () => {
+    const { container } = render(<ZigaBroadcastClient />);
+    const es = FakeEventSource.instances[0];
+    const history = [
+      framePacket(1, "in", { eventType: "login", login: { userName: "W43604711" } }),
+      framePacket(2, "in", {
+        eventType: "table_info",
+        roster: { replace: true, list: [{ seat: 0, name: "W43604711", elo: 894 }, { seat: 1, name: "A19516220", elo: 930 }] },
+      }),
+      // Ván trước: đã kết thúc và đã được ghi trước khi reload
+      framePacket(3, "in", { eventType: "game_start", gameStart: { redSeat: 1, blackSeat: 0 } }),
+      movePacket(4, "h2e2"),
+      framePacket(5, "in", { eventType: "game_end", gameEnd: { winnerSeat: 1 } }),
+      // Ván đang dở
+      framePacket(6, "in", { eventType: "game_start", gameStart: { redSeat: 0, blackSeat: 1 } }),
+      movePacket(7, "h2e2"),
+      movePacket(8, "h7e7"),
+    ];
+    act(() => es.emitInit(8, history));
+
+    expect(screen.getByText(/Đã khôi phục ván đang dở từ relay: 2 nước/)).toBeDefined();
+    expect(container.querySelector(`[data-square="${uciToMove("e2e3")!.from}"]`)?.getAttribute("aria-label")).toMatch(/Pháo đỏ/);
+    expect(container.querySelector(`[data-square="${uciToMove("e7e6")!.from}"]`)?.getAttribute("aria-label")).toMatch(/Pháo đen/);
+    expect(screen.getByDisplayValue("A19516220")).toBeDefined();
+
+    // Nước tiếp theo tới trực tiếp đi tiếp được trên thế cờ đã khôi phục
+    act(() => es.emit(movePacket(9, "h0g2")));
+    expect(screen.getByText(/Đã nhận nước cờ từ Ziga/)).toBeDefined();
+    expect(screen.queryByText(/không hợp lệ/)).toBeNull();
+  });
+
+  it("relay không còn đầu ván: báo cần vào lại bàn trên Ziga thay vì bày sai", () => {
+    render(<ZigaBroadcastClient />);
+    const es = FakeEventSource.instances[0];
+    act(() => es.emitInit(2, [movePacket(1, "h2e2"), movePacket(2, "h7e7")]));
+    expect(screen.getByText(/Relay không còn giữ đầu ván này/)).toBeDefined();
   });
 });

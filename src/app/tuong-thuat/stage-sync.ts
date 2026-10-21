@@ -16,6 +16,8 @@ export interface StagePlayer {
   title?: string;
   /** Số sao của cấp (0–3). */
   stars?: number;
+  /** Đường dẫn ảnh đại diện kì thủ (URL hoặc đường dẫn cục bộ). */
+  avatarUrl?: string;
 }
 
 export interface StageRecord {
@@ -162,8 +164,8 @@ export interface StageTrial {
 }
 
 export const DEFAULT_STAGE_SETTINGS: StageSettings = {
-  me: { name: "Bạn" },
-  opponent: { name: "Đối thủ" },
+  me: { name: "W43604711", title: "Tập Sự", points: "894", stars: 0, avatarUrl: "/stage/avatar_red.jpg" },
+  opponent: { name: "Đối thủ", title: "Tập Sự", points: "894", stars: 0, avatarUrl: "/stage/avatar_black.jpg" },
   host: "BLV",
   site: "zigavn.com",
   round: 1,

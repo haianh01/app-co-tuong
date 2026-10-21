@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { parseZigaBinaryFrame, parseZigaPacket, parseZigaUiEvent, type ZigaParsedMessage } from "@/lib/ziga/ziga-parser";
+import { zigaReplay } from "@/lib/ziga/ziga-replay";
 
 export interface ZigaRelayPacket {
   id: string;
@@ -159,12 +160,13 @@ export async function GET(req: NextRequest) {
       relay.listeners.add(streamListener);
 
       // Nối lại (trình duyệt tự gửi Last-Event-ID, hoặc ?since=): phát bù các gói đã lỡ, đúng thứ tự.
-      // Mở mới: chỉ gửi vài gói gần nhất để hiển thị, kèm lastSeq để client biết mốc.
+      // Mở mới: vài gói gần nhất để hiển thị, kèm lastSeq để client biết mốc, và các gói của ván đang dở để trang
+      // vừa reload bày lại đúng thế cờ (xem ziga-replay.ts).
       if (since !== null && since <= relay.seq) {
         const missed = relay.history.filter((p) => p.seq > since).map(toSseEvent).join("");
         if (missed) controller.enqueue(encoder.encode(missed));
       } else {
-        const initEvent = `event: init\ndata: ${JSON.stringify({ lastSeq: relay.seq, packets: relay.history.slice(-20) })}\n\n`;
+        const initEvent = `event: init\ndata: ${JSON.stringify({ lastSeq: relay.seq, packets: relay.history.slice(-20), replay: zigaReplay(relay.history) })}\n\n`;
         controller.enqueue(encoder.encode(initEvent));
       }
 

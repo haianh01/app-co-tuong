@@ -31,6 +31,7 @@ import { buildStageState, type StageClocks } from "../stage-sync";
 import { TrialBar, useTrialMoves } from "../trial";
 import { scrollMoveIntoBox } from "../scroll-moves";
 import { generateTampermonkeyScript } from "@/lib/ziga/tampermonkey-script";
+import type { ZigaReplay } from "@/lib/ziga/ziga-replay";
 import type { ZigaPlayer, ZigaSelection } from "@/lib/ziga/ziga-parser";
 import type { ZigaRelayPacket } from "@/app/api/tuong-thuat/ziga-relay/route";
 
@@ -97,6 +98,8 @@ export function ZigaBroadcastClient() {
     roundResultRef.current = roundResult;
   }, [roundResult]);
   const [autoApply, setAutoApply] = useState(true);
+  // Đang phát lại các gói của ván dở lúc mở trang: không kêu tiếng, không ghi thêm kết quả, dùng giờ gốc của gói
+  const replayingRef = useRef(false);
 
   // Trạng thái kết nối SSE tới relay
   const [sseConnected, setSseConnected] = useState(false);
@@ -131,8 +134,7 @@ export function ZigaBroadcastClient() {
   );
 
   const tickClock = useCallback(
-    (before: Position, moves: Move[]) => {
-      const now = Date.now();
+    (before: Position, moves: Move[], now = Date.now()) => {
       setClock((prev) => {
         let c = prev ?? startClock(timeControl, null, now);
         let p = before;
@@ -173,7 +175,10 @@ export function ZigaBroadcastClient() {
   // Xử lý gói tin khi nhận được từ Ziga Relay
   const handleIncomingPacket = useCallback(
     (packet: ZigaRelayPacket) => {
-      setPackets((prev) => [packet, ...prev].slice(0, 50));
+      const replaying = replayingRef.current;
+      // Phát lại thì tính đồng hồ theo lúc gói thật sự tới, để giờ còn lại khớp Ziga
+      const now = replaying ? packet.timestamp : Date.now();
+      if (!replaying) setPackets((prev) => [packet, ...prev].slice(0, 50));
       const { parsed } = packet;
 
       // 1. Cập nhật thông tin kỳ thủ nếu có
@@ -202,7 +207,6 @@ export function ZigaBroadcastClient() {
       // 2. Cập nhật đồng hồ nếu có
       if (parsed.clocks) {
         setClock((prev) => {
-          const now = Date.now();
           const c = prev ?? startClock(timeControl, null, now);
           return {
             ...c,
@@ -279,7 +283,6 @@ export function ZigaBroadcastClient() {
           clearDrawings();
           setNotice("Đã vào bàn giữa ván — bày lại thế cờ đang diễn ra trên Ziga.");
         }
-        const now = Date.now();
         setClock(startClock(timeControl, snap.turn, now, { r: snap.redRemainingSec * 1000, b: snap.blackRemainingSec * 1000 }));
         const seat = mySeatRef.current;
         if (seat !== null) setFlipped(seat === snap.blackSeat);
@@ -324,7 +327,7 @@ export function ZigaBroadcastClient() {
         setRoundResult(null);
         roundResultRef.current = null;
         // Đỏ đi trước: đồng hồ Đỏ chạy ngay khi ván bắt đầu
-        setClock(startClock(timeControl, "r", Date.now()));
+        setClock(startClock(timeControl, "r", now));
         clearDrawings();
         const seat = mySeatRef.current;
         if (seat !== null) setFlipped(seat === blackSeat);
@@ -356,13 +359,16 @@ export function ZigaBroadcastClient() {
       if (parsed.gameEnd) {
         const { winnerSeat } = parsed.gameEnd;
         const s = seatsRef.current;
-        const now = Date.now();
         setClock((prev) => (prev ? stopClock(prev, now) : prev));
         if (winnerSeat === null || s) {
           const winnerSide: Side | null = winnerSeat === null ? null : winnerSeat === s?.red ? "r" : "b";
-          const result: StageResult = winnerSide === null ? "draw" : winnerSide === mySide ? "win" : "loss";
+          // Biết ghế mình thì lấy bên theo ghế (lúc phát lại, mySide của lần render trước có thể chưa kịp đổi)
+          const seat = mySeatRef.current;
+          const meSide: Side = seat !== null && s ? (seat === s.red ? "r" : "b") : mySide;
+          const result: StageResult = winnerSide === null ? "draw" : winnerSide === meSide ? "win" : "loss";
           const previous = roundResultRef.current;
-          setStageSettings((st) => ({ ...st, today: changeResult(st.today, previous, result) }));
+          // Ván đã kết thúc trước khi reload thì thành tích hôm nay (lưu trong máy) đã có kết quả này rồi
+          if (!replaying) setStageSettings((st) => ({ ...st, today: changeResult(st.today, previous, result) }));
           roundResultRef.current = result;
           setRoundResult(result);
           setNotice(
@@ -390,10 +396,10 @@ export function ZigaBroadcastClient() {
         if (sameMove(current.moves.at(-1)?.move, move)) return;
 
         if (legalMovesFrom(currentLive, move.from).some((m) => m.to === move.to)) {
-          playMoveSound(currentLive, move);
+          if (!replaying) playMoveSound(currentLive, move);
           applyGameAction({ type: "move", move });
           setZigaSelection(null);
-          tickClock(currentLive, [move]);
+          tickClock(currentLive, [move], now);
           // Lấy giờ còn lại của bên vừa đi theo server Ziga, để đồng hồ sân khấu khớp Ziga không bị trôi
           const remainingSec = parsed.moverRemainingSec;
           if (remainingSec !== undefined && remainingSec >= 0) {
@@ -411,9 +417,9 @@ export function ZigaBroadcastClient() {
           setSelected(null);
           setRoundResult(null);
           setClock(null);
-          tickClock(START_POSITION, [move]);
+          tickClock(START_POSITION, [move], now);
           clearDrawings();
-          playMoveSound(START_POSITION, move);
+          if (!replaying) playMoveSound(START_POSITION, move);
           setNotice(`Phát hiện ván mới — đã đặt lại bàn và nhận nước: ${moveNotation(START_POSITION.board, move)}`);
         } else {
           setNotice(`Nhận nước cờ ${move.from} → ${move.to} nhưng không hợp lệ ở thế cờ hiện tại.`);
@@ -447,10 +453,30 @@ export function ZigaBroadcastClient() {
 
       evtSource.addEventListener("init", (event: MessageEvent) => {
         try {
-          const init = JSON.parse(event.data) as { lastSeq: number; packets: ZigaRelayPacket[] };
-          // Gói cũ chỉ để hiển thị, không áp lại lên bàn cờ
+          const init = JSON.parse(event.data) as {
+            lastSeq: number;
+            packets: ZigaRelayPacket[];
+            replay?: ZigaReplay<ZigaRelayPacket>;
+          };
           lastSeqRef.current = init.lastSeq;
           setPackets([...init.packets].reverse());
+          // Trang vừa mở (reload giữa ván): phát lại các gói của ván đang dở mà relay còn giữ để bày lại thế cờ
+          const replay = init.replay;
+          if (replay && gameRef.current.moves.length === 0) {
+            replayingRef.current = true;
+            try {
+              for (const p of replay.packets) handlerRef.current(p);
+            } finally {
+              replayingRef.current = false;
+            }
+            if (replay.anchored && replay.moves > 0) {
+              setNotice(`Đã khôi phục ván đang dở từ relay: ${gameRef.current.moves.length} nước, khớp thế cờ trên Ziga.`);
+            } else if (replay.orphanMoves) {
+              setNotice(
+                "Relay không còn giữ đầu ván này nên chưa bày lại được thế cờ. Vào lại bàn trên Ziga (F5 tab Ziga) để Ziga gửi nguyên thế cờ.",
+              );
+            }
+          }
         } catch {}
       });
 

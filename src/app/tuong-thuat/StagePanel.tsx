@@ -174,6 +174,15 @@ function PlayerFields({ label, player, onChange }: { label: string; player: Stag
           onChange={(e) => onChange({ ...player, stars: Math.max(0, Math.min(3, Number(e.target.value) || 0)) })}
         />
       </label>
+      <label className={styles.stageFieldFull}>
+        <span className={styles.stageLabel}>Avatar (URL hoặc trống để dùng mặc định)</span>
+        <input
+          className={styles.stageInput}
+          placeholder="/stage/avatar_red.jpg"
+          value={player.avatarUrl ?? ""}
+          onChange={(e) => onChange({ ...player, avatarUrl: e.target.value || undefined })}
+        />
+      </label>
     </fieldset>
   );
 }

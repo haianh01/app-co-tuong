@@ -82,7 +82,7 @@ describe("StageClient", () => {
     expect(screen.getByText("VÁN 5")).toBeDefined();
     expect(screen.getByText("W39823757")).toBeDefined();
     expect(screen.getByText("A40745895")).toBeDefined();
-    expect(screen.getByText("1020 điểm")).toBeDefined();
+    expect(screen.getByText("1020")).toBeDefined();
     expect(screen.getByText("BẠN")).toBeDefined();
     expect(screen.getByText("BLV Hải Anh")).toBeDefined();
     expect(screen.getByText("Đang chơi trên zigavn.com")).toBeDefined();
@@ -107,11 +107,11 @@ describe("StageClient", () => {
     render(<StageClient />);
     const ws = FakeSocket.all[0];
     ws.receive({ t: "state", state: { ...stateAfterCentralCannon(), ready: { me: true, opponent: false } } });
-    expect(screen.getByText("✓ SẴN SÀNG")).toBeDefined();
+    expect(screen.getByText("Sẵn sàng")).toBeDefined();
     expect(screen.getByText("CHƯA SẴN SÀNG")).toBeDefined();
 
     ws.receive({ t: "state", state: { ...stateAfterCentralCannon(), ready: null } });
-    expect(screen.queryByText("✓ SẴN SÀNG")).toBeNull();
+    expect(screen.queryByText("Sẵn sàng")).toBeNull();
     expect(screen.queryByText("CHƯA SẴN SÀNG")).toBeNull();
   });
 

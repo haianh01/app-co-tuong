@@ -8,7 +8,7 @@
 
 import {
   type Board, type Move, type Piece, type Side,
-  attackersOf, colOf, hasAnyLegalMove, inCheck, initialPosition, isDefended, legalMoves, opponent, play,
+  attackersOf, colOf, findKing, hasAnyLegalMove, inCheck, initialPosition, isDefended, legalMoves, opponent, play,
   pseudoMoves, rowOf, sideOf, typeOf, crossedRiver, PIECE_VALUES,
 } from "./engine";
 import { exchangeGain, hangingPieces } from "./explain";
@@ -586,14 +586,195 @@ export function detectEndgameConversion(
 }
 
 // ============================================================================
+// 13. MUỘN CUNG SÁT (Khuyết Tượng sợ Pháo - Triệu Hâm Hâm Bài 2)
+// ============================================================================
+
+/**
+ * Pháo chiếu khi Tướng đối phương bị chính quân phòng thủ (Sĩ/Tượng/Mã) chèn kẹt
+ * không thể di chuyển, tạo thành thế bí tuyệt sát hoặc thắng thế áp đảo.
+ */
+export function detectSmotheredCannonMate(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const piece = before[move.from];
+  if (!piece || typeOf(piece) !== "c") return null;
+  const mover = sideOf(piece);
+  const opp = opponent(mover);
+  if (!soundMove(options)) return null;
+
+  // Nước đi phải tạo nước chiếu
+  if (!inCheck(after, opp)) return null;
+
+  const kingSq = findKing(after, opp);
+  if (kingSq === -1) return null;
+
+  const kr = rowOf(kingSq);
+  const kc = colOf(kingSq);
+
+  // Ô kề hợp lệ trong cung quanh Tướng
+  const kingMoves = [
+    { r: kr - 1, c: kc },
+    { r: kr + 1, c: kc },
+    { r: kr, c: kc - 1 },
+    { r: kr, c: kc + 1 },
+  ].filter((p) => p.c >= 3 && p.c <= 5 && (opp === "b" ? p.r >= 0 && p.r <= 2 : p.r >= 7 && p.r <= 9));
+
+  // Kiểm tra số ô quanh Tướng bị chính quân của opp bịt kín
+  const blockedByOwnPiece = kingMoves.filter((p) => {
+    const occupant = after[p.r * 9 + p.c];
+    return occupant && sideOf(occupant) === opp;
+  }).length;
+
+  const isCheckmated = !hasAnyLegalMove({ board: after, turn: opp });
+  const allBlockedByOwn = kingMoves.length > 0 && blockedByOwnPiece === kingMoves.length;
+
+  // Điều kiện Muộn Cung Sát:
+  // 1. Thật sự chiếu bí (isCheckmated), VÀ các ô thoát của Tướng bị cản trở bởi chính quân phòng thủ
+  //    (ít nhất 2 quân mình bịt xung quanh đối với Tướng ở trung lộ, hoặc 1 quân nếu ở góc cung).
+  // 2. HOẶC Tướng hoàn toàn không còn ô thoát nào do 100% ô kề trong cung bị chính quân mình bịt kín (allBlockedByOwn).
+  const minBlockedForMate = kingMoves.length >= 3 ? 2 : 1;
+  const qualifies = (isCheckmated && blockedByOwnPiece >= minBlockedForMate) || allBlockedByOwn;
+
+  if (!qualifies) return null;
+
+  return fact(
+    before,
+    move,
+    "muonCungSat",
+    "Muộn cung sát: Pháo cắm chiếu tận dụng Tướng bị Sĩ/Tượng chèn kẹt tuyệt sát — đòn sát pháp một quân thành cục kinh điển của Pháo khi đối phương khuyết Tượng.",
+    "Muộn cung sát"
+  );
+}
+
+// ============================================================================
+// 14. MÃ NGỌA TÀO (Thuật dùng Mã mạnh nhất - Triệu Hâm Hâm Bài 3)
+// ============================================================================
+
+/**
+ * Mã nhảy vào giao điểm lộ 3/lộ 7 ở tuyến hoành 2 của đối phương,
+ * trực tiếp khống chế Tướng trong cung cấm và uy hiếp đòn phối hợp Xe Mã hoặc Tiền Mã Hậu Pháo.
+ */
+export function detectNgoaTaoKnight(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const piece = before[move.from];
+  if (!piece || typeOf(piece) !== "n") return null;
+  const mover = sideOf(piece);
+  const opp = opponent(mover);
+  if (!soundMove(options)) return null;
+
+  const tr = rowOf(move.to);
+  const tc = colOf(move.to);
+
+  // Vị trí Ngọa Tào:
+  // Nếu Đỏ (mover === "r") tấn công Đen: hàng 1, cột 2 (lộ 7 đen) hoặc cột 6 (lộ 3 đen)
+  // Nếu Đen (mover === "b") tấn công Đỏ: hàng 8, cột 2 hoặc cột 6
+  const isNgoaTaoSq = mover === "r"
+    ? tr === 1 && (tc === 2 || tc === 6)
+    : tr === 8 && (tc === 2 || tc === 6);
+
+  if (!isNgoaTaoSq) return null;
+
+  const kingSq = findKing(after, opp);
+  if (kingSq === -1) return null;
+
+  const isChecking = inCheck(after, opp);
+  const attacksPalace = pseudoMoves(after, move.to).some((sq) => {
+    const r = rowOf(sq);
+    const c = colOf(sq);
+    return c >= 3 && c <= 5 && (opp === "b" ? r >= 0 && r <= 2 : r >= 7 && r <= 9);
+  });
+
+  if (!isChecking && !attacksPalace) return null;
+
+  const checkNote = isChecking ? "chiếu tướng ép đối phương thất thế" : "khống chế cung tướng mở đòn sát";
+  return fact(
+    before,
+    move,
+    "ngoaTaoMa",
+    `Mã Ngọa Tào: Mã chiếm lĩnh yếu huyệt hàng 2 lộ ${tc === 2 ? "7" : "3"}, ${checkNote} — thuật dùng Mã mạnh nhất trong trung cuộc theo Triệu Hâm Hâm.`,
+    "Mã Ngọa Tào"
+  );
+}
+
+// ============================================================================
+// 15. OA TÂM MÃ (Mã Xấu Nhất - Triệu Hâm Hâm Bài 4)
+// ============================================================================
+
+/**
+ * Mã nhập hoa tim (ô giữa cung điện):
+ * Đỏ tại hàng 8 cột 4 (sq 76), Đen tại hàng 1 cột 4 (sq 13).
+ * Nước đi này chèn kẹt Tướng, cắt đứt liên lạc Song Sĩ — thế cờ đại kỵ trong trung cuộc.
+ */
+export function detectOaTamKnight(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const piece = before[move.from];
+  if (!piece || typeOf(piece) !== "n") return null;
+  const mover = sideOf(piece);
+  const tr = rowOf(move.to);
+  const tc = colOf(move.to);
+
+  // Vị trí Oa Tâm (hoa tim cung nhà):
+  const isOaTam = (mover === "r" && tr === 8 && tc === 4) || (mover === "b" && tr === 1 && tc === 4);
+  if (!isOaTam) return null;
+
+  return fact(
+    before,
+    move,
+    "oaTamMa",
+    "Oa Tâm Mã: Mã thoái về hoa tim trung cung chèn kẹt Tướng và cắt đứt liên lạc Song Sĩ — vị trí xấu nhất của Mã theo Triệu Hâm Hâm.",
+    "Oa Tâm Mã",
+    "critique"
+  );
+}
+
+// ============================================================================
+// 16. PHÁO TRẦM ĐÁY (Nghệ Thuật Phá Trận & Kiềm Chế - Triệu Hâm Hâm Bài 13 & 14)
+// ============================================================================
+
+/**
+ * Pháo cắm sâu xuống tuyến đáy đối phương (hàng 0 đối với Đỏ, hàng 9 đối với Đen)
+ * để kiềm tỏa Sĩ Tượng và rình rập đòn sát sau lưng phòng tuyến.
+ */
+export function detectDeepCannonBottom(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const piece = before[move.from];
+  if (!piece || typeOf(piece) !== "c") return null;
+  const mover = sideOf(piece);
+  const opp = opponent(mover);
+  if (!soundMove(options)) return null;
+
+  const tr = rowOf(move.to);
+  const isBottomRow = mover === "r" ? tr === 0 : tr === 9;
+  if (!isBottomRow) return null;
+
+  const kingSq = findKing(after, opp);
+  if (kingSq === -1) return null;
+
+  return fact(
+    before,
+    move,
+    "phaoTramDay",
+    "Pháo trầm đáy: Pháo cắm sâu xuống tuyến đáy kiềm tỏa Sĩ Tượng và rình rập đòn sát sau lưng đối phương — thế công then chốt theo Triệu Hâm Hâm.",
+    "Pháo trầm đáy"
+  );
+}
+
+// ============================================================================
 // TỔNG HỢP
 // ============================================================================
 
 /** Thứ tự ưu tiên khi một nước khớp nhiều nguyên lý. */
 const PRIORITY: Detector[] = [
+  detectSmotheredCannonMate,
+  detectOaTamKnight,
   detectPoisonedCapture,
   detectInitiativeOverMaterial,
   detectMatingRace,
+  detectNgoaTaoKnight,
+  detectDeepCannonBottom,
   detectDecoy,
   detectSacrificeForInitiative,
   detectPalaceBreaker,

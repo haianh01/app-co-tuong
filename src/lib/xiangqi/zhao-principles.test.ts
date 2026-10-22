@@ -15,6 +15,10 @@ import {
   detectTempoChase,
   detectTempoExchange,
   detectWorstPieceImprovement,
+  detectSmotheredCannonMate,
+  detectNgoaTaoKnight,
+  detectOaTamKnight,
+  detectDeepCannonBottom,
 } from "./zhao-principles";
 
 const mv = (fr: number, fc: number, tr: number, tc: number): Move => ({ from: sq(fr, fc), to: sq(tr, tc) });
@@ -292,6 +296,112 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
     it("không nhận khi engine đánh giá thế cờ chưa hơn", () => {
       const { before, after } = setup(fen, trade);
       expect(detectEndgameConversion(before, trade, after, { loss: 0, evalBefore: { score: 20 }, pv })).toBeNull();
+    });
+  });
+
+  describe("Muộn cung sát (Khuyết Tượng sợ Pháo - Triệu Hâm Hâm Bài 2)", () => {
+    // Đỏ Pháo cắm đáy chiếu qua ngòi Sĩ đen, Tướng đen bị Song Sĩ và Mã Oa Tâm chèn kẹt tuyệt sát
+    const fen = "3aka3/4n4/8C/9/9/9/9/9/9/4K4 w - - 0 1";
+    const mateMove = mv(2, 8, 0, 8);
+
+    it("nhận diện Pháo chiếu muộn cung khi Tướng bị chính quân phòng thủ chèn kẹt tuyệt sát", () => {
+      const { before, after } = setup(fen, mateMove);
+      const f = detectSmotheredCannonMate(before, mateMove, after, { loss: 0 });
+      expect(f?.tactic).toBe("muonCungSat");
+      expect(f?.summary).toContain("Muộn cung sát");
+    });
+
+    it("không nhận khi Pháo chiếu ở khai cuộc (phản chứng: Tướng còn ô thoát, chưa bị muộn cung)", () => {
+      // Thế cờ khai cuộc: Đỏ bình Pháo vào trung lộ chiếu qua Tốt đầu, Đen có 2 Sĩ nhưng còn ô thoát
+      const openingFen = "3aka3/9/9/9/4p4/9/9/C8/9/4K4 w - - 0 1";
+      const checkMove = mv(7, 0, 7, 4);
+      const { before, after } = setup(openingFen, checkMove);
+      expect(detectSmotheredCannonMate(before, checkMove, after, { loss: 0 })).toBeNull();
+    });
+
+    it("không nhận khi chiếu bí trên bàn cờ mở nhưng Tướng trơ trọi không bị quân mình chèn kẹt", () => {
+      // Đỏ phối hợp Xe Mã Pháo chiếu bí Tướng trơ trọi (bare king), không phải muộn cung
+      const bareKingFen = "4k1R2/8C/2N6/9/9/4P4/9/9/9/4K4 w - - 0 1";
+      const mateMoveBare = mv(1, 8, 0, 8);
+      const { before, after } = setup(bareKingFen, mateMoveBare);
+      expect(detectSmotheredCannonMate(before, mateMoveBare, after, { loss: 0 })).toBeNull();
+    });
+
+    it("không nhận khi nước đi không phải là Pháo chiếu", () => {
+      const kingQuietMove = mv(9, 4, 8, 4);
+      const { before, after } = setup(fen, kingQuietMove);
+      expect(detectSmotheredCannonMate(before, kingQuietMove, after, { loss: 0 })).toBeNull();
+    });
+  });
+
+  describe("Mã Ngọa Tào (Thuật dùng Mã mạnh nhất - Triệu Hâm Hâm Bài 3)", () => {
+    // Đỏ Mã cắm ngọa tào tại lộ 7 tuyến 2 (hàng 1 cột 2)
+    const fen = "4k4/9/9/1N7/4P4/9/9/9/9/4K4 w - - 0 1";
+    const knightMove = mv(3, 1, 1, 2);
+
+    it("nhận diện Mã nhảy vào yếu huyệt Ngọa Tào hàng 2 dọa sát", () => {
+      const { before, after } = setup(fen, knightMove);
+      const f = detectNgoaTaoKnight(before, knightMove, after, { loss: 0 });
+      expect(f?.tactic).toBe("ngoaTaoMa");
+      expect(f?.summary).toContain("Mã Ngọa Tào");
+    });
+
+    it("không nhận khi Mã nhảy tới ô không phải Ngọa Tào", () => {
+      const otherMove = mv(3, 1, 4, 3);
+      const { before, after } = setup(fen, otherMove);
+      expect(detectNgoaTaoKnight(before, otherMove, after, { loss: 0 })).toBeNull();
+    });
+  });
+
+  describe("Oa Tâm Mã (Mã Xấu Nhất - Triệu Hâm Hâm Bài 4)", () => {
+    // Đen thoái Mã về hoa tim giữa cung (hàng 1 cột 4)
+    const fen = "3aka3/9/2n6/9/4P4/9/9/9/9/4K4 b - - 0 1";
+    const oaTamMove = mv(2, 2, 1, 4);
+
+    it("phê bình khi Mã nhảy vào hoa tim trung cung chèn kẹt Tướng và Sĩ", () => {
+      const { before, after } = setup(fen, oaTamMove);
+      const f = detectOaTamKnight(before, oaTamMove, after, { loss: 0 });
+      expect(f?.tactic).toBe("oaTamMa");
+      expect(f?.summary).toContain("Oa Tâm Mã");
+      expect(f?.tone).toBe("critique");
+    });
+
+    it("không nhận khi Mã nhảy tới ô khác không phải hoa tim", () => {
+      const otherMove = mv(2, 2, 4, 3);
+      const { before, after } = setup(fen, otherMove);
+      expect(detectOaTamKnight(before, otherMove, after, { loss: 0 })).toBeNull();
+    });
+
+    it("không nhận khi nước đi không phải là Mã", () => {
+      const kingMove = mv(0, 4, 1, 4);
+      const { before, after } = setup(fen, kingMove);
+      expect(detectOaTamKnight(before, kingMove, after, { loss: 0 })).toBeNull();
+    });
+  });
+
+  describe("Pháo Trầm Đáy (Nghệ Thuật Phá Trận & Kiềm Chế - Triệu Hâm Hâm Bài 13 & 14)", () => {
+    // Đỏ cắm Pháo xuống tuyến đáy đối phương (hàng 0 cột 1)
+    const fen = "3akab2/9/1C7/9/4P4/9/9/9/9/4K4 w - - 0 1";
+    const deepCannonMove = mv(2, 1, 0, 1);
+
+    it("nhận diện Pháo cắm sâu xuống tuyến đáy đối phương kiềm tỏa phòng tuyến", () => {
+      const { before, after } = setup(fen, deepCannonMove);
+      const f = detectDeepCannonBottom(before, deepCannonMove, after, { loss: 0 });
+      expect(f?.tactic).toBe("phaoTramDay");
+      expect(f?.summary).toContain("Pháo trầm đáy");
+    });
+
+    it("không nhận khi Pháo di chuyển không tới tuyến đáy", () => {
+      const riverMove = mv(2, 1, 4, 1);
+      const { before, after } = setup(fen, riverMove);
+      expect(detectDeepCannonBottom(before, riverMove, after, { loss: 0 })).toBeNull();
+    });
+
+    it("không nhận khi nước đi tuyến đáy là Xe chứ không phải Pháo", () => {
+      const rookFen = "3akab2/9/1R7/9/4P4/9/9/9/9/4K4 w - - 0 1";
+      const rookMove = mv(2, 1, 0, 1);
+      const { before, after } = setup(rookFen, rookMove);
+      expect(detectDeepCannonBottom(before, rookMove, after, { loss: 0 })).toBeNull();
     });
   });
 

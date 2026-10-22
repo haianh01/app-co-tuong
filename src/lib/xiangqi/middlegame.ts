@@ -439,7 +439,11 @@ export type ZhaoTactics =
   | "caiThienQuanKem"  // Cải thiện quân kém nhất trước khi công
   | "thanhDongKichTay" // Thanh đông kích tây: ép một cánh, đánh cánh kia
   | "phongNgua"        // Phòng ngừa: chặn trước đường quân đối phương vào điểm then chốt
-  | "chuyenHoaTanCuoc"; // Biết dừng công, đổi quân về tàn cuộc hơn quân
+  | "chuyenHoaTanCuoc" // Biết dừng công, đổi quân về tàn cuộc hơn quân
+  | "muonCungSat"      // Muộn cung sát: Pháo cắm chiếu tận dụng Tướng bị Sĩ kẹt cứng
+  | "ngoaTaoMa"        // Mã Ngọa Tào: chiếm lĩnh hàng 2 khống chế Tướng
+  | "oaTamMa"          // Oa Tâm Mã: Mã nhảy vào hoa tim trung cung chèn kẹt Tướng và Sĩ
+  | "phaoTramDay";     // Pháo trầm đáy: Pháo cắm sâu xuống đáy kiềm tỏa Sĩ Tượng
 
 export interface ZhaoMiddlegameFact {
   kind: "zhaoMiddlegame";

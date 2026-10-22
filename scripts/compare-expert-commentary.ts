@@ -47,14 +47,24 @@ import { engineScore, uciToMove, moveToUci } from "../src/lib/xiangqi/uci";
 import { classifyWinDrop, winChance } from "../src/lib/xiangqi/analysis";
 
 const dataDir = path.join(process.cwd(), ".data", "expert-commentary");
-// Thư mục dữ liệu nằm trong .gitignore: không có thì để rỗng, để test các hàm thuần bên dưới vẫn import được (CI).
-const files = fs.existsSync(dataDir)
-  ? fs.readdirSync(dataDir).filter((f) => f.startsWith("tlkd_") && f.endsWith(".json"))
-  : [];
-
 const args = process.argv.slice(2);
 const limitIdx = args.indexOf("--limit");
 const nodesIdx = args.indexOf("--nodes");
+const fileIdx = args.indexOf("--file");
+const prefixIdx = args.indexOf("--prefix");
+const targetPrefix = prefixIdx !== -1 ? args[prefixIdx + 1] : "";
+const targetFile = fileIdx !== -1 ? args[fileIdx + 1] : "";
+
+const allJsonFiles = fs.existsSync(dataDir)
+  ? fs.readdirSync(dataDir).filter((f) => f.endsWith(".json") && !f.includes("report"))
+  : [];
+
+const files = targetFile
+  ? allJsonFiles.filter((f) => f === targetFile || f.includes(targetFile))
+  : targetPrefix
+  ? allJsonFiles.filter((f) => f.startsWith(targetPrefix))
+  : allJsonFiles.filter((f) => f.startsWith("tlkd_") || f.startsWith("zhao48_") || f.startsWith("zhao_"));
+
 const maxGames = limitIdx !== -1 ? parseInt(args[limitIdx + 1], 10) : files.length;
 const EVAL_NODES = nodesIdx !== -1 ? parseInt(args[nodesIdx + 1], 10) : 50_000;
 
@@ -77,6 +87,7 @@ interface CrawledGame {
   movesCoords: RawMoveCoord[];
   comments: Record<string, string>;
   commentCount: number;
+  initialFen?: string;
 }
 
 interface PlyComparison {
@@ -383,7 +394,7 @@ async function runBenchmark() {
       console.log(`  Đấu thủ: ${game.red} (Đỏ) vs ${game.black} (Đen) | ${game.totalPlies} nước | ${game.commentCount} lời bình`);
 
       // Khởi tạo bàn cờ
-      const pos = parseFen(START_FEN);
+      const pos = parseFen(game.initialFen || START_FEN);
       let curBoard: Board = pos.board;
       let curTurn: Side = pos.turn;
 

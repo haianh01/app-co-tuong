@@ -250,8 +250,31 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
                 </span>
               </div>
               {(() => {
+                const zhaoFact = m.facts?.find((f) => f.kind === "zhaoMiddlegame" && (f as any).lesson !== undefined) as any;
                 const note = explainText(m.facts, m.side, m.ply, commentaryStyle);
-                return note && <p className={game.reviewNote}>{note}</p>;
+                return (
+                  <>
+                    {commentaryStyle === "zhaoXinxin" && zhaoFact && (
+                      <div className={game.zhaoLessonBadgeContainer}>
+                        <span className={game.zhaoLessonBadge}>
+                          📖 Kỳ lý #{zhaoFact.lesson}: {zhaoFact.lessonTitle}
+                        </span>
+                        {zhaoFact.videoUrl && (
+                          <a
+                            href={zhaoFact.videoUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={game.zhaoVideoBtn}
+                            title="Xem bài giảng Triệu Hâm Hâm trên YouTube"
+                          >
+                            ▶️ Xem bài giảng {zhaoFact.quote ? `(${zhaoFact.quote.at})` : ""}
+                          </a>
+                        )}
+                      </div>
+                    )}
+                    {note && <p className={game.reviewNote}>{note}</p>}
+                  </>
+                );
               })()}
               {m.line && m.line.length > 1 && (
                 <p className={game.reviewLine}>

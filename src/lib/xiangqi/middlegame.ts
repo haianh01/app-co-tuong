@@ -423,6 +423,7 @@ export function detectExchange(
 // ============================================================================
 
 export type ZhaoTactics =
+  | "khuyetSiSongXe"   // Khuyết Sĩ kỵ Song Xe (Triệu Hâm Hâm Bài 1)
   | "khiTuTranhTien"   // Khí tử tranh tiên (Thí quân đoạt thế)
   | "tramSiPhaTuong"   // Trảm Sĩ phá Tượng (Công phá tuyến phòng thủ cung tướng)
   | "tuBinhDotKich"    // Tụ binh đột kích (Tập trung hỏa lực áp đảo một cánh)
@@ -443,7 +444,12 @@ export type ZhaoTactics =
   | "muonCungSat"      // Muộn cung sát: Pháo cắm chiếu tận dụng Tướng bị Sĩ kẹt cứng
   | "ngoaTaoMa"        // Mã Ngọa Tào: chiếm lĩnh hàng 2 khống chế Tướng
   | "oaTamMa"          // Oa Tâm Mã: Mã nhảy vào hoa tim trung cung chèn kẹt Tướng và Sĩ
-  | "phaoTramDay";     // Pháo trầm đáy: Pháo cắm sâu xuống đáy kiềm tỏa Sĩ Tượng
+  | "phaoTramDay"      // Pháo trầm đáy: Pháo cắm sâu xuống đáy kiềm tỏa Sĩ Tượng
+  | "voSuTienTotBien"      // Vô sự tiến tốt biên (Triệu Hâm Hâm Bài 7)
+  | "mayUiTrungLo"         // Máy ủi trung lộ (Triệu Hâm Hâm Bài 9)
+  | "nhatMaHoanLuongTuong" // Nhất Mã hoán Lưỡng Tượng (Triệu Hâm Hâm Bài 10)
+  | "doatTrungBinh"        // Chiến thuật đoạt trung binh (Triệu Hâm Hâm Bài 11)
+  | "khongTamPhao";        // Không tâm pháo / Pháo trống (Triệu Hâm Hâm Bài 12)
 
 export interface ZhaoMiddlegameFact {
   kind: "zhaoMiddlegame";
@@ -454,6 +460,10 @@ export interface ZhaoMiddlegameFact {
   details?: string;
   /** "critique" = nguyên lý bị vi phạm (nước lỗi); mặc định là khen. */
   tone?: "praise" | "critique";
+  lesson?: number;
+  lessonTitle?: string;
+  quote?: { text: string; at: string };
+  videoUrl?: string;
 }
 
 export interface ZhaoTacticsOptions {

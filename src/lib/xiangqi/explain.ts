@@ -1365,9 +1365,19 @@ export function explainText(
         (f.kind === "threat" && f.by === mover) ||
         (f.kind === "pattern" && f.side === mover && f.action === "formed"),
     );
-    const zhaoFacts = visible.filter((f) => f.kind === "zhaoMiddlegame");
-    if (hasZhao && zhaoFacts.every((f) => f.kind === "zhaoMiddlegame" && f.tone === "critique")) return `[Triệu Hâm Hâm - Cảnh tỉnh]: ${base}`;
-    if (hasZhao) return `[Triệu Hâm Hâm - Công sát]: ${base}`;
+    const zhaoFacts = visible.filter((f): f is ZhaoMiddlegameFact => f.kind === "zhaoMiddlegame");
+    const lessonFact = zhaoFacts.find((f) => f.lesson !== undefined);
+    const lessonTag = lessonFact ? ` (Kỳ lý #${lessonFact.lesson}: ${lessonFact.lessonTitle})` : "";
+    const quoteSuffix = lessonFact?.quote && lessonFact?.videoUrl
+      ? ` 💬 Triệu Hâm Hâm (${lessonFact.quote.at}): "${lessonFact.quote.text}" [Xem video: ${lessonFact.videoUrl}]`
+      : "";
+
+    if (hasZhao && zhaoFacts.every((f) => f.tone === "critique")) {
+      return `[Triệu Hâm Hâm - Cảnh tỉnh]${lessonTag}: ${base}${quoteSuffix}`;
+    }
+    if (hasZhao) {
+      return `[Triệu Hâm Hâm - Công sát]${lessonTag}: ${base}${quoteSuffix}`;
+    }
     if (hasAggressive) return `[Triệu Hâm Hâm]: Tận dụng thời cơ tung đòn hỏa lực bão táp! ${base}`;
     return `[Triệu Hâm Hâm]: ${base}`;
   }

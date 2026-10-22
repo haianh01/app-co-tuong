@@ -274,9 +274,17 @@ export function useStageArchive({
       overrideResult?: StageResult | null,
       overrideResultSource?: "manual" | "board" | null,
     ): Promise<boolean> => {
-      if (!room) return false;
-      if (moves.length < 6) return false; // Ván dưới 6 nước không cần lưu
       if (savingRef.current) return false;
+      if (!room) {
+        setError("Chưa có mã phòng sân khấu");
+        setStatus("error");
+        return false;
+      }
+      if (moves.length < 6) {
+        setError("Ván dưới 6 nước không cần lưu");
+        setStatus("error");
+        return false;
+      }
 
       const finalResult = overrideResult !== undefined ? overrideResult : (roundResult ?? onBoardResult ?? null);
       // Nếu không có kết quả thì finalSource luôn là null
@@ -343,7 +351,9 @@ export function useStageArchive({
         return true;
       } catch (err: unknown) {
         if (err instanceof ArchiveHttpError && err.status >= 400 && err.status < 500) {
-          // Lỗi 4xx (400, 403, 429): không đẩy vào hàng chờ vì gửi lại cũng sẽ thất bại
+          // Lỗi 4xx (400, 403, 429): không đẩy vào hàng chờ vì gửi lại cũng sẽ thất bại.
+          // Xoá chữ ký để bấm lưu lại vẫn gửi thật (vd. sau khi hết 429).
+          lastSavedSignatureRef.current = "";
           setError(err.message);
           setStatus("error");
           return false;

@@ -707,8 +707,31 @@ export function AnalysisPanel({
                           </div>
                         )}
                         {(() => {
+                          const zhaoFact = m.facts.find((f): f is Fact & { kind: "zhaoMiddlegame"; lesson?: number; lessonTitle?: string; quote?: { text: string; at: string }; videoUrl?: string } => f.kind === "zhaoMiddlegame" && f.lesson !== undefined);
                           const note = explainText(m.facts, m.side, m.ply, commentaryStyle);
-                          return note && <p className={styles.reviewNote}>{note}</p>;
+                          return (
+                            <>
+                              {commentaryStyle === "zhaoXinxin" && zhaoFact && (
+                                <div className={styles.zhaoLessonBadgeContainer}>
+                                  <span className={styles.zhaoLessonBadge}>
+                                    📖 Kỳ lý #{zhaoFact.lesson}: {zhaoFact.lessonTitle}
+                                  </span>
+                                  {zhaoFact.videoUrl && (
+                                    <a
+                                      href={zhaoFact.videoUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className={styles.zhaoVideoBtn}
+                                      title="Xem bài giảng Triệu Hâm Hâm trên YouTube"
+                                    >
+                                      ▶️ Xem bài giảng {zhaoFact.quote ? `(${zhaoFact.quote.at})` : ""}
+                                    </a>
+                                  )}
+                                </div>
+                              )}
+                              {note && <p className={styles.reviewNote}>{note}</p>}
+                            </>
+                          );
                         })()}
                       </>
                     )}

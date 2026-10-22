@@ -381,8 +381,13 @@ export function StagePanel({
           >
             {archive.status === "saving" ? "⏳ Đang lưu…" : "💾 Lưu ván"}
           </button>
-          {archive.status === "saved" && archive.savedRound !== null && (
+          {archive.status === "saved" && archive.savedRound !== null && !archive.error && (
             <span className={styles.muted}>✓ Đã lưu ván {archive.savedRound}</span>
+          )}
+          {archive.status === "saved" && archive.error && (
+            <span className={styles.warn} style={{ fontSize: "0.85rem" }}>
+              ⚠️ Chưa lưu lên máy chủ ({archive.error}) — đã xếp hàng, sẽ tự gửi lại
+            </span>
           )}
           {archive.analysisStatus === "running" && archive.analyzedRound !== null && (
             <span className={styles.muted} style={{ color: "var(--color-gold, #c99c5c)" }}>

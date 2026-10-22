@@ -144,7 +144,8 @@ describe("useStageArchive hook", () => {
 
     expect(saved).toBe(false);
     expect(mockFetch).not.toHaveBeenCalled();
-    expect(result.current.status).toBe("idle");
+    expect(result.current.status).toBe("error");
+    expect(result.current.error).toBe("Ván dưới 6 nước không cần lưu");
   });
 
   it("ván từ 6 nước: saveNow lưu thành công và cập nhật status=saved", async () => {

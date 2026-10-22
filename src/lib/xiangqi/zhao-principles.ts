@@ -1,3 +1,4 @@
+import { ZHAO_LESSONS } from "./zhao48-lessons";
 // Nguyên lý trung cuộc bổ sung cho góc nhìn "Triệu Hâm Hâm" (lối đánh tranh tiên, công sát).
 // Các nguyên lý là kỳ lý phổ biến của lối cờ tranh tiên, KHÔNG phải trích dẫn lời ông:
 //  - Ninh thất nhất tử, bất thất nhất tiên / tham ăn mắc mồi / tranh nước đối công
@@ -41,6 +42,19 @@ function fact(
     details,
   };
   if (tone) f.tone = tone;
+
+  const card = Object.values(ZHAO_LESSONS).find((c) => c.tacticId === tactic);
+  if (card) {
+    f.lesson = card.lesson;
+    f.lessonTitle = card.title;
+    if (card.quotes.length > 0) {
+      f.quote = card.quotes[0];
+      const [m, s] = card.quotes[0].at.split(":").map((x) => parseInt(x, 10));
+      const sec = (m || 0) * 60 + (s || 0);
+      f.videoUrl = `https://youtu.be/${card.video}?t=${sec}`;
+    }
+  }
+
   return f;
 }
 
@@ -633,7 +647,7 @@ export function detectSmotheredCannonMate(
   //    (ít nhất 2 quân mình bịt xung quanh đối với Tướng ở trung lộ, hoặc 1 quân nếu ở góc cung).
   // 2. HOẶC Tướng hoàn toàn không còn ô thoát nào do 100% ô kề trong cung bị chính quân mình bịt kín (allBlockedByOwn).
   const minBlockedForMate = kingMoves.length >= 3 ? 2 : 1;
-  const qualifies = (isCheckmated && blockedByOwnPiece >= minBlockedForMate) || allBlockedByOwn;
+  const qualifies = isCheckmated && (blockedByOwnPiece >= minBlockedForMate || allBlockedByOwn);
 
   if (!qualifies) return null;
 
@@ -750,6 +764,11 @@ export function detectDeepCannonBottom(
   const isBottomRow = mover === "r" ? tr === 0 : tr === 9;
   if (!isBottomRow) return null;
 
+  // Phải từ hàng trên cắm xuống đáy, không tính Pháo đã ở đáy di chuyển ngang
+  const fr = rowOf(move.from);
+  const wasBottomRow = mover === "r" ? fr === 0 : fr === 9;
+  if (wasBottomRow) return null;
+
   const kingSq = findKing(after, opp);
   if (kingSq === -1) return null;
 
@@ -759,6 +778,318 @@ export function detectDeepCannonBottom(
     "phaoTramDay",
     "Pháo trầm đáy: Pháo cắm sâu xuống tuyến đáy kiềm tỏa Sĩ Tượng và rình rập đòn sát sau lưng đối phương — thế công then chốt theo Triệu Hâm Hâm.",
     "Pháo trầm đáy"
+  );
+}
+
+// ============================================================================
+// 17. KHUYẾT SĨ KỴ SONG XE (Triệu Hâm Hâm Bài 1)
+// ============================================================================
+
+/**
+ * Tận dụng đối phương khuyết Sĩ (còn <= 1 Sĩ), bên công sở hữu Song Xe dũng mãnh,
+ * Xe tiến sâu qua sông tấn công cung Tướng hoặc chiếm sườn/đáy mở đòn tuyệt sát.
+ */
+export function detectKhuyetSiSongXe(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const piece = before[move.from];
+  if (!piece || typeOf(piece) !== "r") return null;
+  const mover = sideOf(piece);
+  const opp = opponent(mover);
+  if (!soundMove(options)) return null;
+
+  // Đối phương phải khuyết Sĩ (còn <= 1 Sĩ)
+  let oppAdvisors = 0;
+  for (const p of after) {
+    if (p && sideOf(p) === opp && typeOf(p) === "a") oppAdvisors++;
+  }
+  if (oppAdvisors > 1) return null;
+
+  // Bên công phải còn đủ Song Xe (2 Xe)
+  let moverRooks = 0;
+  for (const p of after) {
+    if (p && sideOf(p) === mover && typeOf(p) === "r") moverRooks++;
+  }
+  if (moverRooks < 2) return null;
+
+  // Xe đi phải tiến công qua sông vào trận địa đối phương
+  const toRow = rowOf(move.to);
+  if (!crossedRiver(toRow, mover)) return null;
+
+  // Phải có áp lực công thành (attackPressure >= 2 hoặc chiếu Tướng)
+  const isChecking = inCheck(after, opp);
+  const pressure = attackPressure(after, opp);
+  if (!isChecking && pressure < 1) return null;
+
+  return fact(
+    before,
+    move,
+    "khuyetSiSongXe",
+    "Khuyết Sĩ kỵ Song Xe: Tận dụng đối phương khuyết Sĩ, Song Xe liên thủ dâng cao áp sát cung Tướng tạo sức ép công thành nghẹt thở.",
+    "Khuyết Sĩ kỵ Song Xe"
+  );
+}
+
+
+// ============================================================================
+// 18. VÔ SỰ TIẾN TỐT BIÊN (Triệu Hâm Hâm Bài 7)
+// ============================================================================
+
+/**
+ * Vô sự tiến tốt biên (Triệu Hâm Hâm Bài 7):
+ * Trong thế trận giằng co đôi bên kìm giữ lẫn nhau, tiến tốt biên (lộ 1 hoặc 9)
+ * từng bước mở rộng không gian, tạo thế tiềm tàng và kiên nhẫn chờ đối phương tự suy yếu.
+ */
+export function detectVoSuTienTotBien(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const piece = before[move.from];
+  if (!piece || typeOf(piece) !== "p") return null;
+  const mover = sideOf(piece);
+  const opp = opponent(mover);
+  if (!soundMove(options)) return null;
+
+  // Phải là Tốt biên: cột 0 (lộ 1/9) hoặc cột 8 (lộ 9/1)
+  const fc = colOf(move.from);
+  const tc = colOf(move.to);
+  if ((fc !== 0 || tc !== 0) && (fc !== 8 || tc !== 8)) return null;
+
+  // Phải là nước tiến tốt
+  const fr = rowOf(move.from);
+  const tr = rowOf(move.to);
+  const isForward = mover === "r" ? tr < fr : tr > fr;
+  if (!isForward) return null;
+
+  // Không ăn quân, không chiếu tướng, không bị chiếu
+  if (before[move.to] || inCheck(before, mover) || inCheck(after, opp)) return null;
+  if (hasMateInOne(before, opp)) return null;
+
+  // Thế trận giằng co: cả 2 bên còn ít nhất 2 quân lớn (Xe/Mã/Pháo)
+  let moverMajors = 0;
+  let oppMajors = 0;
+  for (const p of after) {
+    if (p && isMajor(p)) {
+      if (sideOf(p) === mover) moverMajors++;
+      else oppMajors++;
+    }
+  }
+  if (moverMajors < 2 || oppMajors < 2) return null;
+
+  return fact(
+    before,
+    move,
+    "voSuTienTotBien",
+    "Vô sự tiến tốt biên: Trong thế trận giằng co, tiến tốt biên từng bước mở rộng không gian và kiên nhẫn chờ đối phương tự làm suy yếu trận hình.",
+    "Vô sự tiến tốt biên",
+  );
+}
+
+// ============================================================================
+// 19. MÁY ỦI TRUNG LỘ (Triệu Hâm Hâm Bài 9)
+// ============================================================================
+
+/**
+ * Máy ủi trung lộ (Triệu Hâm Hâm Bài 9):
+ * Có Pháo đầu yểm trợ, thúc Tốt giữa (lộ 5) xông thẳng vào trung tâm đối phương
+ * như máy ủi nghiền nát tuyến phòng ngự.
+ */
+export function detectMayUiTrungLo(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const piece = before[move.from];
+  if (!piece) return null;
+  const mover = sideOf(piece);
+  const opp = opponent(mover);
+  if (!soundMove(options)) return null;
+
+  // Bên đi phải có Pháo đầu (Pháo ở cột 4)
+  let hasCentralCannon = false;
+  for (let i = 0; i < before.length; i++) {
+    const p = before[i];
+    if (p && sideOf(p) === mover && typeOf(p) === "c" && colOf(i) === 4) {
+      hasCentralCannon = true;
+      break;
+    }
+  }
+  if (!hasCentralCannon) return null;
+
+  // Nước đi là thúc Tốt giữa tiến lên
+  if (typeOf(piece) !== "p") return null;
+  const fc = colOf(move.from);
+  if (fc !== 4) return null;
+
+  const fr = rowOf(move.from);
+  const tr = rowOf(move.to);
+  const isForward = mover === "r" ? tr < fr : tr > fr;
+  if (!isForward) return null;
+
+  // Tốt dâng cao tạo áp lực: đã qua sông hoặc tiến đến hàng 5 (Đỏ) / hàng 4 (Đen)
+  const isPressuring = mover === "r" ? tr <= 5 : tr >= 4;
+  if (!isPressuring) return null;
+
+  return fact(
+    before,
+    move,
+    "mayUiTrungLo",
+    "Máy ủi trung lộ: Có Pháo đầu yểm trợ, thúc Tốt giữa xông thẳng vào trung tâm đối phương như máy ủi nghiền nát tuyến phòng ngự.",
+    "Máy ủi trung lộ",
+  );
+}
+
+// ============================================================================
+// 20. NHẤT MÃ HOÁN LƯỠNG TƯỢNG (Triệu Hâm Hâm Bài 10)
+// ============================================================================
+
+/**
+ * Nhất Mã hoán Lưỡng Tượng (Triệu Hâm Hâm Bài 10):
+ * Cổ ngữ có câu "Nhất Mã hoán Lưỡng Tượng, kỵ sĩ tất anh hùng".
+ * Chủ động dùng Mã ăn Tượng đối phương để xé toạc tấm khiên phòng ngự trung tâm.
+ */
+export function detectNhatMaHoanLuongTuong(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const piece = before[move.from];
+  if (!piece || typeOf(piece) !== "n") return null;
+  const target = before[move.to];
+  if (!target || typeOf(target) !== "b") return null;
+  const mover = sideOf(piece);
+  const opp = opponent(mover);
+  if (sideOf(target) !== opp) return null;
+  if (!soundMove(options)) return null;
+
+  // Mã phải nhảy sang đất đối phương ăn Tượng
+  if (!crossedRiver(rowOf(move.to), mover)) return null;
+
+  // Sau khi ăn, đối phương chỉ còn tối đa 1 Tượng
+  let oppElephants = 0;
+  for (const p of after) {
+    if (p && sideOf(p) === opp && typeOf(p) === "b") oppElephants++;
+  }
+  if (oppElephants > 1) return null;
+
+  return fact(
+    before,
+    move,
+    "nhatMaHoanLuongTuong",
+    "Nhất Mã hoán Lưỡng Tượng: Dùng Mã đổi lấy Tượng đối phương để xé toạc tấm khiên phòng ngự trung tâm, mở đường cho Pháo đầu và Song Xe thâm nhập.",
+    "Nhất Mã hoán Lưỡng Tượng",
+  );
+}
+
+// ============================================================================
+// 21. CHIẾN THUẬT ĐOẠT TRUNG BINH (Triệu Hâm Hâm Bài 11)
+// ============================================================================
+
+/**
+ * Chiến thuật đoạt trung binh (Triệu Hâm Hâm Bài 11):
+ * Dùng quân tiêu diệt Tốt giữa (Tốt 5) của đối phương — triệt hạ trái tim của hệ thống phòng ngự.
+ */
+export function detectDoatTrungBinh(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const piece = before[move.from];
+  if (!piece) return null;
+  const target = before[move.to];
+  if (!target || typeOf(target) !== "p") return null;
+  const mover = sideOf(piece);
+  const opp = opponent(mover);
+  if (sideOf(target) !== opp) return null;
+  if (!soundMove(options)) return null;
+
+  // Mục tiêu phải là Tốt giữa (cột 4) của đối phương
+  if (colOf(move.to) !== 4) return null;
+
+  const pt = typeOf(piece);
+  if (!["n", "c", "r", "p"].includes(pt)) return null;
+
+  // Vị trí tốt bị ăn nằm ở phần sân đối phương hoặc tuyến hà
+  const tr = rowOf(move.to);
+  const isInOppTerritory = mover === "r" ? tr <= 4 : tr >= 5;
+  if (!isInOppTerritory) return null;
+
+  return fact(
+    before,
+    move,
+    "doatTrungBinh",
+    "Chiến thuật đoạt trung binh: Tiêu diệt Tốt giữa của đối phương — triệt hạ trái tim của hệ thống phòng ngự trung lộ, cô lập đôi Tượng và tích lũy ưu thế vật chất.",
+    "Chiến thuật đoạt trung binh",
+  );
+}
+
+// ============================================================================
+// 22. KHÔNG TÂM PHÁO (Triệu Hâm Hâm Bài 12)
+// ============================================================================
+
+/**
+ * Không tâm pháo / Pháo trống (Triệu Hâm Hâm Bài 12):
+ * Pháo chiếm lĩnh trung lộ ngắm thẳng cung Tướng mà không có quân che chắn ở giữa.
+ */
+export function detectKhongTamPhao(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const piece = after[move.to] ?? before[move.from];
+  if (!piece) return null;
+  const mover = sideOf(piece);
+  const opp = opponent(mover);
+  if (!soundMove(options)) return null;
+
+  // Tìm Pháo của bên đi trên cột 4 sau nước đi
+  let cannonSq = -1;
+  for (let r = 0; r <= 9; r++) {
+    const sq = r * 9 + 4;
+    const p = after[sq];
+    if (p && sideOf(p) === mover && typeOf(p) === "c") {
+      cannonSq = sq;
+      break;
+    }
+  }
+  if (cannonSq === -1) return null;
+
+  // Tướng đối phương phải ở cột 4
+  const kingSq = findKing(after, opp);
+  if (kingSq === -1 || colOf(kingSq) !== 4) return null;
+
+  // Kiểm tra giữa Pháo và Tướng không có quân nào trên cột 4
+  const cRow = rowOf(cannonSq);
+  const kRow = rowOf(kingSq);
+  const minR = Math.min(cRow, kRow);
+  const maxR = Math.max(cRow, kRow);
+  for (let r = minR + 1; r < maxR; r++) {
+    if (after[r * 9 + 4] !== null) return null;
+  }
+
+  // Đảm bảo thế cờ pháo trống mới hình thành sau nước đi này
+  const beforeKing = findKing(before, opp);
+  if (beforeKing !== -1 && colOf(beforeKing) === 4) {
+    let beforeCannon = -1;
+    for (let r = 0; r <= 9; r++) {
+      const sq = r * 9 + 4;
+      const p = before[sq];
+      if (p && sideOf(p) === mover && typeOf(p) === "c") {
+        beforeCannon = sq;
+        break;
+      }
+    }
+    if (beforeCannon !== -1) {
+      const bcRow = rowOf(beforeCannon);
+      const bkRow = rowOf(beforeKing);
+      let clear = true;
+      for (let r = Math.min(bcRow, bkRow) + 1; r < Math.max(bcRow, bkRow); r++) {
+        if (before[r * 9 + 4] !== null) {
+          clear = false;
+          break;
+        }
+      }
+      if (clear) return null; // đã có pháo trống từ trước
+    }
+  }
+
+  return fact(
+    before,
+    move,
+    "khongTamPhao",
+    "Không tâm pháo (Pháo trống): Chiếm lĩnh lộ giữa không có quân che chắn ngắm thẳng cung Tướng — thế công trực diện nguy hiểm bậc nhất trong cờ tướng.",
+    "Không tâm pháo",
   );
 }
 
@@ -773,8 +1104,13 @@ const PRIORITY: Detector[] = [
   detectPoisonedCapture,
   detectInitiativeOverMaterial,
   detectMatingRace,
+  detectKhongTamPhao,
   detectNgoaTaoKnight,
   detectDeepCannonBottom,
+  detectKhuyetSiSongXe,
+  detectNhatMaHoanLuongTuong,
+  detectDoatTrungBinh,
+  detectMayUiTrungLo,
   detectDecoy,
   detectSacrificeForInitiative,
   detectPalaceBreaker,
@@ -783,6 +1119,7 @@ const PRIORITY: Detector[] = [
   detectCounterThreat,
   detectTempoExchange,
   detectTempoChase,
+  detectVoSuTienTotBien,
   detectFlankSwitch,
   detectProphylaxis,
   detectWorstPieceImprovement,
@@ -800,7 +1137,22 @@ export function detectAllZhaoTactics(
   const out: ZhaoMiddlegameFact[] = [];
   for (const detect of PRIORITY) {
     const f = detect(before, move, after, options);
-    if (f && !out.some((x) => x.tactic === f.tactic)) out.push(f);
+    if (f && !out.some((x) => x.tactic === f.tactic)) {
+      if (!f.lesson) {
+        const card = Object.values(ZHAO_LESSONS).find((c) => c.tacticId === f.tactic);
+        if (card) {
+          f.lesson = card.lesson;
+          f.lessonTitle = card.title;
+          if (card.quotes.length > 0) {
+            f.quote = card.quotes[0];
+            const [m, s] = card.quotes[0].at.split(":").map((x) => parseInt(x, 10));
+            const sec = (m || 0) * 60 + (s || 0);
+            f.videoUrl = `https://youtu.be/${card.video}?t=${sec}`;
+          }
+        }
+      }
+      out.push(f);
+    }
   }
   const critiques = out.filter((f) => f.tone === "critique");
   return critiques.length > 0 ? critiques : out;

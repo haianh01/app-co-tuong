@@ -390,6 +390,12 @@ async function runBenchmark() {
       const rawJson = fs.readFileSync(filePath, "utf-8");
       const game: CrawledGame = JSON.parse(rawJson);
 
+      // Bài chưa có biên bản ván có nguồn (vd. zhao48 mới chỉ có phụ đề) thì không có gì để đo.
+      if (!game.movesCoords?.length || !Object.keys(game.comments ?? {}).length) {
+        console.log(`\n[${fIdx + 1}/${selectedFiles.length}] Bỏ qua ${filename}: chưa có nước đi/lời bình theo nước`);
+        continue;
+      }
+
       console.log(`\n[${fIdx + 1}/${selectedFiles.length}] Đang phân tích: ${game.title}`);
       console.log(`  Đấu thủ: ${game.red} (Đỏ) vs ${game.black} (Đen) | ${game.totalPlies} nước | ${game.commentCount} lời bình`);
 

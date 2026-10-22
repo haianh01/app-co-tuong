@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { engineCache } from "@/server/engine/cache";
 import type { PositionEval } from "@/lib/xiangqi/analysis";
 import type { EngineLimits, EnginePool, EngineResult } from "@/server/engine/uci";
+import type { StageGame } from "@/server/db/schema";
 import { POST, selectKeyPositions, ANALYSIS_FAST, ANALYSIS_DEEP } from "./route";
 
 vi.mock("next/server", () => ({
@@ -29,13 +30,30 @@ const mockStore = vi.hoisted(() => ({
   getSavedAnalysis: vi.fn<() => Promise<(PositionEval | null)[] | null>>(async () => null),
   saveGameAnalysis: vi.fn(async () => {}),
   consumeAnalysisQuota: vi.fn(async () => ({ success: true, remaining: 2 })),
+  consumeStageAnalysisQuota: vi.fn(async () => ({ success: true, remaining: 24 })),
+}));
+
+const mockStageGames = vi.hoisted(() => ({
+  getStageGame: vi.fn<() => Promise<StageGame | null>>(async () => null),
+  getStageAnalysis: vi.fn<() => Promise<(PositionEval | null)[] | null>>(async () => null),
+  saveStageAnalysis: vi.fn(async () => {}),
+  hashRoomKey: vi.fn((r: string) => "hashed_" + r),
 }));
 
 vi.mock("@/server/analysis/store", () => ({
   FREE_ANALYSIS_PER_DAY: 3,
+  STAGE_FREE_ANALYSIS_PER_DAY: 25,
   getSavedAnalysis: mockStore.getSavedAnalysis,
   saveGameAnalysis: mockStore.saveGameAnalysis,
   consumeAnalysisQuota: mockStore.consumeAnalysisQuota,
+  consumeStageAnalysisQuota: mockStore.consumeStageAnalysisQuota,
+}));
+
+vi.mock("@/server/stage-games", () => ({
+  getStageGame: mockStageGames.getStageGame,
+  getStageAnalysis: mockStageGames.getStageAnalysis,
+  saveStageAnalysis: mockStageGames.saveStageAnalysis,
+  hashRoomKey: mockStageGames.hashRoomKey,
 }));
 
 const globalForEngine = globalThis as unknown as { __enginePool?: Partial<EnginePool> | null };
@@ -54,6 +72,10 @@ beforeEach(() => {
   mockStore.consumeAnalysisQuota.mockResolvedValue({ success: true, remaining: 2 });
   mockStore.getSavedAnalysis.mockResolvedValue(null);
   mockStore.saveGameAnalysis.mockClear();
+  mockStageGames.getStageGame.mockResolvedValue(null);
+  mockStageGames.getStageAnalysis.mockResolvedValue(null);
+  mockStageGames.saveStageAnalysis.mockClear();
+  mockStore.consumeStageAnalysisQuota.mockResolvedValue({ success: true, remaining: 24 });
   globalForEngine.__enginePool = {
     waiting: 0,
     search: vi.fn(async () => ({
@@ -393,4 +415,85 @@ describe("POST /api/engine/batch", () => {
     expect(fastCalls.length).toBe(2);
     expect(deepCalls.length).toBeGreaterThanOrEqual(1);
   });
+  it("trả 400 nếu có stageGameId nhưng thiếu hoặc sai khóa phòng room", async () => {
+    const req = new Request("http://localhost/api/engine/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fens: ["rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w"],
+        stageGameId: "stg_123456",
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.error).toMatch(/Khóa phòng/);
+  });
+
+  it("trả 404 nếu không tìm thấy stageGameId thuộc phòng", async () => {
+    mockStageGames.getStageGame.mockResolvedValueOnce(null);
+    const req = new Request("http://localhost/api/engine/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fens: ["rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w"],
+        stageGameId: "stg_notfound",
+        room: "my-valid-room-12345",
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(404);
+  });
+
+  it("dùng lại kết quả đã lưu trong stage_game_analysis khi ván sân khấu đã được phân tích", async () => {
+    const fen = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w";
+    mockStageGames.getStageGame.mockResolvedValueOnce({ id: "stg_cached" } as unknown as StageGame);
+    const cachedEvals = [{ score: 55, best: null, depth: 10, pv: [], fen }];
+    mockStageGames.getStageAnalysis.mockResolvedValueOnce(cachedEvals);
+
+    const req = new Request("http://localhost/api/engine/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fens: [fen],
+        stageGameId: "stg_cached",
+        room: "my-valid-room-12345",
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    const chunks = await readNdjson<BatchChunk>(res);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0].eval?.score).toBe(55);
+    expect(mockStore.consumeStageAnalysisQuota).not.toHaveBeenCalled();
+  });
+
+  it("lưu kết quả vào stage_game_analysis sau khi phân tích xong ván sân khấu", async () => {
+    const fen = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w";
+    mockStageGames.getStageGame.mockResolvedValueOnce({ id: "stg_tosave" } as unknown as StageGame);
+
+    const req = new Request("http://localhost/api/engine/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        fens: [fen],
+        stageGameId: "stg_tosave",
+        room: "my-valid-room-12345",
+      }),
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    await readNdjson(res);
+
+    expect(mockStageGames.saveStageAnalysis).toHaveBeenCalledWith(
+      expect.anything(),
+      "stg_tosave",
+      expect.any(Array),
+    );
+  });
+
 });

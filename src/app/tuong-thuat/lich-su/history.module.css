@@ -1,0 +1,308 @@
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 16px 80px;
+  color: var(--text, #f1f5f9);
+}
+
+.header {
+  margin-bottom: 24px;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text, #f1f5f9);
+}
+
+.statsBar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.statCard {
+  background: var(--surface-1, #1e293b);
+  border: 1px solid var(--line, #334155);
+  border-radius: 10px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.statLabel {
+  font-size: 0.8rem;
+  color: var(--muted, #94a3b8);
+}
+
+.statVal {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text, #f8fafc);
+}
+
+.filterCard {
+  background: var(--surface-1, #1e293b);
+  border: 1px solid var(--line, #334155);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.searchInput {
+  flex: 1 1 200px;
+  background: var(--surface-2, #0f172a);
+  border: 1px solid var(--line-strong, #475569);
+  color: var(--text, #f1f5f9);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+}
+
+.filterPills {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pill {
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  background: var(--surface-2, #0f172a);
+  border: 1px solid var(--line, #334155);
+  color: var(--muted, #94a3b8);
+  transition: all 0.15s ease;
+}
+
+.pill[aria-pressed="true"] {
+  background: var(--gold, #c99c5c);
+  color: #1a140b;
+  font-weight: 600;
+  border-color: var(--gold, #c99c5c);
+}
+
+.dateInput {
+  background: var(--surface-2, #0f172a);
+  border: 1px solid var(--line-strong, #475569);
+  color: var(--text, #f1f5f9);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-size: 0.85rem;
+}
+
+.dateSection {
+  margin-bottom: 32px;
+}
+
+.dateTitle {
+  font-size: 1.15rem;
+  font-weight: 600;
+  margin: 0 0 12px;
+  color: var(--gold-text, #f7ebdb);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--line, #334155);
+  padding-bottom: 8px;
+}
+
+.gamesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+}
+
+.gameCard {
+  background: var(--surface-1, #1e293b);
+  border: 1px solid var(--line, #334155);
+  border-radius: 12px;
+  padding: 16px;
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.gameCard:hover {
+  transform: translateY(-2px);
+  border-color: var(--gold, #c99c5c);
+}
+
+.cardTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.roundLabel {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted, #94a3b8);
+}
+
+.badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.badgeWin {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.badgeDraw {
+  background: rgba(234, 179, 8, 0.15);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+.badgeLoss {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.badgeUnknown {
+  background: rgba(148, 163, 184, 0.15);
+  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.matchup {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.playerBox {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 45%;
+}
+
+.playerName {
+  font-size: 0.95rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.playerMeta {
+  font-size: 0.75rem;
+  color: var(--muted, #94a3b8);
+}
+
+.vsIcon {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--gold, #c99c5c);
+  opacity: 0.8;
+}
+
+.cardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--line, #334155);
+  padding-top: 10px;
+  font-size: 0.8rem;
+  color: var(--muted, #94a3b8);
+}
+
+.openingBadge {
+  background: var(--surface-2, #0f172a);
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: var(--text, #f1f5f9);
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.aiBadge {
+  color: #4ade80;
+  font-weight: 500;
+}
+
+.emptyState {
+  text-align: center;
+  padding: 48px 16px;
+  color: var(--muted, #94a3b8);
+  background: var(--surface-1, #1e293b);
+  border-radius: 12px;
+  border: 1px dashed var(--line-strong, #475569);
+}
+
+/* Replay Page */
+.replayLayout {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 16px 16px 80px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 24px;
+}
+
+.replayBoardCol {
+  flex: 0 1 540px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.replayAnalysisCol {
+  flex: 1 1 500px;
+  min-width: 320px;
+  max-width: 760px;
+}
+
+.replayHeaderCard {
+  width: 100%;
+  background: var(--surface-1, #1e293b);
+  border: 1px solid var(--line, #334155);
+  border-radius: 10px;
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.replayControls {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  width: 100%;
+}

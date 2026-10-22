@@ -13,7 +13,6 @@ import {
   inCheck,
   legalMovesFrom,
   outcome,
-  parseFen,
   sideOf,
   toFen,
   type Move,
@@ -26,8 +25,9 @@ import zigaStyles from "./ziga.module.css";
 import { EMPTY_DRAWING, drawingReducer } from "../drawing";
 import { StagePanel, useStageLink, useStageSettings } from "../StagePanel";
 import { changeResult, nextRound, resultOnBoard, type StageResult } from "../stage-round";
+import { useStageArchive } from "../useStageArchive";
 import { clockAfterMove, readClock, startClock, stopClock, type GameClock } from "../game-clock";
-import { buildStageState, type StageClocks } from "../stage-sync";
+import { buildStageState, canReview, type StageClocks, type StageReviewState } from "../stage-sync";
 import { TrialBar, useTrialMoves } from "../trial";
 import { scrollMoveIntoBox } from "../scroll-moves";
 import { generateTampermonkeyScript } from "@/lib/ziga/tampermonkey-script";
@@ -82,6 +82,8 @@ export function ZigaBroadcastClient() {
     dispatch(action);
   }, []);
   const [viewPly, setViewPly] = useState<number | null>(null);
+  const [stageReview, setStageReview] = useState<StageReviewState | null>(null);
+
   const [sketch, draw] = useReducer(drawingReducer, EMPTY_DRAWING);
   const [drawing, setDrawing] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
@@ -119,6 +121,7 @@ export function ZigaBroadcastClient() {
   // Tên tài khoản của người dẫn (gói đăng nhập) + người đang ngồi ở từng ghế (tên, elo)
   const myNameRef = useRef<string | null>(null);
   const rosterRef = useRef<Record<number, ZigaPlayer>>({});
+  const archiveRef = useRef<ReturnType<typeof useStageArchive> | null>(null);
 
   // Đồng hồ ván đấu
   const [clock, setClock] = useState<GameClock | null>(null);
@@ -149,6 +152,7 @@ export function ZigaBroadcastClient() {
   );
 
   const live = viewPly === null;
+
   const ply = viewPly ?? game.moves.length;
   const pos = game.history[ply];
   const lastMove = ply > 0 ? game.moves[ply - 1].move : null;
@@ -171,6 +175,23 @@ export function ZigaBroadcastClient() {
   const orientation: Side = flipped ? "b" : "r";
   const mySide: Side = orientation;
   const oppSide: Side = mySide === "r" ? "b" : "r";
+  const isGameOver = Boolean(
+    game.result ||
+    roundResult ||
+    (game.moves.length > 0 && resultOnBoard(game.history[game.moves.length], mySide))
+  );
+  // Pure anti-cheat: chỉ kích hoạt review lên sân khấu nếu thỏa mãn quy tắc an toàn
+  const activeReview = stageReview && canReview(isGameOver, game.moves.length) ? stageReview : null;
+
+  const handleUpdateReview = useCallback(
+    (rev: StageReviewState | null) => {
+      if (rev && !canReview(isGameOver, game.moves.length)) {
+        return;
+      }
+      setStageReview(rev);
+    },
+    [isGameOver, game.moves.length],
+  );
 
   // Xử lý gói tin khi nhận được từ Ziga Relay
   const handleIncomingPacket = useCallback(
@@ -318,7 +339,9 @@ export function ZigaBroadcastClient() {
         setReadySeats({});
         // Ván trước đã có nước → sang ván kế (tăng số ván, xoá tên đối thủ cũ)
         if (gameRef.current.moves.length > 0) {
+          void archiveRef.current?.saveNow(roundResultRef.current, roundResultRef.current ? "manual" : null);
           setStageSettings((s) => nextRound(s, roundResultRef.current, null));
+          archiveRef.current?.newGame();
         }
         applyGameAction({ type: "reset" });
         setViewPly(null);
@@ -513,15 +536,15 @@ export function ZigaBroadcastClient() {
   // Đồng bộ sang sân khấu OBS (/ws/stage)
   const stageClocks = useMemo((): StageClocks | null => {
     if (!clock) return null;
-    const now = Date.now();
-    const v = readClock(clock, now);
+    const sentAt = clock.since;
+    const v = readClock(clock, sentAt);
     return {
       me: v.total[mySide],
       opponent: v.total[oppSide],
       running: clock.running === null ? null : clock.running === mySide ? "me" : "opponent",
       perMove: v.perMove,
       perMoveTotal: clock.control.perMoveMs,
-      sentAt: now,
+      sentAt,
     };
   }, [clock, mySide, oppSide]);
 
@@ -548,6 +571,7 @@ export function ZigaBroadcastClient() {
         settings: stageSettings,
         capturedPiece: lastCapturedPiece,
         clocks: live ? stageClocks : null,
+        review: activeReview,
         // Đi thử: bàn cờ là biến thử, còn lượt đi / đồng hồ vẫn của ván thật đang chạy ngầm.
         ...(trial.stage && { ...trial.stage, turn: livePos.turn, ply: game.moves.length, capturedPiece: null, clocks: stageClocks }),
       }),
@@ -555,6 +579,7 @@ export function ZigaBroadcastClient() {
   }, [
     trial.stage,
     livePos.turn,
+    activeReview,
     sendStage,
     pos,
     ply,
@@ -600,18 +625,38 @@ export function ZigaBroadcastClient() {
     setSelected(null);
   };
 
+  const onBoard = resultOnBoard(game.history[game.moves.length], mySide);
+  const fens = useMemo(() => game.history.map(toFen), [game.history]);
+  const archive = useStageArchive({
+    room: stageLink.room,
+    site: "ziga",
+    round: stageSettings.round,
+    mySide,
+    me: stageSettings.me,
+    opponent: stageSettings.opponent,
+    moves: game.moves,
+    fens,
+    roundResult,
+    onBoardResult: onBoard,
+  });
+  useEffect(() => {
+    archiveRef.current = archive;
+  }, [archive]);
+
   const onAnnotate = useCallback((from: number, to: number) => draw({ type: "annotate", from, to, color }), [color]);
 
   /** Hết ván (có nước đi): tự ghi kết quả nếu bàn cờ đã phân thắng thua mà chưa bấm, rồi sang ván sau. */
   const finishRound = () => {
     if (game.moves.length === 0) return;
-    const onBoard = resultOnBoard(game.history[game.moves.length], mySide);
-    setStageSettings((s) => nextRound(s, roundResult, onBoard));
+    const currentOnBoard = resultOnBoard(game.history[game.moves.length], mySide);
+    void archive.saveNow(roundResult ?? currentOnBoard, roundResult ? "manual" : currentOnBoard ? "board" : null);
+    setStageSettings((s) => nextRound(s, roundResult, currentOnBoard));
     setRoundResult(null);
   };
 
   const newMatch = () => {
     finishRound();
+    archive.newGame();
     applyGameAction({ type: "reset" });
     setViewPly(null);
     setSelected(null);
@@ -690,6 +735,9 @@ export function ZigaBroadcastClient() {
     setRoundResult(r);
     const now = Date.now();
     setClock((prev) => (prev ? stopClock(prev, now) : prev));
+    if (r) {
+      void archive.saveNow(r, "manual");
+    }
   };
 
   const copyScript = async () => {
@@ -756,6 +804,9 @@ export function ZigaBroadcastClient() {
         </Link>
         <Link href="/tuong-thuat/ziga" className={`${zigaStyles.subnavLink} ${zigaStyles.subnavActive}`}>
           ⚡ Đồng bộ WebSocket trực tiếp (Ziga Hook)
+        </Link>
+        <Link href="/tuong-thuat/lich-su" className={zigaStyles.subnavLink}>
+          📜 Lịch sử ván đấu
         </Link>
       </nav>
 
@@ -851,6 +902,9 @@ export function ZigaBroadcastClient() {
           clocks={stageClocks}
           mySide={mySide}
           onToggleSide={() => setFlipped((f) => !f)}
+          archive={archive}
+          review={activeReview}
+          onUpdateReview={handleUpdateReview}
         />
 
         {/* Khối kết nối Ziga WebSocket Hook */}

@@ -129,6 +129,57 @@ export interface StageClocks {
   sentAt: number;
 }
 
+
+export interface StageReviewTurningPoint {
+  index: number;
+  ply: number;
+  notation: string;
+  side: Side;
+  cls: string | null;
+  winDrop: number;
+  description: string;
+}
+
+
+/**
+ * Quy tắc an toàn chống gian lận (Anti-cheat):
+ * - Chỉ cho phép chiếu phân tích khi:
+ *   1) Ván đấu ĐÃ KẾT THÚC (gameOver === true), cho phép streamer chiếu lại và bình luận ván vừa đánh.
+ *   2) Hoặc khi CHƯA BẮT ĐẦU ván (plies === 0), cho phép chiếu ván cũ bất kỳ trước giờ thi đấu.
+ * - Tuyệt đối CHẶN khi ván đang diễn ra (gameOver === false && plies > 0), kể cả khi streamer
+ *   đang lùi xem lại nước cũ.
+ */
+export function canReview(gameOver: boolean, plies: number): boolean {
+  if (plies === 0) return true;
+  return gameOver;
+}
+
+export interface StageReviewState {
+  gameId: string;
+  round: number | null;
+  ply: number;
+  totalPlies: number;
+  board: Board;
+  lastMove: Move | null;
+  evalScore: number | null;
+  bestMove?: Move | null;
+  bestNotation?: string | null;
+  arrows?: BoardArrow[];
+  turningPoint?: StageReviewTurningPoint | null;
+  commentary?: string | null;
+}
+
+/** Định dạng điểm đánh giá thế cờ (centipawns) sang văn bản tiếng Việt dễ hiểu trên livestream. */
+export function formatEvalScore(score: number | null | undefined): string {
+  if (score == null || Number.isNaN(score)) return "";
+  const pts = (Math.abs(score) / 100).toFixed(1);
+  if (Math.abs(score) < 30) return "⚖ Cân bằng (0.0)";
+  if (score > 600) return `🔴 Đỏ thắng thế (+${pts})`;
+  if (score > 0) return `🔴 Đỏ ưu (+${pts})`;
+  if (score < -600) return `⚫ Đen thắng thế (-${pts})`;
+  return `⚫ Đen ưu (-${pts})`;
+}
+
 export interface StageState {
   board: Board;
   turn: Side;
@@ -155,6 +206,8 @@ export interface StageState {
   clocks: StageClocks | null;
   /** Người dẫn đang bày biến thử: bàn cờ là biến thử, không phải ván thật (null/không có = ván thật). */
   trial?: StageTrial | null;
+  /** Trạng thái chiếu phân tích / xem lại ván trên màn sân khấu (null: ván trực tiếp). */
+  review?: StageReviewState | null;
   timestamp: number;
 }
 
@@ -303,6 +356,8 @@ export function buildStageState(params: {
   clocks?: StageClocks | null;
   /** Có thì `board`/`lastMove`/`checkSquare` là của biến thử; `turn`, `ply`, `notations` vẫn của ván thật. */
   trial?: StageTrial | null;
+  /** Chiếu phân tích ván cũ lên sân khấu. */
+  review?: StageReviewState | null;
 }): StageState {
   const { board, turn, ply, lastMove, mySide, settings, capturedPiece } = params;
   const trial = params.trial ?? null;
@@ -331,6 +386,7 @@ export function buildStageState(params: {
     recap: generateRecap({ settings, ply, openingName, materialBalance }),
     clocks: params.clocks ?? null,
     trial,
+    review: params.review ?? null,
     timestamp: Date.now(),
   };
 }

@@ -51,6 +51,15 @@ export interface AnalysisUpdateInfo {
   highlights: number[];
 }
 
+export interface AnalysisSource {
+  /** URL để GET kiểm tra phân tích đã lưu (ví dụ: /api/game/[id]/analysis hoặc /api/tuong-thuat/games/[id]). */
+  loadUrl?: string;
+  /** Dữ liệu gửi kèm trong body POST /api/engine/batch (ví dụ: { gameId } hoặc { stageGameId, room }). */
+  batchBody?: Record<string, unknown>;
+  /** Headers bổ sung khi fetch (ví dụ: { "X-Stage-Room": room }). */
+  headers?: Record<string, string>;
+}
+
 export interface AnalysisPanelProps {
   state: GameState;
   ply: number;
@@ -59,6 +68,7 @@ export interface AnalysisPanelProps {
   onAnalysisUpdate?: (info: AnalysisUpdateInfo) => void;
   gameId?: string;
   initialAnalysis?: (PositionEval | null)[] | null;
+  source?: AnalysisSource;
 }
 
 export function AnalysisPanel({
@@ -69,6 +79,7 @@ export function AnalysisPanel({
   onAnalysisUpdate,
   gameId,
   initialAnalysis,
+  source,
 }: AnalysisPanelProps) {
   const think = useEngine();
   const { user } = useSession();
@@ -225,22 +236,28 @@ export function AnalysisPanel({
   const storyNotes = useMemo<StoryNote[]>(() => (review ? buildStory(review, state) : []), [review, state]);
   const storySummary = useMemo(() => (review ? summarizeGame(review, state) : ""), [review, state]);
 
-  // Nếu có gameId và chưa có evals, tự động kiểm tra xem ván đã được phân tích trước đó chưa
+  // Nếu có source.loadUrl hoặc gameId và chưa có evals, tự động kiểm tra xem ván đã được phân tích chưa
   useEffect(() => {
-    if (evals || !gameId) return;
+    if (evals) return;
+    const url = source?.loadUrl ?? (gameId ? `/api/game/${gameId}/analysis` : undefined);
+    if (!url) return;
+
     let cancelled = false;
-    fetch(`/api/game/${gameId}/analysis`)
+    fetch(url, { headers: source?.headers })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (!cancelled && data?.analyzed && Array.isArray(data.evals)) {
-          setEvals(data.evals);
+        if (!cancelled && data) {
+          const loaded = data.evals ?? data.analysis;
+          if (Array.isArray(loaded)) {
+            setEvals(loaded);
+          }
         }
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [gameId, evals]);
+  }, [gameId, evals, source?.loadUrl, source?.headers]);
 
   const run = async () => {
     setError(null);
@@ -265,8 +282,14 @@ export function AnalysisPanel({
         const fens = state.history.map((p) => toFen(p));
         const res = await fetch("/api/engine/batch", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fens, gameId }),
+          headers: {
+            "Content-Type": "application/json",
+            ...(source?.headers ?? {}),
+          },
+          body: JSON.stringify({
+            fens,
+            ...(source?.batchBody ?? (gameId ? { gameId } : {})),
+          }),
         });
         if (res.status === 429) {
           const data = await res.json().catch(() => ({}));

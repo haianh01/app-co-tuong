@@ -9,6 +9,9 @@ import {
   detectBigMoment,
   generateCommentary,
   mergePanelReading,
+  canReview,
+  formatEvalScore,
+  type StageReviewState,
 } from "./stage-sync";
 
 /** Đi một chuỗi nước từ thế ban đầu, trả về thế cuối, ký hiệu và quân bị ăn ở nước cuối. */
@@ -81,6 +84,62 @@ describe("stage-sync", () => {
     expect(state.recap).toMatchObject({ roundAndPly: "Ván 3 · Nước 1", recordText: "2 thắng · 0 hòa · 1 thua" });
     expect(state.bigMoment).toBeNull();
   });
+
+  it("formatEvalScore: định dạng điểm centipawns sang tiếng Việt chuẩn", () => {
+    expect(formatEvalScore(null)).toBe("");
+    expect(formatEvalScore(undefined)).toBe("");
+    expect(formatEvalScore(0)).toBe("⚖ Cân bằng (0.0)");
+    expect(formatEvalScore(25)).toBe("⚖ Cân bằng (0.0)");
+    expect(formatEvalScore(150)).toBe("🔴 Đỏ ưu (+1.5)");
+    expect(formatEvalScore(750)).toBe("🔴 Đỏ thắng thế (+7.5)");
+    expect(formatEvalScore(-200)).toBe("⚫ Đen ưu (-2.0)");
+    expect(formatEvalScore(-800)).toBe("⚫ Đen thắng thế (-8.0)");
+  });
+
+
+  it("canReview: thực thi luật chống gian lận chính xác theo luật bàn cờ", () => {
+    // 1. Trước ván (0 nước): cho phép chiếu ván cũ
+    expect(canReview(false, 0)).toBe(true);
+    expect(canReview(true, 0)).toBe(true);
+
+    // 2. Ván đang đánh dở (có nước, chưa hết ván): TUYỆT ĐỐI CHẶN
+    expect(canReview(false, 1)).toBe(false);
+    expect(canReview(false, 12)).toBe(false);
+    expect(canReview(false, 50)).toBe(false);
+
+    // 3. Ván đã kết thúc: CHO PHÉP chiếu phân tích ván vừa đánh
+    expect(canReview(true, 12)).toBe(true);
+    expect(canReview(true, 60)).toBe(true);
+  });
+
+  it("buildStageState: gắn review khi được cung cấp", () => {
+    const start = initialPosition();
+    const review: StageReviewState = {
+      gameId: "stg_rev_1",
+      round: 4,
+      ply: 10,
+      totalPlies: 30,
+      board: start.board,
+      lastMove: null,
+      evalScore: 350,
+      bestNotation: "P2-5",
+    };
+    const state = buildStageState({
+      board: start.board,
+      turn: start.turn,
+      ply: 0,
+      lastMove: null,
+      checkSquare: null,
+      notations: [],
+      arrows: [],
+      highlights: [],
+      mySide: "r",
+      settings: DEFAULT_STAGE_SETTINGS,
+      review,
+    });
+    expect(state.review).toEqual(review);
+  });
+
 });
 
 describe("mergePanelReading", () => {

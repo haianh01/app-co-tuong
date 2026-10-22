@@ -227,5 +227,53 @@ const note = (...parts: string[]) => (_: string, el: Element | null) =>
     expect(await screen.findByText(/Đánh giá cục diện/i)).toBeTruthy();
     expect(screen.getByText(/Kế hoạch:/i)).toBeTruthy();
   });
-});
+  it("hỗ trợ prop source tùy biến (loadUrl, batchBody, headers) cho ván sân khấu", async () => {
+    const state = replayMoves(
+      [{ from: sq(7, 0), to: sq(5, 0) }, { from: sq(3, 4), to: sq(4, 4) }],
+      "2bakab2/9/9/4p4/r8/9/4P4/C8/9/2BAKAB2 w",
+    );
+    const stageEvals = [
+      { score: 10, best: null, depth: 10, pv: [] },
+      { score: 350, best: null, depth: 10, pv: [] },
+      { score: -350, best: null, depth: 10, pv: [] },
+    ];
 
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/tuong-thuat/games/stg_custom")) {
+        return Response.json({
+          game: { id: "stg_custom" },
+          analysis: stageEvals,
+        });
+      }
+      return originalFetch(input, init);
+    });
+
+    try {
+      render(
+        <AnalysisPanel
+          state={state}
+          ply={2}
+          onSelect={() => {}}
+          viewer="r"
+          source={{
+            loadUrl: "/api/tuong-thuat/games/stg_custom",
+            batchBody: { stageGameId: "stg_custom", room: "test-room" },
+            headers: { "X-Stage-Room": "test-room" },
+          }}
+        />,
+      );
+
+      const red = await screen.findByRole("button", { name: /1. Đỏ P9.2/ });
+      expect(red).toBeTruthy();
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/tuong-thuat/games/stg_custom",
+        expect.objectContaining({ headers: { "X-Stage-Room": "test-room" } }),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+});

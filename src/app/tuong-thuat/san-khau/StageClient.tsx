@@ -9,7 +9,7 @@ import { formatClock } from "@/lib/vision/zigavn-panels";
 import { PIECE_CHAR } from "@/lib/xiangqi/notation";
 import { inCheck, outcome, type PieceType, type Side } from "@/lib/xiangqi/engine";
 import { playStageVoiceEvent, unlockAudio } from "@/lib/stage-voice";
-import { DEFAULT_STAGE_VOICE_LINES, liveClocks, type BigMoment, type StageClocks, type StagePlayer, type StageState } from "../stage-sync";
+import { DEFAULT_STAGE_VOICE_LINES, formatEvalScore, liveClocks, type BigMoment, type StageClocks, type StagePlayer, type StageState } from "../stage-sync";
 import styles from "./stage.module.css";
 
 /** Thẻ tóm tắt cho người mới vào: chỉ hiện khi người dùng bấm hoặc nhận tin recap từ trang điều khiển. */
@@ -438,6 +438,37 @@ function PlayerCard({
 
 function InfoCard({ state }: { state: StageState }) {
   const { goal, today, cta } = state.settings;
+  const slideCount = (goal && goal.target > 0 ? 1 : 0) + 1 + (cta ? 1 : 0);
+  const i = useRotation(slideCount);
+
+  if (state.review) {
+    const rev = state.review;
+    const tp = rev.turningPoint;
+    return (
+      <section className={styles.infoCard} aria-live="polite">
+        <div className={styles.infoSlide}>
+          <span className={styles.infoKicker} style={{ color: "#c084fc" }}>
+            {tp ? `⚡ BƯỚC NGOẶT TRẬN ĐẤU (#${tp.index + 1})` : "📖 ĐÁNH GIÁ CỤC DIỆN"}
+          </span>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span className={styles.infoBig} style={{ fontSize: 24 }}>
+              {tp ? `${tp.notation} · ${tp.description}` : (formatEvalScore(rev.evalScore) || "Thế cờ cân bằng")}
+            </span>
+            {rev.bestNotation && (
+              <span className={styles.reviewBestChip}>
+                Tối ưu: {rev.bestNotation}
+              </span>
+            )}
+          </div>
+          {rev.commentary && (
+            <p className={styles.reviewCommentaryText}>
+              {rev.commentary}
+            </p>
+          )}
+        </div>
+      </section>
+    );
+  }
   const slides: React.ReactNode[] = [];
   if (goal && goal.target > 0) {
     const pct = Math.min(100, Math.round((goal.current / goal.target) * 100));
@@ -470,7 +501,6 @@ function InfoCard({ state }: { state: StageState }) {
       </>,
     );
   }
-  const i = useRotation(slides.length);
   return (
     <section className={styles.infoCard} aria-live="polite">
       <div key={i} className={styles.infoSlide}>
@@ -549,7 +579,7 @@ export function StageClient() {
       lastCheckPly.current = state.ply;
       const lines = state.settings.voiceLines ?? DEFAULT_STAGE_VOICE_LINES;
       const spoken = playStageVoiceEvent("check", lines);
-      if (spoken) showBubble(spoken, "check");
+      if (spoken) queueMicrotask(() => showBubble(spoken, "check"));
     }
   }, [state, showBubble]);
 
@@ -566,7 +596,7 @@ export function StageClient() {
       const event: StageVoiceEvent = isWin ? "win" : "loss";
       const lines = state.settings.voiceLines ?? DEFAULT_STAGE_VOICE_LINES;
       const spoken = playStageVoiceEvent(event, lines);
-      if (spoken) showBubble(spoken, event);
+      if (spoken) queueMicrotask(() => showBubble(spoken, event));
     }
   }, [state, showBubble]);
 
@@ -623,6 +653,7 @@ function Stage({
   const shaking = moment?.type === "check";
   const now = useNow(250, !!state.clocks);
   const trial = state.trial ?? null;
+  const review = state.review ?? null;
   const over = outcome({ board: state.board, turn });
   const turnText = trial
     ? "Không phải nước thật"
@@ -644,10 +675,29 @@ function Stage({
 
       <section className={styles.matchBar}>
         <div className={styles.matchRow}>
-          <span className={styles.roundBadge}>VÁN {settings.round}</span>
-          <span className={styles.muted}>Khai cuộc:</span>
-          <span className={styles.opening}>{state.openingName ?? "chưa rõ"}</span>
-          {settings.site && <span className={styles.site}>Đang chơi trên {settings.site}</span>}
+          {review ? (
+            <>
+              <span className={styles.roundBadge} style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)" }}>
+                PHÂN TÍCH VÁN {review.round ?? settings.round}
+              </span>
+              <span className={styles.muted}>Nước:</span>
+              <span className={styles.opening}>
+                {Math.ceil(review.ply / 2)} / {Math.ceil(review.totalPlies / 2)}
+              </span>
+              {review.evalScore !== null && (
+                <span className={styles.reviewScoreChip}>
+                  {formatEvalScore(review.evalScore)}
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              <span className={styles.roundBadge}>VÁN {settings.round}</span>
+              <span className={styles.muted}>Khai cuộc:</span>
+              <span className={styles.opening}>{state.openingName ?? "chưa rõ"}</span>
+              {settings.site && <span className={styles.site}>Đang chơi trên {settings.site}</span>}
+            </>
+          )}
           {onTestVoice && (
             <button
               type="button"
@@ -680,18 +730,22 @@ function Stage({
       <div className={styles.arena}>
         <PlayerCard player={settings.me} side={mySide} isMe toMove={turn === mySide} clock={clockView(state.clocks, "me", now)} ready={state.ready?.me ?? null} />
 
-        <div className={styles.boardWrap} data-shake={shaking || undefined} data-trial={trial ? true : undefined}>
-          {trial && (
+        <div className={styles.boardWrap} data-shake={shaking || undefined} data-trial={trial ? true : undefined} data-review={review ? true : undefined}>
+          {review ? (
+            <div className={styles.reviewBadge} role="status">
+              AI PHÂN TÍCH · VÁN {review.round ?? settings.round}
+            </div>
+          ) : trial ? (
             <div className={styles.trialBadge} role="status">
               BIẾN THỬ
             </div>
-          )}
+          ) : null}
           <XiangqiBoard
-            board={state.board}
+            board={review ? review.board : state.board}
             orientation={mySide}
-            lastMove={state.lastMove}
+            lastMove={review ? review.lastMove : state.lastMove}
             checkSquare={state.checkSquare}
-            arrows={state.arrows}
+            arrows={review?.arrows?.length ? review.arrows : review?.bestMove ? [{ from: review.bestMove.from, to: review.bestMove.to, color: "rgba(34, 197, 94, 0.9)" }] : state.arrows}
             highlights={state.highlights}
             selected={state.selected ?? null}
             targets={state.targets ?? []}
@@ -724,7 +778,7 @@ function Stage({
                 <span className={styles.speechLabel}>
                   {speechBubble.type === "check" ? "HOÀNG THƯỢNG:" : speechBubble.type === "win" ? "KHÍ THẾ BỪNG BỪNG:" : "ĐỘNG VIÊN:"}
                 </span>
-                <span className={styles.speechText}>"{speechBubble.text}"</span>
+                <span className={styles.speechText}>&quot;{speechBubble.text}&quot;</span>
               </div>
             </div>
           )}
@@ -751,11 +805,20 @@ function Stage({
         <PlayerCard player={settings.opponent} side={oppSide} isMe={false} toMove={turn === oppSide} clock={clockView(state.clocks, "opponent", now)} ready={state.ready?.opponent ?? null} />
       </div>
 
-      <section className={styles.ribbon} data-check={commentary?.isCheck || undefined} data-trial={trial ? true : undefined}>
-        <span className={styles.ribbonTag}>{trial ? "BIẾN THỬ" : `NƯỚC ${Math.ceil(state.ply / 2)}`}</span>
-        {trial ? (
+      <section className={styles.ribbon} data-check={commentary?.isCheck || undefined} data-trial={trial ? true : undefined} data-review={review ? true : undefined}>
+        <span className={styles.ribbonTag}>
+          {review ? "AI PHÂN TÍCH" : trial ? "BIẾN THỬ" : `NƯỚC ${Math.ceil(state.ply / 2)}`}
+        </span>
+        {review ? (
           <span className={styles.ribbonMove}>
-            {/* Chuỗi dài thì giữ mấy nước cuối cho vừa ribbon. */}
+            {review.turningPoint
+              ? `⚡ Bước ngoặt #${review.turningPoint.index + 1}: ${review.turningPoint.notation} (${review.turningPoint.description})`
+              : review.bestNotation
+                ? `Nước tối ưu: ${review.bestNotation}`
+                : `Đang phân tích nước ${review.ply} / ${review.totalPlies}`}
+          </span>
+        ) : trial ? (
+          <span className={styles.ribbonMove}>
             {trial.notations.length
               ? `${trial.notations.length > 3 ? "… " : ""}${trial.notations.slice(-3).join(" → ")}`
               : "BLV đang bày biến…"}
@@ -769,7 +832,9 @@ function Stage({
         ) : (
           <span className={styles.ribbonMove}>Ván mới bắt đầu</span>
         )}
-        <span className={styles.ribbonTurn}>{turnText}</span>
+        <span className={styles.ribbonTurn}>
+          {review ? (formatEvalScore(review.evalScore) || "Đang phân tích") : turnText}
+        </span>
       </section>
 
       <InfoCard state={state} />

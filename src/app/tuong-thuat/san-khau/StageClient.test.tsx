@@ -227,6 +227,80 @@ describe("StageClient", () => {
     expect(document.querySelector("[class*=trialDim]")).not.toBeNull();
   });
 
+
+  it("chế độ review: hiển thị huy hiệu AI phân tích, bước ngoặt trận đấu và điểm số", () => {
+    render(<StageClient />);
+    const ws = FakeSocket.all[0];
+    const base = stateAfterCentralCannon();
+    const state = {
+      ...base,
+      review: {
+        gameId: "stg_123",
+        round: 5,
+        ply: 8,
+        totalPlies: 24,
+        board: base.board,
+        lastMove: { from: 24, to: 25 },
+        evalScore: 450,
+        bestNotation: "X1.1",
+        turningPoint: {
+          index: 0,
+          ply: 8,
+          notation: "P2-5",
+          side: "r",
+          cls: "blunder",
+          winDrop: 0.25,
+          description: "Nước sai lầm nghiêm trọng để mất Pháo",
+        },
+        commentary: "Bên Đỏ xuất tướng vội vàng, tạo điều kiện cho Đen phản công.",
+      },
+    };
+    ws.receive({ t: "state", state });
+
+    expect(screen.getByText(/PHÂN TÍCH VÁN 5/i)).toBeDefined();
+    expect(screen.getByText(/AI PHÂN TÍCH · VÁN 5/i)).toBeDefined();
+    expect(screen.getAllByText(/🔴 Đỏ ưu \(\+4\.5\)/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/⚡ Bước ngoặt #1: P2-5/i)).toBeDefined();
+    expect(screen.getByText(/Tối ưu: X1.1/i)).toBeDefined();
+    expect(screen.getByText(/Bên Đỏ xuất tướng vội vàng/i)).toBeDefined();
+  });
+
+
+  it("bật và tắt chế độ review qua lại không làm crash React do lệch số lượng hook", () => {
+    render(<StageClient />);
+    const ws = FakeSocket.all[0];
+    const base = stateAfterCentralCannon();
+
+    // 1. Gửi trạng thái bình thường (không review)
+    ws.receive({ t: "state", state: base });
+    expect(screen.getByText("VÁN 5")).toBeDefined();
+
+    // 2. Bật review
+    const reviewState = {
+      ...base,
+      review: {
+        gameId: "stg_toggle",
+        round: 5,
+        ply: 2,
+        totalPlies: 4,
+        board: base.board,
+        lastMove: null,
+        evalScore: 200,
+        bestNotation: "P2-5",
+      },
+    };
+    ws.receive({ t: "state", state: reviewState });
+    expect(screen.getByText(/PHÂN TÍCH VÁN 5/i)).toBeDefined();
+
+    // 3. Tắt review (trở về ván trực tiếp)
+    ws.receive({ t: "state", state: base });
+    expect(screen.getByText("VÁN 5")).toBeDefined();
+
+    // 4. Bật review lần thứ 2
+    ws.receive({ t: "state", state: reviewState });
+    expect(screen.getByText(/PHÂN TÍCH VÁN 5/i)).toBeDefined();
+  });
+
   it("khoảnh khắc chiếu tướng hiện con ấn chữ Hán 將軍 nhỏ gọn không che bàn cờ", () => {
     render(<StageClient />);
     const ws = FakeSocket.all[0];

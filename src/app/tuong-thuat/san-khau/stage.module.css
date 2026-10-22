@@ -1030,3 +1030,71 @@
 }
 
 
+
+/* Chế độ AI Review / Chiếu phân tích ván */
+.boardWrap[data-review] {
+  position: relative;
+  z-index: 7;
+}
+
+.boardWrap[data-review] .boardRim {
+  box-shadow: 0 0 0 6px #8b5cf6, 0 0 36px rgba(139, 92, 246, 0.55), 0 24px 60px rgba(0, 0, 0, 0.6) !important;
+}
+
+.reviewBadge {
+  position: absolute;
+  top: -22px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  padding: 6px 22px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #7c3aed, #c026d3);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  box-shadow: 0 6px 18px rgba(124, 58, 237, 0.5);
+  pointer-events: none;
+}
+
+.ribbon[data-review] .ribbonTag {
+  background: linear-gradient(135deg, #7c3aed, #a855f7);
+  color: #fff;
+}
+
+.ribbon[data-review] .ribbonMove {
+  min-width: 0;
+  font-size: 24px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #f3e8ff;
+}
+
+.reviewScoreChip {
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: rgba(124, 58, 237, 0.25);
+  border: 1px solid rgba(168, 85, 247, 0.4);
+  color: #e9d5ff;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.reviewBestChip {
+  padding: 4px 12px;
+  border-radius: 8px;
+  background: rgba(34, 197, 94, 0.2);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #86efac;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.reviewCommentaryText {
+  margin: 6px 0 0;
+  font-size: 18px;
+  line-height: 1.5;
+  color: #cbd5e1;
+}

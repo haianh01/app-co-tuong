@@ -264,3 +264,70 @@ export type Game = typeof games.$inferSelect;
 export type Tournament = typeof tournaments.$inferSelect;
 export type GameAnalysis = typeof gameAnalysis.$inferSelect;
 export type AnalysisUsage = typeof analysisUsage.$inferSelect;
+
+
+export interface StageStoredMove {
+  from: number;
+  to: number;
+  notation?: string;
+}
+
+export interface StagePlayerInfo {
+  name: string;
+  points?: string;
+  title?: string;
+  stars?: number;
+  avatarUrl?: string;
+}
+
+export const stageGames = pgTable(
+  "stage_games",
+  {
+    id: varchar("id", { length: 12 }).primaryKey(),
+    /** SHA-256 hex (64 ký tự) của khóa phòng livestream. */
+    ownerKey: varchar("owner_key", { length: 64 }).notNull(),
+    /** Gắn với user nếu streamer đã đăng nhập lúc dẫn ván. */
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    /** Trang nguồn ("manual", "ziga", "cotuong", v.v.). */
+    site: varchar("site", { length: 32 }).notNull().default("manual"),
+    round: integer("round"),
+    /** Ngày thi đấu theo giờ VN: "YYYY-MM-DD". */
+    playedOn: varchar("played_on", { length: 10 }).notNull(),
+    /** "r" | "b" - Phe ngồi dưới (streamer). */
+    mySide: varchar("my_side", { length: 1 }).notNull().default("r"),
+    me: jsonb("me").$type<StagePlayerInfo>().notNull(),
+    opponent: jsonb("opponent").$type<StagePlayerInfo>().notNull(),
+    /** "win" | "draw" | "loss" | null */
+    result: varchar("result", { length: 8 }),
+    /** "manual" | "board" | null */
+    resultSource: varchar("result_source", { length: 16 }),
+    startFen: text("start_fen").notNull(),
+    moves: jsonb("moves").$type<StageStoredMove[]>().notNull(),
+    plies: integer("plies").notNull(),
+    timeControl: varchar("time_control", { length: 32 }),
+    startedAt: ts("started_at").notNull(),
+    endedAt: ts("ended_at").notNull(),
+  },
+  (t) => [
+    index("stage_games_owner_ended_idx").on(t.ownerKey, t.endedAt),
+    index("stage_games_user_ended_idx").on(t.userId, t.endedAt),
+    index("stage_games_played_on_idx").on(t.ownerKey, t.playedOn),
+  ],
+);
+
+export const stageGameAnalysis = pgTable(
+  "stage_game_analysis",
+  {
+    gameId: varchar("game_id", { length: 12 })
+      .primaryKey()
+      .references(() => stageGames.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    evals: jsonb("evals").notNull(),
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("stage_game_analysis_version_idx").on(t.version)],
+);
+
+export type StageGame = typeof stageGames.$inferSelect;
+export type StageGameInsert = typeof stageGames.$inferInsert;
+export type StageGameAnalysis = typeof stageGameAnalysis.$inferSelect;

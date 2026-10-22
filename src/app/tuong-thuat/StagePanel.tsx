@@ -1,12 +1,16 @@
 "use client";
 
+import { StageReviewControl } from "./StageReviewControl";
+import type { StageReviewState } from "./stage-sync";
+import Link from "next/link";
+
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { newStageRoom, stageSocketUrl, type StageRelayMessage, type StageServerMessage } from "@/lib/stage-protocol";
 import styles from "./broadcast.module.css";
 import type { StageResult } from "./stage-round";
 import { formatClock } from "@/lib/vision/zigavn-panels";
 import { DEFAULT_STAGE_SETTINGS, DEFAULT_STAGE_VOICE_LINES, liveClocks, type StageClocks, type StagePlayer, type StageSettings, type StageVoiceLines } from "./stage-sync";
-import { playStageVoiceEvent, speakStageVoice } from "@/lib/stage-voice";
+import { playStageVoiceEvent } from "@/lib/stage-voice";
 
 const ROOM_KEY = "tuong-thuat:stage-room";
 const SETTINGS_KEY = "tuong-thuat:stage-settings";
@@ -198,6 +202,9 @@ export function StagePanel({
   clocks,
   mySide = "r",
   onToggleSide,
+  archive,
+  review,
+  onUpdateReview,
 }: {
   settings: StageSettings;
   setSettings: (update: (s: StageSettings) => StageSettings) => void;
@@ -212,10 +219,24 @@ export function StagePanel({
   mySide?: "r" | "b";
   /** Đổi màu cờ phía dưới (lật bàn). */
   onToggleSide?: () => void;
+  /** Trạng thái lưu lịch sử ván cờ. */
+  archive?: {
+    gameId?: string | null;
+    status: "idle" | "saving" | "saved" | "error";
+    savedRound: number | null;
+    error: string | null;
+    analysisStatus?: "idle" | "running" | "done" | "error";
+    analysisProgress?: number;
+    analyzedRound?: number | null;
+    saveNow: () => Promise<boolean>;
+  };
+  review?: StageReviewState | null;
+  onUpdateReview?: (review: StageReviewState | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [recapSent, setRecapSent] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const stageUrl = link.room ? `${typeof window === "undefined" ? "" : window.location.origin}/tuong-thuat/san-khau?room=${link.room}` : "";
   const goal = settings.goal ?? { label: "tim", current: 0, target: 0 };
   const setGoal = (g: Partial<typeof goal>) => setSettings((s) => ({ ...s, goal: { ...goal, ...g } }));
@@ -282,7 +303,60 @@ export function StagePanel({
             ⇅ Cờ dưới: {mySide === "r" ? "🔴 Bạn cầm Đỏ" : "⚫ Bạn cầm Đen"}
           </button>
         )}
+        <Link href="/tuong-thuat/lich-su" className={styles.btn} title="Xem danh sách ván đấu đã lưu">
+          📜 Lịch sử
+        </Link>
+        {onUpdateReview && (
+          <button
+            type="button"
+            className={styles.btn}
+            style={review ? { borderColor: "#a855f7", color: "#c084fc", fontWeight: 600 } : undefined}
+            onClick={() => setReviewOpen((v) => !v)}
+            title="Chiếu phân tích AI và bước ngoặt ván cờ lên màn sân khấu OBS"
+          >
+            {review ? "🎬 Đang chiếu phân tích" : "🎬 Phân tích lên sân khấu"}
+          </button>
+        )}
       </div>
+
+      {review && (
+        <div className={styles.stageReviewBanner}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className={styles.stagePulseDot} style={{ background: "#a855f7" }} />
+            <span style={{ fontSize: 13, fontWeight: 600 }}>
+              Đang chiếu phân tích ván {review.round ?? ""} (Nước {review.ply}/{review.totalPlies})
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              type="button"
+              className={styles.btn}
+              style={{ fontSize: 12, padding: "2px 8px" }}
+              onClick={() => setReviewOpen((v) => !v)}
+            >
+              {reviewOpen ? "Thu gọn" : "Điều khiển"}
+            </button>
+            <button
+              type="button"
+              className={styles.btn}
+              style={{ fontSize: 12, padding: "2px 8px", color: "#f87171", borderColor: "#f87171" }}
+              onClick={() => onUpdateReview?.(null)}
+            >
+              ✕ Tắt chiếu
+            </button>
+          </div>
+        </div>
+      )}
+
+      {reviewOpen && onUpdateReview && (
+        <StageReviewControl
+          room={link.room}
+          currentReview={review ?? null}
+          onUpdateReview={onUpdateReview}
+          lastSavedRound={archive?.savedRound}
+          lastSavedGameId={archive?.gameId}
+        />
+      )}
 
       <div className={styles.row}>
         <span className={styles.muted}>Ván {settings.round} · kết quả:</span>
@@ -295,6 +369,36 @@ export function StagePanel({
           Hôm nay: {settings.today.win} thắng · {settings.today.draw} hòa · {settings.today.loss} thua
         </span>
       </div>
+
+      {archive && (
+        <div className={styles.row} style={{ alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <button
+            type="button"
+            className={styles.btn}
+            onClick={() => void archive.saveNow()}
+            disabled={archive.status === "saving"}
+            title="Lưu ván cờ hiện tại vào lịch sử"
+          >
+            {archive.status === "saving" ? "⏳ Đang lưu…" : "💾 Lưu ván"}
+          </button>
+          {archive.status === "saved" && archive.savedRound !== null && (
+            <span className={styles.muted}>✓ Đã lưu ván {archive.savedRound}</span>
+          )}
+          {archive.analysisStatus === "running" && archive.analyzedRound !== null && (
+            <span className={styles.muted} style={{ color: "var(--color-gold, #c99c5c)" }}>
+              ⏳ Đang phân tích ván {archive.analyzedRound}… {archive.analysisProgress ?? 0}%
+            </span>
+          )}
+          {archive.analysisStatus === "done" && archive.analyzedRound !== null && (
+            <span className={styles.muted} style={{ color: "var(--color-gold, #c99c5c)", fontWeight: 500 }}>
+              ✓ Đã phân tích ván {archive.analyzedRound}
+            </span>
+          )}
+          {archive.status === "error" && archive.error && (
+            <span className={styles.warn} style={{ fontSize: "0.85rem" }}>⚠️ {archive.error}</span>
+          )}
+        </div>
+      )}
 
       <label className={styles.check}>
         <input type="checkbox" checked={autoRead} onChange={(e) => onAutoRead(e.target.checked)} />

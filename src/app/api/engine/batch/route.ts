@@ -10,12 +10,21 @@ import { connection } from "next/server";
 import { winChance, winChanceFromWdl, type PositionEval } from "@/lib/xiangqi/analysis";
 import { legalMoves, parseFen, type Move } from "@/lib/xiangqi/engine";
 import { engineScore, toUciFen, uciToMove } from "@/lib/xiangqi/uci";
+import { STAGE_ROOM_RE } from "@/lib/stage-protocol";
 import {
   FREE_ANALYSIS_PER_DAY,
+  STAGE_FREE_ANALYSIS_PER_DAY,
   consumeAnalysisQuota,
+  consumeStageAnalysisQuota,
   getSavedAnalysis,
   saveGameAnalysis,
 } from "@/server/analysis/store";
+import {
+  getStageAnalysis,
+  getStageGame,
+  hashRoomKey,
+  saveStageAnalysis,
+} from "@/server/stage-games";
 import { SESSION_COOKIE, getUserBySession, parseCookies, type AuthUser } from "@/server/auth";
 import { getDb } from "@/server/db";
 import { engineCache, makeEngineCacheKey } from "@/server/engine/cache";
@@ -127,14 +136,20 @@ export async function POST(request: Request) {
     return Response.json({ error: "Dữ liệu không hợp lệ" }, { status: 400, headers: noStore });
   }
 
-  if (!Array.isArray(body.fens) || body.fens.length === 0) {
-    return Response.json({ error: "Danh sách FEN không hợp lệ" }, { status: 400, headers: noStore });
-  }
-
-  const fens = body.fens.map(String);
-  const total = fens.length;
   const encoder = new TextEncoder();
   const gameId = typeof body.gameId === "string" && /^[A-Za-z0-9]{6,12}$/.test(body.gameId) ? body.gameId : undefined;
+  
+  const rawStageGameId = (body as Record<string, unknown>).stageGameId;
+  let stageGameId: string | undefined;
+  if (rawStageGameId !== undefined) {
+    if (typeof rawStageGameId !== "string" || !/^[A-Za-z0-9_-]{6,16}$/.test(rawStageGameId)) {
+      return Response.json({ error: "Mã ván sân khấu không hợp lệ" }, { status: 400, headers: noStore });
+    }
+    stageGameId = rawStageGameId;
+  }
+
+  const rawRoom = request.headers.get("x-stage-room") ?? (typeof (body as Record<string, unknown>).room === "string" ? String((body as Record<string, unknown>).room) : null);
+  const room = rawRoom && STAGE_ROOM_RE.test(rawRoom) ? rawRoom : undefined;
 
   const db = await getDb();
   let user: AuthUser | null = null;
@@ -142,6 +157,66 @@ export async function POST(request: Request) {
   if (token) {
     user = await getUserBySession(db, token);
   }
+
+  let fens: string[];
+  let stageOwnerKey: string | undefined;
+
+  if (stageGameId) {
+    if (!room) {
+      return Response.json({ error: "Khóa phòng sân khấu không hợp lệ hoặc thiếu" }, { status: 400, headers: noStore });
+    }
+    stageOwnerKey = hashRoomKey(room);
+    const stageGame = await getStageGame(db, stageGameId, stageOwnerKey);
+    if (!stageGame) {
+      return Response.json({ error: "Không tìm thấy ván cờ sân khấu hoặc không có quyền truy cập" }, { status: 404, headers: noStore });
+    }
+
+    // SERVER-RECONSTRUCTED FENS: Tự dựng FEN từ moves đã lưu của ván để chống lách quota / phân tích thế cờ tùy ý
+    const moves = Array.isArray(stageGame.moves) ? (stageGame.moves as import("@/lib/xiangqi/engine").Move[]) : [];
+    if (moves.length > 0) {
+      const { replayMoves } = await import("@/lib/xiangqi/game");
+      const { toFen } = await import("@/lib/xiangqi/engine");
+      const gameState = replayMoves(moves, stageGame.startFen);
+      fens = gameState.history.map((p) => toFen(p));
+    } else if (Array.isArray(body.fens) && body.fens.length > 0) {
+      fens = body.fens.map(String);
+    } else {
+      const { toFen, initialPosition } = await import("@/lib/xiangqi/engine");
+      fens = [toFen(initialPosition())];
+    }
+
+    const total = fens.length;
+    const saved = await getStageAnalysis(db, stageGameId);
+    const matches =
+      saved &&
+      saved.length === total &&
+      saved.every((item, i) => !item?.fen || item.fen === fens[i]);
+
+    if (matches) {
+      const stream = new ReadableStream({
+        start(controller) {
+          for (let i = 0; i < saved.length; i++) {
+            const chunk = JSON.stringify({ index: i, total: saved.length, eval: saved[i] }) + "\n";
+            controller.enqueue(encoder.encode(chunk));
+          }
+          controller.close();
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "application/x-ndjson; charset=utf-8",
+          ...noStore,
+        },
+      });
+    }
+  } else {
+    if (!Array.isArray(body.fens) || body.fens.length === 0) {
+      return Response.json({ error: "Danh sách FEN không hợp lệ" }, { status: 400, headers: noStore });
+    }
+    fens = body.fens.map(String);
+  }
+
+  const total = fens.length;
 
   // Nếu ván online đã được phân tích trước đó (cùng version và khớp thế cờ), dùng lại ngay kết quả đã lưu mà không tốn quota.
   if (gameId) {
@@ -174,13 +249,23 @@ export async function POST(request: Request) {
   if (!pool) return Response.json({ error: "Chưa cài engine" }, { status: 503, headers: noStore });
   if (pool.waiting > 32) return Response.json({ error: "Engine đang quá tải" }, { status: 503, headers: noStore });
 
-  // Kiểm tra và trừ quota trên máy chủ (user mỗi ngày, khách theo IP)
-  const quota = await consumeAnalysisQuota(db, user, ip);
-  if (!quota.success) {
-    return Response.json(
-      { error: `Bạn đã dùng hết ${FREE_ANALYSIS_PER_DAY} lượt phân tích miễn phí hôm nay.` },
-      { status: 429, headers: noStore },
-    );
+  // Kiểm tra và trừ quota trên máy chủ (ván sân khấu có hạn mức riêng, ván online theo user/IP)
+  if (stageGameId && stageOwnerKey) {
+    const quota = await consumeStageAnalysisQuota(db, user, stageOwnerKey, ip);
+    if (!quota.success) {
+      return Response.json(
+        { error: `Phòng sân khấu đã dùng hết ${STAGE_FREE_ANALYSIS_PER_DAY} lượt phân tích hôm nay.` },
+        { status: 429, headers: noStore },
+      );
+    }
+  } else {
+    const quota = await consumeAnalysisQuota(db, user, ip);
+    if (!quota.success) {
+      return Response.json(
+        { error: `Bạn đã dùng hết ${FREE_ANALYSIS_PER_DAY} lượt phân tích miễn phí hôm nay.` },
+        { status: 429, headers: noStore },
+      );
+    }
   }
 
   const stream = new ReadableStream({
@@ -323,12 +408,19 @@ export async function POST(request: Request) {
         console.error("[analysis/batch] Lỗi tiến trình engine:", err);
       }
 
-      // Lưu kết quả phân tích nếu là ván online và tính toán thành công
+      // Lưu kết quả phân tích nếu là ván online hoặc ván sân khấu và tính toán thành công
       if (gameId && collectedEvals.length === total && !collectedEvals.some((e) => e === null)) {
         try {
           await saveGameAnalysis(db, gameId, collectedEvals);
         } catch (err) {
           console.error(`[analysis/batch] Không thể lưu phân tích ván ${gameId}:`, err);
+        }
+      }
+      if (stageGameId && collectedEvals.length === total && !collectedEvals.some((e) => e === null)) {
+        try {
+          await saveStageAnalysis(db, stageGameId, collectedEvals);
+        } catch (err) {
+          console.error(`[analysis/batch] Không thể lưu phân tích ván sân khấu ${stageGameId}:`, err);
         }
       }
 

@@ -5,6 +5,7 @@ import {
   CURRENT_ANALYSIS_VERSION,
   FREE_ANALYSIS_PER_DAY,
   consumeAnalysisQuota,
+  consumeStageAnalysisQuota,
   getAnalysisQuota,
   getSavedAnalysis,
   saveGameAnalysis,
@@ -165,6 +166,38 @@ describe("server analysis store & quota", () => {
       const statusB = await getAnalysisQuota(db, null, ipB);
       expect(statusB.allowed).toBe(true);
       expect(statusB.remaining).toBe(3);
+    });
+
+    it("hạn mức phân tích ván sân khấu riêng (25 lượt/ngày/phòng)", async () => {
+      const ownerKey = "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2";
+      for (let i = 1; i <= 25; i++) {
+        const res = await consumeStageAnalysisQuota(db, null, ownerKey, "1.2.3.4");
+        expect(res.success).toBe(true);
+        expect(res.remaining).toBe(25 - i);
+      }
+
+      // Lần thứ 26 phải bị từ chối
+      const fail = await consumeStageAnalysisQuota(db, null, ownerKey, "1.2.3.4");
+      expect(fail.success).toBe(false);
+      expect(fail.remaining).toBe(0);
+    });
+
+    it("chặn lách quota ván sân khấu bằng việc đổi phòng liên tục trên cùng 1 IP (tối đa 50 lượt/ngày/IP)", async () => {
+      const fixedIp = "118.69.100.50";
+      // Chạy 50 lượt qua 2 phòng khác nhau
+      for (let i = 0; i < 25; i++) {
+        const res = await consumeStageAnalysisQuota(db, null, "room_key_alpha", fixedIp);
+        expect(res.success).toBe(true);
+      }
+      for (let i = 0; i < 25; i++) {
+        const res = await consumeStageAnalysisQuota(db, null, "room_key_beta", fixedIp);
+        expect(res.success).toBe(true);
+      }
+
+      // Lượt 51 từ IP này (dù tạo phòng mới room_key_gamma) phải bị chặn
+      const blocked = await consumeStageAnalysisQuota(db, null, "room_key_gamma", fixedIp);
+      expect(blocked.success).toBe(false);
+      expect(blocked.remaining).toBe(0);
     });
   });
 });

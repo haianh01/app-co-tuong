@@ -16,9 +16,10 @@ import zigaStyles from "./ziga/ziga.module.css";
 import { EMPTY_DRAWING, drawingReducer } from "./drawing";
 import { StagePanel, useStageLink, useStageSettings } from "./StagePanel";
 import { changeResult, nextRound, resultOnBoard, type StageResult } from "./stage-round";
+import { useStageArchive } from "./useStageArchive";
 import { findRepair } from "./board-repair";
 import { clockAfterMove, readClock, startClock, stopClock, type GameClock } from "./game-clock";
-import { buildStageState, mergePanelReading, type StageClocks } from "./stage-sync";
+import { buildStageState, canReview, mergePanelReading, type StageClocks, type StageReviewState } from "./stage-sync";
 import { TrialBar, useTrialMoves } from "./trial";
 import { scrollMoveIntoBox } from "./scroll-moves";
 import { clockSeconds } from "@/lib/vision/zigavn-panels";
@@ -53,6 +54,8 @@ export function BroadcastClient() {
   const [game, dispatch] = useReducer(broadcastReducer, undefined, () => newGame());
   /** null = đang xem trực tiếp; số = đang xem lại thế cờ sau nửa nước thứ n. */
   const [viewPly, setViewPly] = useState<number | null>(null);
+  const [stageReview, setStageReview] = useState<StageReviewState | null>(null);
+
   const [sketch, draw] = useReducer(drawingReducer, EMPTY_DRAWING);
   // Chưa theo dõi thì bàn cờ để đi quân (bày lại các nước trang kia đã đi); bắt đầu theo dõi thì chuyển sang vẽ.
   const [drawing, setDrawing] = useState(false);
@@ -186,6 +189,7 @@ export function BroadcastClient() {
   };
 
   const live = viewPly === null;
+
   const ply = viewPly ?? game.moves.length;
   const pos = game.history[ply];
   const lastMove = ply > 0 ? game.moves[ply - 1].move : null;
@@ -230,6 +234,23 @@ export function BroadcastClient() {
   // Người dẫn luôn ở ô trái, và màu cờ của người dẫn luôn là màu cờ phía dưới bàn cờ (orientation).
   const mySide: Side = orientation;
   const oppSide: Side = mySide === "r" ? "b" : "r";
+  const isGameOver = Boolean(
+    game.result ||
+    roundResult ||
+    (game.moves.length > 0 && resultOnBoard(game.history[game.moves.length], mySide))
+  );
+  // Pure anti-cheat: chỉ kích hoạt review lên sân khấu nếu thỏa mãn quy tắc an toàn
+  const activeReview = stageReview && canReview(isGameOver, game.moves.length) ? stageReview : null;
+
+  const handleUpdateReview = useCallback(
+    (rev: StageReviewState | null) => {
+      if (rev && !canReview(isGameOver, game.moves.length)) {
+        return;
+      }
+      setStageReview(rev);
+    },
+    [isGameOver, game.moves.length],
+  );
 
   const turnNow = livePos.turn;
   const noClock = clock === null;
@@ -257,6 +278,21 @@ export function BroadcastClient() {
   );
   usePanelReader(grabRegion, autoRead && status === "following", onPanels);
 
+  const onBoard = resultOnBoard(game.history[game.moves.length], mySide);
+  const fens = useMemo(() => game.history.map(toFen), [game.history]);
+  const archive = useStageArchive({
+    room: stageLink.room,
+    site: "manual",
+    round: stageSettings.round,
+    mySide,
+    me: stageSettings.me,
+    opponent: stageSettings.opponent,
+    moves: game.moves,
+    fens,
+    roundResult,
+    onBoardResult: onBoard,
+  });
+
   const onAnnotate = useCallback((from: number, to: number) => draw({ type: "annotate", from, to, color }), [color]);
 
   /** Lùi nước cuối (tự đi nhầm hoặc app đọc sai): bộ theo dõi sẽ đọc lại từ thế cờ trước đó. */
@@ -271,18 +307,23 @@ export function BroadcastClient() {
   /** Hết ván (có nước đi): tự ghi kết quả nếu bàn cờ đã phân thắng thua mà chưa bấm, rồi sang ván sau. */
   function finishRound() {
     if (game.moves.length === 0) return;
-    const onBoard = resultOnBoard(game.history[game.moves.length], mySide);
-    setStageSettings((s) => nextRound(s, roundResult, onBoard));
+    const currentOnBoard = resultOnBoard(game.history[game.moves.length], mySide);
+    void archive.saveNow(roundResult ?? currentOnBoard, roundResult ? "manual" : currentOnBoard ? "board" : null);
+    setStageSettings((s) => nextRound(s, roundResult, currentOnBoard));
     setRoundResult(null);
   }
 
   const recordResult = (r: StageResult | null) => {
     setStageSettings((s) => ({ ...s, today: changeResult(s.today, roundResult, r) }));
     setRoundResult(r);
+    if (r) {
+      void archive.saveNow(r, "manual");
+    }
   };
 
   const newMatch = () => {
     finishRound();
+    archive.newGame();
     if (status === "following") armClock(null);
     dispatch({ type: "reset" });
     resync(newGame().history[0]);
@@ -329,11 +370,12 @@ export function BroadcastClient() {
         capturedPiece: lastCapturedPiece,
         // Đồng hồ chỉ đúng với thế cờ đang diễn ra; xem lại nước cũ thì ẩn.
         clocks: live ? stageClocks : null,
+        review: activeReview,
         // Đi thử: bàn cờ là biến thử, còn lượt đi / đồng hồ vẫn của ván thật đang chạy ngầm.
         ...(trial.stage && { ...trial.stage, turn: livePos.turn, ply: game.moves.length, capturedPiece: null, clocks: stageClocks }),
       }),
     });
-  }, [sendStage, pos, ply, lastMove, checkSquare, game.moves, sketch.present, mySide, stageSettings, lastCapturedPiece, live, stageClocks, trial.stage, livePos.turn]);
+  }, [sendStage, pos, ply, lastMove, checkSquare, game.moves, sketch.present, mySide, stageSettings, lastCapturedPiece, live, stageClocks, trial.stage, livePos.turn, activeReview]);
 
   const toggleFullscreen = () => {
     if (typeof document === "undefined") return;
@@ -454,6 +496,9 @@ export function BroadcastClient() {
         <Link href="/tuong-thuat/ziga" className={zigaStyles.subnavLink}>
           ⚡ Đồng bộ WebSocket trực tiếp (Ziga Hook)
         </Link>
+        <Link href="/tuong-thuat/lich-su" className={zigaStyles.subnavLink}>
+          📜 Lịch sử ván đấu
+        </Link>
       </nav>
 
       <div ref={boardColRef} className={styles.boardCol}>
@@ -544,6 +589,9 @@ export function BroadcastClient() {
           clocks={stageClocks}
           mySide={mySide}
           onToggleSide={() => setFlipped((f) => !f)}
+          archive={archive}
+          review={activeReview}
+          onUpdateReview={handleUpdateReview}
         />
 
         <section className={styles.card}>

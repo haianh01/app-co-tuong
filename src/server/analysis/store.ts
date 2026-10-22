@@ -127,3 +127,71 @@ export async function consumeAnalysisQuota(
 
   return { success: true, remaining: status.remaining - 1 };
 }
+
+
+export const STAGE_FREE_ANALYSIS_PER_DAY = 25;
+
+/** Kiểm tra và trừ quota phân tích ván sân khấu (streamer VIP không giới hạn, phòng thường tối đa 25 lượt/ngày). */
+export const STAGE_IP_LIMIT_PER_DAY = 50;
+
+export async function consumeStageAnalysisQuota(
+  db: Database,
+  user: AuthUser | null,
+  ownerKey: string,
+  clientIp: string,
+): Promise<{ success: boolean; remaining: number }> {
+  if (user && isVip(user)) {
+    return { success: true, remaining: Infinity };
+  }
+
+  const todayKey = getTodayKey();
+
+  if (clientIp) {
+    const ipKey = `stage_ip:${clientIp.trim()}:${todayKey}`;
+    const [ipRow] = await db
+      .select({ count: analysisUsage.count })
+      .from(analysisUsage)
+      .where(eq(analysisUsage.key, ipKey));
+
+    if ((ipRow?.count ?? 0) >= STAGE_IP_LIMIT_PER_DAY) {
+      return { success: false, remaining: 0 };
+    }
+
+    await db
+      .insert(analysisUsage)
+      .values({ key: ipKey, count: 1, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: analysisUsage.key,
+        set: { count: sql`${analysisUsage.count} + 1`, updatedAt: new Date() },
+      });
+  }
+
+  const key = `stage:${ownerKey.slice(0, 32)}:${todayKey}`;
+
+  const [row] = await db
+    .select({ count: analysisUsage.count })
+    .from(analysisUsage)
+    .where(eq(analysisUsage.key, key));
+
+  const used = row?.count ?? 0;
+  if (used >= STAGE_FREE_ANALYSIS_PER_DAY) {
+    return { success: false, remaining: 0 };
+  }
+
+  await db
+    .insert(analysisUsage)
+    .values({
+      key,
+      count: 1,
+      updatedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: analysisUsage.key,
+      set: {
+        count: sql`${analysisUsage.count} + 1`,
+        updatedAt: new Date(),
+      },
+    });
+
+  return { success: true, remaining: STAGE_FREE_ANALYSIS_PER_DAY - (used + 1) };
+}

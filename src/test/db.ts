@@ -19,7 +19,7 @@ export async function resetDb(): Promise<Database> {
   await db.execute(sql`
     truncate table games, sessions, users, oauth_accounts, email_tokens, coin_transactions, puzzle_progress,
       user_items, payments, reports, live_games, tournaments, tournament_players, season_rewards,
-      game_analysis, analysis_usage
+      game_analysis, analysis_usage, stage_games, stage_game_analysis
     cascade
   `);
   return db;

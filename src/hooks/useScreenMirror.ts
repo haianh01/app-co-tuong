@@ -453,7 +453,11 @@ export function useScreenMirror(
         if (!ps) return;
         const moves = tracker.feed(ps);
         if (moves.length) onMovesRef.current(moves);
-        else if (tracker.last.restarted) onRestartRef.current?.();
+        else if (tracker.last.restarted) {
+          // Ván mới có thể đổi màu: bộ theo dõi đã tự lật hướng, bàn cờ ở đây và phe của người dẫn đổi theo.
+          setBottom(tracker.bottomSide);
+          onRestartRef.current?.();
+        }
         // Lệch nhiều ô hay bị che liên tục: có thể trang kia đã phóng to/thu nhỏ (cùng tỉ lệ khung nhưng bàn cờ dời chỗ).
         const lost = !tracker.last.moving && (tracker.last.mismatched.length >= RELOCATE_MISMATCH || (tracker.last.occluded ?? 0) > 0);
         relocateStreak = lost || relocateStreak < 0 ? relocateStreak + 1 : 0;

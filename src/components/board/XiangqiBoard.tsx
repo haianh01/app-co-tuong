@@ -66,6 +66,12 @@ const MARK_PATH = (() => {
 /** Quân úp của cờ úp: "H" (đỏ) và "h" (đen). */
 const isHidden = (p: string) => p === "H" || p === "h";
 
+export const ZIGA_PIECE_CHAR: Record<string, string> = {
+  K: "帥", A: "仕", B: "相", N: "傌", R: "俥", C: "砲", P: "兵",
+  k: "將", a: "士", b: "象", n: "馬", r: "車", c: "包", p: "卒",
+  H: "暗", h: "暗",
+};
+
 export interface BoardArrow {
   from: number;
   to: number;
@@ -101,10 +107,6 @@ export interface XiangqiBoardProps {
   highlights?: (number | BoardHighlight)[];
   /** Màu nét vẽ phác thảo khi rê chuột (mặc định #3b82f6). */
   sketchColor?: string;
-  /**
-   * Chế độ vẽ (bình luận): một lớp phủ nhận thao tác thay cho quân cờ. Kéo từ ô này sang ô khác gọi
-   * onAnnotate(từ, đến) để vẽ mũi tên; bấm một ô gọi onAnnotate(ô, ô) để khoanh ô đó.
-   */
   /** Tùy chọn độ phóng to bề dày mũi tên và đầu mũi tên (cho màn hình điện thoại / livestream sân khấu). */
   arrowWidthScale?: number;
   /** Bật hiệu ứng vẽ từ từ của mũi tên (stroke-dashoffset animation). */
@@ -112,6 +114,10 @@ export interface XiangqiBoardProps {
   /** Lớp CSS gắn ngoài viền bàn cờ để ghi đè kích thước/bố cục nếu cần. */
   className?: string;
   onAnnotate?: (from: number, to: number) => void;
+  /** Chế độ giao diện Ziga giống bàn cờ cờ tướng Ziga (quân cờ ngà gỗ, watermark sông, góc xanh neon). */
+  variant?: "standard" | "ziga";
+  /** Chữ watermark giữa sông (mặc định 'Cờ Ziga' khi variant='ziga'). */
+  riverWatermark?: string;
 }
 
 export function XiangqiBoard({
@@ -134,6 +140,8 @@ export function XiangqiBoard({
   animateArrows = false,
   className,
   onAnnotate,
+  variant = "standard",
+  riverWatermark,
 }: XiangqiBoardProps) {
   const { user } = useSession();
   const boardRef = useRef<HTMLDivElement>(null);
@@ -274,15 +282,26 @@ export function XiangqiBoard({
     "--piece-edge": pc.edge,
   } as CSSProperties;
 
+  const isZiga = variant === "ziga";
+  const charMap = isZiga ? ZIGA_PIECE_CHAR : PIECE_CHAR;
+
   return (
-    <div className={`${styles.rim} ${className ?? ""}`.trim()} style={theme}>
+    <div className={`${styles.rim} ${isZiga ? styles.zigaBoard : ""} ${className ?? ""}`.trim()} style={theme}>
       <div ref={boardRef} className={styles.board} style={BOARD_VARS} data-disabled={disabled || undefined}>
         <svg className={styles.lines} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
           <rect x={PAD_X - 7} y={PAD_Y - 7} width={8 * CELL + 14} height={9 * CELL + 14} className={styles.frame} />
           <path d={GRID_PATH} className={styles.grid} />
           <path d={MARK_PATH} className={styles.grid} />
-          <text x={px(2)} y={py(4.5)} className={styles.river}>楚 河</text>
-          <text x={px(6)} y={py(4.5)} className={styles.river}>漢 界</text>
+          {isZiga ? (
+            <text x={px(4)} y={py(4.5) + 3} className={styles.zigaRiver}>
+              {riverWatermark ?? "Cờ Ziga"}
+            </text>
+          ) : (
+            <>
+              <text x={px(2)} y={py(4.5)} className={styles.river}>楚 河</text>
+              <text x={px(6)} y={py(4.5)} className={styles.river}>漢 界</text>
+            </>
+          )}
           {/* Số cột: hàng trên theo cách đếm của bên trên, hàng dưới theo bên dưới (đều đếm từ phải sang). */}
           {Array.from({ length: 9 }, (_, dc) => (
             <g key={dc} className={styles.label}>
@@ -295,6 +314,8 @@ export function XiangqiBoard({
         {lastMove && <span className={styles.lastFrom} style={at(lastMove.from)} aria-hidden="true" />}
         {/* Khung 4 góc xanh quanh quân vừa đi tới, dễ nhận ra nước vừa đi trên livestream. */}
         {lastMove && <span className={styles.lastCorners} style={at(lastMove.to)} aria-hidden="true" />}
+        {/* Khung 4 góc xanh neon Ziga quanh quân đang được chọn */}
+        {selected !== null && <span className={styles.selectedCorners} style={at(selected)} aria-hidden="true" />}
 
         {board.map((p, i) => {
           if (!p) return null;
@@ -328,7 +349,7 @@ export function XiangqiBoard({
               aria-label={hidden ? `Quân úp ${red ? "đỏ" : "đen"}` : `${PIECE_NAME[typeOf(p)]} ${red ? "đỏ" : "đen"}`}
               aria-pressed={i === selected}
             >
-              <span className={styles.face}>{hidden ? "" : PIECE_CHAR[p]}</span>
+              <span className={styles.face}>{hidden ? "" : charMap[p]}</span>
             </button>
           );
         })}
@@ -337,14 +358,14 @@ export function XiangqiBoard({
           <button
             key={`t${t}`}
             type="button"
-            className={styles.target}
+            className={`${styles.target} ${isZiga ? styles.zigaTarget : ""}`.trim()}
             style={at(t)}
             onClick={() => select(t)}
             onDragStart={(e) => e.preventDefault()}
             data-square={t}
             aria-label="Đi tới ô này"
           >
-            <span />
+            {isZiga ? <span className={styles.targetCorners} /> : <span />}
           </button>
         ))}
 

@@ -312,6 +312,58 @@ describe("trang kia sang ván mới", () => {
     expect(t.last.restarted).toBeFalsy();
   });
 
+  it("ván mới đổi màu (ván trước cầm Đỏ, ván này cầm Đen): tự lật hướng rồi đọc tiếp ván mới", () => {
+    const old = convertChineseGame(MASTER_GAMES[0].movesCN);
+    const game = convertChineseGame(MASTER_GAMES[1].movesCN);
+    const t = trackerFor("r");
+    for (let i = 0; i < 12; i++) feedStable(t, { board: old.positions[i + 1].board, bottom: "r", lastMove: old.moves[i], shift: 1 });
+    expect(t.position.board).toEqual(old.positions[12].board);
+
+    expect(feedStable(t, { board: start.board, bottom: "b", shift: 1 })).toEqual([]);
+    expect(t.last.restarted).toBe(true);
+    expect(t.bottomSide).toBe("b");
+    expect(t.position.board).toEqual(start.board);
+
+    const seen: Move[] = [];
+    for (let i = 0; i < 8; i++) seen.push(...feedStable(t, { board: game.positions[i + 1].board, bottom: "b", lastMove: game.moves[i], shift: 1 }));
+    expect(seen).toEqual(game.moves.slice(0, 8));
+  });
+
+  it.each<[Side, number]>([
+    ["r", 1],
+    ["b", 1],
+    ["r", 2],
+    ["b", 2],
+  ])(
+    "ván mới (phe %s ngồi dưới) mà lần đầu thấy rõ bàn cờ đã qua %i nước (nút Sẵn sàng che tới lúc vào ván): vẫn nhận ván mới và đọc ra các nước đó",
+    (bottom, plies) => {
+      const old = convertChineseGame(MASTER_GAMES[0].movesCN);
+      const game = convertChineseGame(MASTER_GAMES[1].movesCN);
+      const t = trackerFor("r");
+      for (let i = 0; i < 12; i++) feedStable(t, { board: old.positions[i + 1].board, bottom: "r", lastMove: old.moves[i], shift: 1 });
+
+      const frame = { board: game.positions[plies].board, bottom, lastMove: game.moves[plies - 1], shift: 1 };
+      const seen = feedStable(t, frame);
+      expect(t.last.restarted || seen.length > 0).toBe(true);
+      expect(t.bottomSide).toBe(bottom);
+      seen.push(...feedStable(t, frame));
+      for (let i = plies; i < plies + 4; i++) seen.push(...feedStable(t, { board: game.positions[i + 1].board, bottom, lastMove: game.moves[i], shift: 1 }));
+      expect(seen).toEqual(game.moves.slice(0, plies + 4));
+    },
+  );
+
+  it("giữa ván, đối phương đi tiếp như thường thì không bị tưởng là ván mới dù đang cầm Đen", () => {
+    const game = convertChineseGame(MASTER_GAMES[1].movesCN);
+    const t = trackerFor("b");
+    const seen: Move[] = [];
+    for (let i = 0; i < 30; i++) {
+      seen.push(...feedStable(t, { board: game.positions[i + 1].board, bottom: "b", lastMove: game.moves[i], shift: 1 }));
+      expect(t.last.restarted, `nước ${i + 1}`).toBeFalsy();
+    }
+    expect(seen).toEqual(game.moves.slice(0, 30));
+    expect(t.bottomSide).toBe("b");
+  });
+
   it("nước đầu tiên của ván không bị tưởng là ván mới", () => {
     const game = convertChineseGame(MASTER_GAMES[0].movesCN);
     const t = trackerFor("r");

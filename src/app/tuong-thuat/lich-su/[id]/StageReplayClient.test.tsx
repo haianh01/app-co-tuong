@@ -75,4 +75,37 @@ describe("StageReplayClient", () => {
     expect(screen.getByText(/0 \/ 2/i)).toBeTruthy();
     expect(screen.getByText(/Thế cờ xuất phát/i)).toBeTruthy();
   });
+  it("bấm chiếu lên sân khấu thì gửi thế cờ đang xem dưới dạng review, lùi nước thì sân khấu lùi theo", async () => {
+    const sent: string[] = [];
+    class FakeSocket {
+      static OPEN = 1;
+      readyState = 1;
+      onopen: (() => void) | null = null;
+      onmessage: ((e: { data: string }) => void) | null = null;
+      onclose: (() => void) | null = null;
+      constructor() {
+        queueMicrotask(() => this.onopen?.());
+      }
+      send(text: string) {
+        sent.push(text);
+      }
+      close() {}
+    }
+    vi.stubGlobal("WebSocket", FakeSocket);
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({ game: sampleGame, analysis: null }), { status: 200 }));
+
+    render(<StageReplayClient id="stg_replay_1" />);
+    const btn = await screen.findByRole("button", { name: /Chiếu lên sân khấu/i });
+    await waitFor(() => expect((btn as HTMLButtonElement).disabled).toBe(false));
+    expect(sent).toHaveLength(0);
+
+    fireEvent.click(btn);
+    const lastReview = () => JSON.parse(sent[sent.length - 1]).state.review;
+    await waitFor(() => expect(sent.length).toBeGreaterThan(0));
+    expect(lastReview()).toMatchObject({ gameId: "stg_replay_1", ply: 2, totalPlies: 2, commentary: "Nước 2: M2.3" });
+
+    fireEvent.click(screen.getByRole("button", { name: /Nước trước/i }));
+    await waitFor(() => expect(lastReview().ply).toBe(1));
+    vi.unstubAllGlobals();
+  });
 });

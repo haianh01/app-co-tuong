@@ -55,7 +55,7 @@ export const DEFAULT_STAGE_VOICE_LINES: StageVoiceLines = {
 export interface StageSettings {
   me: StagePlayer;
   opponent: StagePlayer;
-  /** Tên trên bảng tên dưới khung camera. */
+  /** Tên kênh, hiện làm tiêu đề lớn trên cùng sân khấu; để trống thì dùng tên kì thủ của bạn (`me.name`). */
   host: string;
   /** Trang cờ đang chơi, hiện ở thanh trên cùng. */
   site: string;
@@ -219,7 +219,7 @@ export interface StageTrial {
 export const DEFAULT_STAGE_SETTINGS: StageSettings = {
   me: { name: "W43604711", title: "Tập Sự", points: "894", stars: 0, avatarUrl: "/stage/avatar_red.jpg" },
   opponent: { name: "Đối thủ", title: "Tập Sự", points: "894", stars: 0, avatarUrl: "/stage/avatar_black.jpg" },
-  host: "BLV",
+  host: "",
   site: "zigavn.com",
   round: 1,
   today: { win: 0, draw: 0, loss: 0 },

@@ -6,8 +6,11 @@ import { XiangqiBoard } from "@/components/board/XiangqiBoard";
 import { AnalysisPanel, type AnalysisUpdateInfo } from "@/app/game/[id]/AnalysisPanel";
 import { replayMoves } from "@/lib/xiangqi/game";
 import { detectOpeningFromMoves } from "@/lib/xiangqi/openings";
-import type { PositionEval } from "@/lib/xiangqi/analysis";
+import { moveNotation } from "@/lib/xiangqi/notation";
+import { findTurningPoints, type PositionEval } from "@/lib/xiangqi/analysis";
 import type { StageGame } from "@/server/db/schema";
+import { useStageLink, useStageSettings } from "../../StagePanel";
+import { buildStageState, type StageReviewState } from "../../stage-sync";
 import broadcastStyles from "../../broadcast.module.css";
 import zigaStyles from "../../ziga/ziga.module.css";
 import styles from "../history.module.css";
@@ -34,6 +37,10 @@ export function StageReplayClient({ id }: { id: string }) {
 
   const [ply, setPly] = useState<number>(0);
   const [analysisInfo, setAnalysisInfo] = useState<AnalysisUpdateInfo | null>(null);
+  // Chiếu ván đang xem lên sân khấu OBS. Phải bấm bật, để mở lịch sử ở tab khác lúc đang đánh không đè lên ván thật.
+  const stageLink = useStageLink();
+  const [stageSettings] = useStageSettings();
+  const [onStage, setOnStage] = useState(false);
 
   useEffect(() => {
     if (!room || !id) return;
@@ -93,6 +100,55 @@ export function StageReplayClient({ id }: { id: string }) {
     }),
     [id, room],
   );
+
+  const turningPoints = useMemo(() => {
+    const moves = analysisInfo?.review?.moves;
+    return moves?.length ? findTurningPoints(moves, 3) : [];
+  }, [analysisInfo?.review]);
+
+  const { send: sendStage } = stageLink;
+  useEffect(() => {
+    if (!onStage || !game || !gameState || !currentPos) return;
+    const ev = analysis?.[ply] ?? null;
+    const best = ev?.best ?? null;
+    const tp = turningPoints.find((t) => t.ply === ply);
+    const review: StageReviewState = {
+      gameId: game.id,
+      round: game.round,
+      ply,
+      totalPlies,
+      board: currentPos.board,
+      lastMove: currentLastMove,
+      evalScore: ev?.score ?? null,
+      bestMove: best,
+      bestNotation: best ? moveNotation(currentPos.board, best) : null,
+      arrows: analysisInfo?.arrows?.length
+        ? analysisInfo.arrows
+        : best
+          ? [{ from: best.from, to: best.to, color: "rgba(34, 197, 94, 0.9)" }]
+          : [],
+      turningPoint: tp
+        ? { index: turningPoints.indexOf(tp), ply: tp.ply, notation: tp.notation, side: tp.side, cls: tp.cls, winDrop: tp.winDrop, description: tp.description }
+        : null,
+      commentary: tp?.description ?? (ply > 0 ? `Nước ${ply}: ${gameState.moves[ply - 1].notation}` : "Thế cờ xuất phát"),
+    };
+    sendStage({
+      t: "state",
+      state: buildStageState({
+        board: currentPos.board,
+        turn: currentPos.turn,
+        ply,
+        lastMove: currentLastMove,
+        checkSquare: null,
+        notations: gameState.moves.map((m) => m.notation),
+        arrows: [],
+        highlights: [],
+        mySide: game.mySide === "b" ? "b" : "r",
+        settings: stageSettings,
+        review,
+      }),
+    });
+  }, [onStage, game, gameState, currentPos, currentLastMove, ply, totalPlies, analysis, analysisInfo?.arrows, turningPoints, stageSettings, sendStage]);
 
   // Điều hướng phím mũi tên
   useEffect(() => {
@@ -174,7 +230,19 @@ export function StageReplayClient({ id }: { id: string }) {
                 Ván {game.round ?? "–"} · {opening}
               </span>
             </div>
-            <span className={`${styles.badge} ${resultBadge.cls}`}>{resultBadge.text}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <button
+                type="button"
+                className={onStage ? broadcastStyles.btnGold : broadcastStyles.btn}
+                aria-pressed={onStage}
+                disabled={!stageLink.online}
+                onClick={() => setOnStage((v) => !v)}
+                title="Chiếu nước đang xem của ván này lên màn sân khấu OBS"
+              >
+                {onStage ? "✓ Đang chiếu lên sân khấu" : "📺 Chiếu lên sân khấu"}
+              </button>
+              <span className={`${styles.badge} ${resultBadge.cls}`}>{resultBadge.text}</span>
+            </div>
           </div>
 
           <div style={{ width: "100%", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 8px" }}>

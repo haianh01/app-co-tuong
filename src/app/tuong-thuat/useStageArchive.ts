@@ -160,7 +160,10 @@ export function useStageArchive({
   timeControl,
   fens,
 }: UseStageArchiveOptions): StageArchive {
-  const [gameId, setGameId] = useState<string>(() => newStageGameId());
+  // cacheComponents prerender cả client component, nên không được sinh số ngẫu nhiên / đọc giờ hiện tại
+  // ngay lúc render: ID sinh lười khi lưu hoặc sang ván mới, giờ bắt đầu ghi sau khi mount.
+  const gameIdRef = useRef<string | null>(null);
+  const [gameId, setGameId] = useState<string>("");
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [savedRound, setSavedRound] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -170,7 +173,7 @@ export function useStageArchive({
   const [analyzedRound, setAnalyzedRound] = useState<number | null>(null);
   const [analysisEvals, setAnalysisEvals] = useState<(PositionEval | null)[] | null>(null);
 
-  const startedAtRef = useRef<Date>(new Date());
+  const startedAtRef = useRef<Date | null>(null);
   const lastSavedSignatureRef = useRef<string>("");
   const savingRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -262,11 +265,16 @@ export function useStageArchive({
   }, []);
 
   const newGame = useCallback(() => {
-    setGameId(newStageGameId());
+    gameIdRef.current = newStageGameId();
+    setGameId(gameIdRef.current);
     setStatus("idle");
     setError(null);
     startedAtRef.current = new Date();
     lastSavedSignatureRef.current = "";
+  }, []);
+
+  useEffect(() => {
+    startedAtRef.current ??= new Date();
   }, []);
 
   const saveNow = useCallback(
@@ -306,6 +314,9 @@ export function useStageArchive({
         notation: m.notation,
       }));
 
+      const gameId = (gameIdRef.current ??= newStageGameId());
+      setGameId(gameId);
+
       // Chữ ký để tránh lưu lặp lại cùng một trạng thái
       const signature = `${gameId}:${finalResult}:${moves.length}`;
       if (lastSavedSignatureRef.current === signature) {
@@ -332,7 +343,7 @@ export function useStageArchive({
         moves: formattedMoves,
         plies: moves.length,
         timeControl,
-        startedAt: startedAtRef.current.toISOString(),
+        startedAt: (startedAtRef.current ?? new Date()).toISOString(),
         endedAt: new Date().toISOString(),
       };
 
@@ -369,7 +380,7 @@ export function useStageArchive({
         savingRef.current = false;
       }
     },
-    [room, moves, roundResult, onBoardResult, gameId, site, round, mySide, me, opponent, startFen, timeControl, fens, startBackgroundAnalysis],
+    [room, moves, roundResult, onBoardResult, site, round, mySide, me, opponent, startFen, timeControl, fens, startBackgroundAnalysis],
   );
 
   // Tự động lưu khi bàn cờ phát hiện hết ván (resultOnBoard)

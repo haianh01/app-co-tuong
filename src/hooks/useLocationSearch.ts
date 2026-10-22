@@ -15,6 +15,15 @@ export function useNextParam(fallback = "/online"): string {
   return useQueryParam("next", fallback);
 }
 
+/** Chuỗi query string `?a=b&c=d` trên URL, đọc ở client (trên server trả về rỗng). */
+export function useLocationSearch(): string {
+  return useSyncExternalStore(
+    subscribe,
+    () => window.location.search,
+    () => "",
+  );
+}
+
 /** Tham số bất kỳ trên URL, đọc ở client (trên server trả về `fallback`). */
 export function useQueryParam(name: string, fallback = ""): string {
   return useSyncExternalStore(
@@ -23,3 +32,4 @@ export function useQueryParam(name: string, fallback = ""): string {
     () => fallback,
   );
 }
+

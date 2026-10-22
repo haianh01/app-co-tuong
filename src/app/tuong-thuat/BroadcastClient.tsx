@@ -133,6 +133,8 @@ export function BroadcastClient() {
   // về thế ban đầu nên không cần resync.
   const onRestart = () => {
     finishRound();
+    // Ván mới một mã lưu mới, không thì ván này ghi đè lên bản lưu của ván trước.
+    archive.newGame();
     armClock(null);
     dispatch({ type: "reset" });
     setViewPly(null);

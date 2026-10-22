@@ -264,6 +264,33 @@ const OCCLUDE_FACTOR = 200;
 const OCCLUDE_MIN = 2;
 /** …và lệch thế ban đầu không quá chừng này ô (chừa cho chữ đếm ngược, nút "Sẵn sàng" đè lên bàn cờ). */
 const RESTART_MAX_DIFF = 1;
+/**
+ * Nhận ván mới cả khi ảnh đứng yên đầu tiên đã là sau chừng này nước: nút "Sẵn sàng", chữ đếm ngược che bàn cờ tới
+ * lúc ván bắt đầu, che xong là bên Đỏ đi ngay (có khi Đen đáp luôn) nên không có khung nào đúng thế ban đầu.
+ */
+const RESTART_MAX_PLIES = 2;
+
+/** Nhãn từng ô của thế ban đầu và mọi thế sau 1..RESTART_MAX_PLIES nước đầu ván (tính một lần). */
+let openingLabels: Label[][] | null = null;
+function newGameLabels(): Label[][] {
+  if (openingLabels) return openingLabels;
+  const out: Label[][] = [];
+  const walk = (pos: Position, depth: number) => {
+    out.push(pos.board.map(labelOf));
+    if (depth < RESTART_MAX_PLIES) for (const m of legalMoves(pos)) walk(applyMove(pos, m), depth + 1);
+  };
+  walk(initialPosition(), 0);
+  return (openingLabels = out);
+}
+
+/** Ảnh (nhãn theo thứ tự ô cờ) có phải thế ban đầu hay vài nước đầu ván không. */
+function looksLikeNewGame(seen: Label[]): boolean {
+  return newGameLabels().some((labels) => {
+    let diff = 0;
+    for (let i = 0; i < 90; i++) if (labels[i] !== seen[i] && ++diff > RESTART_MAX_DIFF) return false;
+    return true;
+  });
+}
 
 /** Tích vô hướng (chia số phần tử, cùng thang với `patchDistance`) của (a − b) với r. */
 function projection(a: Patch, b: Patch, r: Patch): number {
@@ -359,12 +386,19 @@ export class MoveTracker {
       if (seen[i] !== label) mismatched.push(i);
     }
     if (!moves.length && mismatched.length >= RESTART_MIN_MISMATCH) {
-      const start = initialPosition();
-      const diff = start.board.reduce((n, p, i) => (labelOf(p) === seen[i] ? n : n + 1), 0);
-      if (diff <= RESTART_MAX_DIFF) {
-        // Trang kia đã bày lại thế ban đầu: theo dõi ván mới từ đầu.
-        this.setPosition(start);
-        this.prev = patches;
+      // Ván mới có thể đổi màu (ván trước cầm Đỏ, ván này cầm Đen): nhìn theo phe ngồi dưới cũ thì quân đỏ nằm chỗ
+      // quân đen, nên xét cả ảnh lật. Ô k của hướng mới là ô 89 − k của hướng cũ.
+      const same = looksLikeNewGame(seen);
+      const flipped = !same && looksLikeNewGame(seen.map((_, i) => seen[89 - i]));
+      if (same || flipped) {
+        if (flipped) {
+          this.bottom = this.bottom === "r" ? "b" : "r";
+          // Mẫu quân theo màu nên vẫn dùng được; mẫu ô trống gắn với chỗ trên ảnh nên đổi theo ô.
+          this.templates.emptyAt = this.templates.emptyAt.map((_, i) => this.templates.emptyAt[89 - i]);
+        }
+        // Theo dõi ván mới từ thế ban đầu; ảnh đã qua vài nước đầu thì nhịp sau đọc ra các nước đó như thường.
+        this.setPosition(initialPosition());
+        this.prev = flipped ? patches.map((_, i) => patches[89 - i]) : patches;
         this.last = { moving: false, mismatched: [], restarted: true };
         return [];
       }

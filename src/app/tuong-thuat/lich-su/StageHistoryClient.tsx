@@ -89,6 +89,8 @@ export function StageHistoryClient() {
       map.set(d, list);
     }
 
+    // Lúc dựng sẵn trang (prerender) chưa tải ván nào: không được đọc giờ hiện tại ngay khi render.
+    if (!map.size) return groups;
     const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" });
 
     for (const [date, items] of map.entries()) {

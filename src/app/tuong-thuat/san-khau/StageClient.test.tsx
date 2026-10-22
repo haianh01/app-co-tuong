@@ -58,7 +58,7 @@ function stateAfterCentralCannon() {
       round: 5,
       me: { name: "W39823757", points: "1000", title: "Tập Sự", stars: 2 },
       opponent: { name: "A40745895", points: "1020" },
-      host: "BLV Hải Anh",
+      host: "Cờ Tướng Hải Anh",
       today: { win: 3, draw: 1, loss: 1 },
     },
   });
@@ -84,12 +84,22 @@ describe("StageClient", () => {
     expect(screen.getByText("A40745895")).toBeDefined();
     expect(screen.getByText("1020")).toBeDefined();
     expect(screen.getByText("BẠN")).toBeDefined();
-    expect(screen.getByText("BLV Hải Anh")).toBeDefined();
+    expect(screen.getByText("Cờ Tướng Hải Anh")).toBeDefined();
     expect(screen.getByText("Đang chơi trên zigavn.com")).toBeDefined();
     // Vừa đi xong nước của mình: tới lượt đối thủ.
     expect(screen.getByText("Đối thủ đang nghĩ…")).toBeDefined();
     expect(screen.getByText("ĐANG NGHĨ")).toBeDefined();
     expect(container.textContent).not.toMatch(/[+-]\d\.\d/);
+  });
+
+  it("chưa đặt tên kênh: tiêu đề dùng tên kì thủ của người dẫn, không hiện chữ BLV", () => {
+    render(<StageClient />);
+    const state = stateAfterCentralCannon();
+    state.settings.host = "";
+    FakeSocket.all[0].receive({ t: "state", state });
+    // Một lần ở tiêu đề, một lần ở thẻ người chơi.
+    expect(screen.getAllByText("W39823757")).toHaveLength(2);
+    expect(document.body.textContent).not.toMatch(/BLV/);
   });
 
   it("đồng hồ: tổng giờ hai bên, bên đang chạy có thêm thời gian còn cho nước này", () => {
@@ -261,7 +271,8 @@ describe("StageClient", () => {
     expect(screen.getByText(/AI PHÂN TÍCH · VÁN 5/i)).toBeDefined();
     expect(screen.getAllByText(/🔴 Đỏ ưu \(\+4\.5\)/i).length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/⚡ Bước ngoặt #1: P2-5/i)).toBeDefined();
-    expect(screen.getByText(/Tối ưu: X1.1/i)).toBeDefined();
+    // Khung giới thiệu tách nhãn và giá trị thành hai span trên cùng một dòng.
+    expect(screen.getByText("Tối ưu:").closest("li")?.textContent).toContain("X1.1");
     expect(screen.getByText(/Bên Đỏ xuất tướng vội vàng/i)).toBeDefined();
   });
 

@@ -30,6 +30,8 @@ function loadSettings(): StageSettings {
       const saved = JSON.parse(raw) as { date?: string; settings?: Partial<StageSettings> };
       const voiceLines: StageVoiceLines = { ...DEFAULT_STAGE_VOICE_LINES, ...saved.settings?.voiceLines };
       const s: StageSettings = { ...DEFAULT_STAGE_SETTINGS, ...saved.settings, voiceLines };
+      // "BLV" là tên mặc định cũ; người dẫn chính là người đang chơi nên bỏ đi để sân khấu dùng tên kì thủ.
+      if (s.host === "BLV") s.host = "";
       return saved.date === today() ? s : { ...s, round: 1, today: DEFAULT_STAGE_SETTINGS.today };
     }
   } catch {}
@@ -539,8 +541,8 @@ export function StagePanel({
           </fieldset>
 
           <label className={styles.stageField}>
-            <span className={styles.stageLabel}>Tên dưới camera</span>
-            <input className={styles.stageInput} value={settings.host} onChange={(e) => setSettings((s) => ({ ...s, host: e.target.value }))} />
+            <span className={styles.stageLabel}>Tên kênh (tiêu đề sân khấu)</span>
+            <input className={styles.stageInput} value={settings.host} placeholder={settings.me.name} onChange={(e) => setSettings((s) => ({ ...s, host: e.target.value }))} />
           </label>
           <label className={styles.stageField}>
             <span className={styles.stageLabel}>Trang cờ</span>

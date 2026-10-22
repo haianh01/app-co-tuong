@@ -18,7 +18,8 @@ Bản sao lưu nguyên trạng được ghi vào .data/expert-commentary.bak-<ng
 
 Kiểm tra dẫn chứng (`--check`): mọi `summary.evidenceQuote` phải là chuỗi con của phụ đề
 (sau khi chuẩn hóa khoảng trắng/dấu câu); `red`/`black` phải xuất hiện trong phụ đề
-hoặc có `provenance.sources`. Vi phạm ⇒ thoát mã 1.
+hoặc có `provenance.sources`; không hai bài chung một biên bản; `status: verified` cần ≥2 cặp nước
+liên tiếp trong phụ đề khớp biên bản (`provenance.moveEvidence`, do populate-real-games.ts ghi). Vi phạm ⇒ thoát mã 1.
 """
 
 import argparse
@@ -91,6 +92,9 @@ def check(d: dict) -> list:
             errors.append(f"{side}='{name}' không có trong phụ đề và không có provenance.sources")
     if d.get("movesCoords") and not sources:
         errors.append("có movesCoords nhưng không có provenance.sources (biên bản ván lấy từ đâu?)")
+    status = (d.get("provenance") or {}).get("status")
+    if status == "verified" and len((d.get("provenance") or {}).get("moveEvidence") or []) < 2:
+        errors.append("status=verified nhưng moveEvidence < 2 cặp nước khớp phụ đề")
     return errors
 
 
@@ -106,8 +110,15 @@ def main() -> int:
 
     if args.check:
         bad = 0
+        games = {}
         for f in files:
-            errs = check(json.loads(f.read_text(encoding="utf-8")))
+            d = json.loads(f.read_text(encoding="utf-8"))
+            errs = check(d)
+            key = "".join(m.get("raw", "") for m in d.get("movesCoords") or [])
+            if key:
+                if key in games:
+                    errs.append(f"dùng cùng biên bản với {games[key]}")
+                games.setdefault(key, f.name)
             if errs:
                 bad += 1
                 print(f"[✗] {f.name}: " + "; ".join(errs))

@@ -3,6 +3,8 @@ import { assessPosition, type PositionAssessment } from "./assess";
 import { attackersOf, inCheck, isDefended, legalMoves, opponent, play, PIECE_VALUES, sideOf, typeOf, type Board, type Move, type Side } from "./engine";
 import { explainMove, personaFacts, type Fact } from "./explain";
 import { endgamePrincipleFacts } from "./endgame-principles";
+import { classifyMoveOutcome, type MoveOutcome } from "./move-outcome";
+import { zhaoOutcomeAllows } from "./zhao-outcome";
 import { detectIntent, type IntentFact } from "./intent";
 import type { GameState } from "./game";
 import { moveNotation } from "./notation";
@@ -303,12 +305,25 @@ export function isSignificantMove(before: Board, move: Move, after: Board, cls: 
 /**
  * Chuyên gia chỉ bình kỳ lý ở nước quan trọng: lời chê chỉ đi với nước bị chấm lỗi,
  * lời khen chỉ đi với nước không lỗi VÀ đáng bình; nước theo sách khai cuộc không gắn kỳ lý trung cuộc.
+ * Trên hết, biến engine phải xác nhận điều kỳ lý nói (zhao-outcome.ts) — không có biến thì không gắn.
  */
-function keepZhaoFact(f: Fact, cls: MoveClass | null, isFault: boolean, before: Board, move: Move, after: Board): boolean {
+function keepZhaoFact(f: Fact, cls: MoveClass | null, isFault: boolean, before: Board, move: Move, after: Board, outcome: MoveOutcome | null): boolean {
   if (f.kind !== "zhaoMiddlegame") return true;
-  if (cls === "book") return false;
+  if (cls === "book" || !outcome) return false;
+  if (!zhaoOutcomeAllows(f.tactic, outcome, f.side)) return false;
   if (f.tone === "critique") return isFault;
   return !isFault && isSignificantMove(before, move, after, cls);
+}
+
+/** Kết quả của nước đi theo biến engine (null khi không có điểm/biến sau nước đi). */
+export function moveOutcomeFromEval(before: Board, move: Move, afterEval: PositionEval | null): MoveOutcome | null {
+  if (!afterEval) return null;
+  // afterEval chấm theo đối phương (bên đi tiếp theo)
+  return classifyMoveOutcome(before, move, afterEval.pv, {
+    scoreForMover: -afterEval.score,
+    moverMates: afterEval.score <= -MATE_THRESHOLD,
+    opponentMates: afterEval.score >= MATE_THRESHOLD,
+  });
 }
 
 /**
@@ -496,6 +511,7 @@ export function reviewMove(
   }
 
   // Kỳ lý trung cuộc theo phong cách đại sư (B6, B7); explainText chỉ hiện khi chọn góc nhìn tương ứng
+  const outcome = moveOutcomeFromEval(state.history[i].board, m.move, afterEval);
   facts.push(
     ...personaFacts(state.history[i].board, m.move, state.history[i + 1].board, {
       pv: afterEval?.pv,
@@ -503,7 +519,7 @@ export function reviewMove(
       evalBefore: before,
       evalAfter: afterEval,
       recentMoves: state.moves.slice(Math.max(0, i - 6), i).map((x) => x.move),
-    }).filter((f) => keepZhaoFact(f, cls, isFault, state.history[i].board, m.move, state.history[i + 1].board)),
+    }).filter((f) => keepZhaoFact(f, cls, isFault, state.history[i].board, m.move, state.history[i + 1].board, outcome)),
     // Nguyên lý tàn cuộc: hiện ở mọi góc nhìn bình luận
     ...endgamePrincipleFacts(state.history[i].board, m.move, state.history[i + 1].board, {
       pv: afterEval?.pv,

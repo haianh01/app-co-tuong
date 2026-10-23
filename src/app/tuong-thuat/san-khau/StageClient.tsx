@@ -7,9 +7,10 @@ import { useLocationSearch } from "@/hooks/useLocationSearch";
 import { STAGE_ROOM_RE, stageSocketUrl, type StageRelayMessage, type StageVoiceEvent } from "@/lib/stage-protocol";
 import { formatClock } from "@/lib/vision/zigavn-panels";
 import { PIECE_CHAR } from "@/lib/xiangqi/notation";
-import { inCheck, outcome, type Board, type PieceType, type Side } from "@/lib/xiangqi/engine";
+import { applyMove, inCheck, initialPosition, outcome, type Board, type PieceType, type Side } from "@/lib/xiangqi/engine";
+import { MatchCommentaryDrawer } from "./MatchCommentaryDrawer";
 import { playStageVoiceEvent, unlockAudio } from "@/lib/stage-voice";
-import { DEFAULT_STAGE_VOICE_LINES, formatEvalScore, liveClocks, type BigMoment, type StageClocks, type StagePlayer, type StageState } from "../stage-sync";
+import { DEFAULT_STAGE_VOICE_LINES, formatEvalScore, liveClocks, type BigMoment, type StageClocks, type StageMoveItem, type StagePlayer, type StageState } from "../stage-sync";
 import styles from "./stage.module.css";
 
 /** Thẻ tóm tắt cho người mới vào: chỉ hiện khi người dùng bấm hoặc nhận tin recap từ trang điều khiển. */
@@ -677,10 +678,12 @@ function ZigaLiveCard({
 function ZigaBottomBar({
   state,
   recap,
+  onOpenDrawer,
   onTestVoice,
 }: {
   state: StageState;
   recap: { shown: boolean; toggle: () => void };
+  onOpenDrawer?: () => void;
   onTestVoice?: () => void;
 }) {
   const { settings, mySide, turn } = state;
@@ -702,9 +705,9 @@ function ZigaBottomBar({
         <button
           type="button"
           className={styles.bronzeBtn}
-          onClick={recap.toggle}
-          title="Bình luận / Tóm tắt"
-          aria-label="Bình luận và tóm tắt"
+          onClick={onOpenDrawer ?? recap.toggle}
+          title="Trận cờ & Lời bình"
+          aria-label="Biên bản trận cờ và lời bình chuyên gia"
         >
           <span className={styles.bronzeIcon}>💬</span>
         </button>
@@ -948,6 +951,65 @@ function getPreviewZigaState(): StageState {
     trial: null,
     review: null,
     captured: { redLost: [], blackLost: [] },
+    moves: [
+      { ply: 1, notation: "Pháo 2 bình 5", side: "r", from: 7 * 9 + 7, to: 7 * 9 + 4 },
+      { ply: 2, notation: "Mã 8 tiến 7", side: "b", from: 0 * 9 + 7, to: 2 * 9 + 6 },
+      { ply: 3, notation: "Mã 2 tiến 3", side: "r", from: 9 * 9 + 7, to: 7 * 9 + 6 },
+      { ply: 4, notation: "Xe 9 bình 8", side: "b", from: 0 * 9 + 8, to: 0 * 9 + 7 },
+      { ply: 5, notation: "Xe 1 bình 2", side: "r", from: 9 * 9 + 0, to: 9 * 9 + 1 },
+      { ply: 6, notation: "Mã 2 tiến 3", side: "b", from: 0 * 9 + 1, to: 2 * 9 + 2 },
+      { ply: 7, notation: "Binh 7 tiến 1", side: "r", from: 6 * 9 + 2, to: 5 * 9 + 2 },
+      { ply: 8, notation: "Binh 7 tiến 1", side: "b", from: 3 * 9 + 2, to: 4 * 9 + 2 },
+      { ply: 9, notation: "Pháo 8 bình 7", side: "r", from: 7 * 9 + 1, to: 7 * 9 + 2 },
+      { ply: 10, notation: "Tượng 7 tiến 5", side: "b", from: 0 * 9 + 2, to: 2 * 9 + 4 },
+      { ply: 11, notation: "Xe 2 tiến 6", side: "r", from: 9 * 9 + 1, to: 3 * 9 + 1 },
+      { ply: 12, notation: "Sĩ 6 tiến 5", side: "b", from: 0 * 9 + 5, to: 1 * 9 + 4 },
+      { ply: 13, notation: "Mã 8 tiến 7", side: "r", from: 9 * 9 + 1, to: 7 * 9 + 2 },
+      { ply: 14, notation: "Pháo 8 tiến 2", side: "b", from: 2 * 9 + 7, to: 4 * 9 + 7 },
+      { ply: 15, notation: "Binh 5 tiến 1", side: "r", from: 6 * 9 + 4, to: 5 * 9 + 4 },
+      { ply: 16, notation: "Pháo 8 bình 3", side: "b", from: 4 * 9 + 7, to: 4 * 9 + 2 },
+      { ply: 17, notation: "Xe 2 bình 3", side: "r", from: 3 * 9 + 1, to: 3 * 9 + 2 },
+      { ply: 18, notation: "Tượng 5 thoái 7", side: "b", from: 2 * 9 + 4, to: 0 * 9 + 2 },
+      { ply: 19, notation: "Mã 7 tiến 6", side: "r", from: 7 * 9 + 2, to: 5 * 9 + 3 },
+      { ply: 20, notation: "Pháo 3 tiến 4", side: "b", from: 4 * 9 + 2, to: 8 * 9 + 2 },
+      { ply: 21, notation: "Pháo 7 bình 8", side: "r", from: 7 * 9 + 2, to: 7 * 9 + 1 },
+      { ply: 22, notation: "Xe 8 tiến 6", side: "b", from: 0 * 9 + 7, to: 6 * 9 + 7 },
+      { ply: 23, notation: "Mã 6 tiến 5", side: "r", from: 5 * 9 + 3, to: 4 * 9 + 4 },
+      { ply: 24, notation: "Pháo 3 bình 5", side: "b", from: 8 * 9 + 2, to: 8 * 9 + 4 },
+      { ply: 25, notation: "Tướng 5 bình 4", side: "r", from: 9 * 9 + 4, to: 9 * 9 + 3 },
+      { ply: 26, notation: "Xe 8 bình 7", side: "b", from: 6 * 9 + 7, to: 6 * 9 + 6 },
+      {
+        ply: 27,
+        notation: "Mã 8 tiến 7",
+        side: "r",
+        from: 6 * 9 + 2,
+        to: 7 * 9 + 7,
+        commentary: "Nhảy Mã tranh tiên khống chế lộ trung, vận dụng kỳ lý Triệu Hâm Hâm",
+        tag: "good",
+        zhaoLesson: {
+          lesson: 18,
+          title: "Mã Hoạt Chiến Thắng",
+          kind: "endgame",
+          quote: "người có mã hoạt sẽ có ưu thế rất lớn trong tàn cuộc",
+          videoUrl: "https://www.youtube.com/watch?v=FqGq8Oqj1_4",
+        },
+      },
+    ],
+    activeCommentary: {
+      ply: 27,
+      notation: "Mã 8 tiến 7",
+      side: "r",
+      summary: "Bạn đi Mã 8 tiến 7 · Nhảy mã chiếm cứ điểm, kiểm soát trung lộ",
+      assessment: "⚖ Cân bằng (0.0) · Hai bên giằng co",
+      intent: "Chiếm cứ điểm cao ráo, tạo thế liên hoàn và mở đường cho xe pháo",
+      zhaoLesson: {
+        lesson: 18,
+        title: "Mã Hoạt Chiến Thắng",
+        kind: "endgame",
+        quote: "người có mã hoạt sẽ có ưu thế rất lớn trong tàn cuộc",
+        videoUrl: "https://www.youtube.com/watch?v=FqGq8Oqj1_4",
+      },
+    },
     timestamp: Date.now(),
   };
 }
@@ -1096,6 +1158,53 @@ function Stage({
   const now = useNow(250, !!state.clocks);
   const trial = state.trial ?? null;
   const review = state.review ?? null;
+
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [selectedPly, setSelectedPly] = useState<number | null>(null);
+
+  // Tính toán bàn cờ khi xem lại nước cũ
+  const displayBoard = useMemo(() => {
+    if (selectedPly === null || selectedPly === state.ply) {
+      return review ? review.board : state.board;
+    }
+    let pos = initialPosition();
+    const targetMoves = (state.moves || []).slice(0, selectedPly);
+    for (const m of targetMoves) {
+      if (m.from !== undefined && m.to !== undefined) {
+        pos = applyMove(pos, { from: m.from, to: m.to });
+      }
+    }
+    return pos.board;
+  }, [selectedPly, state.ply, state.moves, state.board, review]);
+
+  const displayLastMove = useMemo(() => {
+    if (selectedPly === null || selectedPly === state.ply) {
+      return review ? review.lastMove : state.lastMove;
+    }
+    const m = (state.moves || []).find((x) => x.ply === selectedPly);
+    if (m && m.from !== undefined && m.to !== undefined) {
+      return { from: m.from, to: m.to };
+    }
+    return null;
+  }, [selectedPly, state.ply, state.moves, state.lastMove, review]);
+
+  const recentMoves = useMemo(() => {
+    const allMoves = state.moves || [];
+    const current = selectedPly ?? state.ply;
+    const idx = allMoves.findIndex((m) => m.ply === current);
+    if (idx < 0) return allMoves.slice(-2);
+    return allMoves.slice(Math.max(0, idx - 1), idx + 1);
+  }, [state.moves, selectedPly, state.ply]);
+
+  const currentZhaoLesson = useMemo(() => {
+    const current = selectedPly ?? state.ply;
+    const m = (state.moves || []).find((x) => x.ply === current);
+    if (m?.zhaoLesson) return m.zhaoLesson;
+    if (state.activeCommentary?.zhaoLesson && (!selectedPly || selectedPly === state.ply)) {
+      return state.activeCommentary.zhaoLesson;
+    }
+    return null;
+  }, [state.moves, selectedPly, state.ply, state.activeCommentary]);
   const meClock = clockView(state.clocks, "me", now);
   const oppClock = clockView(state.clocks, "opponent", now);
   const over = outcome({ board: state.board, turn });
@@ -1150,15 +1259,30 @@ function Stage({
             BIẾN THỬ
           </div>
         ) : null}
+        {selectedPly !== null && selectedPly !== state.ply && (
+          <div className={styles.inspectFloatBanner}>
+            <span className={styles.inspectFloatText}>
+              👁️ Đang xem lại nước {selectedPly} / {state.moves.length}
+            </span>
+            <button
+              type="button"
+              className={styles.inspectReturnBtn}
+              onClick={() => setSelectedPly(null)}
+              title="Quay về nước mới nhất đang trực tiếp"
+            >
+              🔴 Về trực tiếp
+            </button>
+          </div>
+        )}
         <XiangqiBoard
-          board={review ? review.board : state.board}
+          board={displayBoard}
           orientation={mySide}
-          lastMove={review ? review.lastMove : state.lastMove}
-          checkSquare={state.checkSquare}
+          lastMove={displayLastMove}
+          checkSquare={selectedPly === null ? state.checkSquare : null}
           arrows={review?.arrows?.length ? review.arrows : review?.bestMove ? [{ from: review.bestMove.from, to: review.bestMove.to, color: "rgba(34, 197, 94, 0.9)" }] : state.arrows}
           highlights={state.highlights}
-          selected={state.selected ?? null}
-          targets={state.targets ?? []}
+          selected={selectedPly === null ? (state.selected ?? null) : null}
+          targets={selectedPly === null ? (state.targets ?? []) : []}
           arrowWidthScale={1.8}
           animateArrows
           className={styles.boardRim}
@@ -1214,10 +1338,20 @@ function Stage({
         )}
       </div>
 
-      {/* Dòng nước vừa đi */}
-      <section className={styles.ribbon} data-check={commentary?.isCheck || undefined} data-trial={trial ? true : undefined} data-review={review ? true : undefined}>
+      {/* Dòng trận cờ & lời bình dưới bàn cờ */}
+      <section
+        className={styles.ribbon}
+        data-check={commentary?.isCheck || undefined}
+        data-trial={trial ? true : undefined}
+        data-review={review ? true : undefined}
+        onClick={() => setDrawerOpen(true)}
+        role="button"
+        tabIndex={0}
+        aria-label="Xem biên bản trận cờ và lời bình"
+        title="Bấm để mở bảng trận cờ và lời bình chuyên gia"
+      >
         <span className={styles.ribbonTag}>
-          {review ? "AI PHÂN TÍCH" : trial ? "BIẾN THỬ" : `NƯỚC ${Math.ceil(state.ply / 2)}`}
+          {review ? "AI PHÂN TÍCH" : trial ? "BIẾN THỬ" : `NƯỚC ${Math.ceil((selectedPly ?? state.ply) / 2)}`}
         </span>
         {review ? (
           <span className={styles.ribbonMove}>
@@ -1233,14 +1367,47 @@ function Stage({
               ? `${trial.notations.length > 3 ? "… " : ""}${trial.notations.slice(-3).join(" → ")}`
               : "Đang bày biến thử…"}
           </span>
-        ) : commentary ? (
-          <>
-            <span className={styles.ribbonWho}>{commentary.who}</span>
-            <span className={styles.ribbonMove}>{commentary.notation}</span>
-            {commentary.isCheck && commentary.note && <span className={styles.ribbonNote}>{commentary.note}</span>}
-          </>
         ) : (
-          <span className={styles.ribbonMove}>Ván mới bắt đầu</span>
+          <>
+            {recentMoves.length > 0 && (
+              <div className={styles.ribbonMovesRecent}>
+                {recentMoves.map((rm) => (
+                  <span
+                    key={rm.ply}
+                    className={`${styles.recentMoveBadge} ${rm.ply === (selectedPly ?? state.ply) ? styles.recentMoveActive : ""}`}
+                  >
+                    {rm.ply % 2 === 1 ? "🔴" : "⚫"} {rm.notation}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className={styles.ribbonCommentaryArea}>
+              {currentZhaoLesson ? (
+                <span className={styles.ribbonZhaoTag} title={currentZhaoLesson.title}>
+                  📖 Triệu Hâm Hâm #{currentZhaoLesson.lesson}: {currentZhaoLesson.title}
+                </span>
+              ) : commentary ? (
+                <>
+                  <span className={styles.ribbonWho}>{commentary.who}</span>
+                  <span className={styles.ribbonMove}>{commentary.notation}</span>
+                  {commentary.isCheck && commentary.note && <span className={styles.ribbonNote}>{commentary.note}</span>}
+                </>
+              ) : (
+                <span className={styles.ribbonMove}>Ván mới bắt đầu</span>
+              )}
+            </div>
+            <button
+              type="button"
+              className={styles.ribbonOpenBtn}
+              onClick={(e) => {
+                e.stopPropagation();
+                setDrawerOpen(true);
+              }}
+              title="Mở toàn bộ trận cờ và lời bình"
+            >
+              📜 Trận cờ & Bình luận ↗
+            </button>
+          </>
         )}
         <span className={styles.ribbonTurn}>
           {review ? (formatEvalScore(review.evalScore) || "Đang phân tích") : turnText}
@@ -1251,7 +1418,17 @@ function Stage({
       <ZigaBottomBar
         state={state}
         recap={recap}
+        onOpenDrawer={() => setDrawerOpen(true)}
         onTestVoice={onTestVoice}
+      />
+
+      {/* Bảng Drawer Trận cờ & Lời bình Chuyên gia */}
+      <MatchCommentaryDrawer
+        isOpen={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        state={state}
+        selectedPly={selectedPly}
+        onSelectPly={setSelectedPly}
       />
     </>
   );

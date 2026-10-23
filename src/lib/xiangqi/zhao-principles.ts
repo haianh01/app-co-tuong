@@ -807,8 +807,12 @@ export function checkDeepCannonBottom(
 
   // Tầng 1: hình
   const checks = attackersOf(after, oppKing, mover).includes(move.to);
-  const aims = after.some((p, sq) =>
-    !!p && sideOf(p) === opp && "ab".includes(typeOf(p)) && rowOf(sq) === bottom && attackersOf(after, sq, mover).includes(move.to));
+  // Nhắm Sĩ/Tượng qua một ngòi không phải Tướng — lấy chính Tướng làm ngòi thì chẳng kiềm chế được gì
+  const aimed = after.findIndex((p, sq) =>
+    !!p && sideOf(p) === opp && "ab".includes(typeOf(p)) && rowOf(sq) === bottom &&
+    attackersOf(after, sq, mover).includes(move.to) &&
+    !after.some((q, x) => !!q && typeOf(q) === "k" && between(move.to, sq, x)));
+  const aims = aimed !== -1;
   if (!checks && !aims) return { ok: false, layer: 1, reason: "Pháo xuống đáy nhưng không chiếu Tướng, không nhắm Sĩ/Tượng" };
 
   const pv = pvAfterMove(options, move);
@@ -820,7 +824,7 @@ export function checkDeepCannonBottom(
 
   // Theo đúng con Pháo vừa đi qua biến: nó chiếu ở nửa nước nào, ăn được gì, quân nào ăn ngay sau nước chiếu của nó
   const line = [move, ...pv].slice(0, 16);
-  const notes: string[] = [];
+  const events: { ply: number; side: Side; type: PieceType; victim: PieceType | null; check: boolean; inCheck: boolean; n: string }[] = [];
   const cannonChecks: number[] = [];
   const credited: { ply: number; type: PieceType; by: PieceType }[] = [];
   let board = before;
@@ -831,7 +835,11 @@ export function checkDeepCannonBottom(
     if (!p) break;
     const victim = board[m.to];
     const next = play(board, m);
-    notes.push(moveNotation(board, m));
+    const side = sideOf(p);
+    events.push({
+      ply, side, type: typeOf(p), victim: victim ? typeOf(victim) : null,
+      check: inCheck(next, opponent(side)), inCheck: inCheck(board, side), n: moveNotation(board, m),
+    });
     if (sideOf(p) === mover) {
       if (m.from === c) c = m.to;
       if (victim && ply > 0 && (m.to === c || cannonChecks.includes(ply - 2))) {
@@ -861,21 +869,58 @@ export function checkDeepCannonBottom(
     return { ok: false, layer: 2, reason: "Pháo đang bị dọa ăn có lời — nước này chủ yếu là chạy Pháo" };
   }
 
-  // Tầng 3: cơ chế
-  const said = checks ? "Pháo trầm đáy chiếu Tướng" : "Pháo trầm đáy kiềm Sĩ Tượng";
+  // Tầng 3: cơ chế. Lời bình kể lại đúng chuỗi nước trong biến (ai ăn gì, ai chiếu), không dùng câu khuôn.
+  const first = `Pháo xuống đáy${captured ? ` ăn ${PIECE_NAME[typeOf(captured)]}` : ""}${checks ? " chiếu Tướng" : ` nhắm ${PIECE_NAME[typeOf(after[aimed]!)]}`}`;
+  const narrate = (upTo: number) => {
+    const parts: string[] = [];
+    let skipped = false;
+    for (const e of events.slice(0, upTo + 1)) {
+      if (e.ply === 0) {
+        parts.push(`${first} (${e.n})`);
+        continue;
+      }
+      if (!e.victim && !e.check && !e.inCheck && e.ply !== upTo) {
+        skipped = true;
+        continue;
+      }
+      if (skipped) parts.push("…");
+      skipped = false;
+      const who = e.side === mover ? "" : `${e.side === "r" ? "Đỏ" : "Đen"} `;
+      const act = e.victim
+        ? `${PIECE_NAME[e.type]} ăn ${PIECE_NAME[e.victim]}`
+        : e.inCheck ? (e.type === "k" ? "Tướng tránh chiếu" : `${PIECE_NAME[e.type]} đỡ chiếu`) : PIECE_NAME[e.type];
+      parts.push(`${who}${act}${e.check ? " chiếu" : e.victim || e.inCheck ? "" : " đi"} (${e.n})`);
+    }
+    return parts.join(", ");
+  };
+  /** Kết quả vật chất tới nửa nước `key`, kể cả ăn lại ngay trong hai nửa nước sau đó. */
+  const tally = (key: number) => {
+    let upTo = key;
+    for (let i = key + 1; i <= key + 2 && i < events.length; i++) if (events[i].victim) upTo = i;
+    const names = (side: Side) => {
+      const ts = events.slice(1, upTo + 1).filter((e) => e.victim && e.side === side).map((e) => e.victim!);
+      return [...new Set(ts)].map((t) => {
+        const k = ts.filter((x) => x === t).length;
+        return k > 1 ? `${k} ${PIECE_NAME[t]}` : PIECE_NAME[t];
+      });
+    };
+    const gains = names(mover);
+    const losses = names(opp);
+    return { upTo, text: losses.length ? `đổi ${losses.join(", ")} lấy ${gains.join(", ")}` : `thắng ${gains.join(", ")}` };
+  };
   let mechanism: string | null = null;
   let summary = "";
   if (inMate) {
     const moves = Math.max(1, Math.round((MATE_SCORE - scoreForMover) / 2));
     mechanism = "công sát";
-    summary = `${said}, góp sức vào đòn sát — theo biến, chiếu bí sau ${moves} nước nữa (${notes.slice(0, 6).join(" ")}).`;
-  } else if (bigWin && net >= 250) {
-    mechanism = "rút bắt quân";
-    const how = bigWin.by === "c" ? `Pháo ăn ${PIECE_NAME[bigWin.type]}` : `${PIECE_NAME[bigWin.by]} ăn ${PIECE_NAME[bigWin.type]} ngay sau nước Pháo chiếu`;
-    summary = `${said}, đối phương phải ứng phó, rồi ${how} (${notes.slice(0, bigWin.ply + 1).join(" ")}) — thắng ${PIECE_NAME[bigWin.type]}.`;
-  } else if (guardWin && net >= 150) {
-    mechanism = "mưu Sĩ Tượng";
-    summary = `${said}, rồi ăn được ${PIECE_NAME[guardWin.type]} mà không bị ăn lại (${notes.slice(0, guardWin.ply + 1).join(" ")}).`;
+    summary = events.length === 1
+      ? `Pháo trầm đáy: ${narrate(0)} — chiếu bí ngay.`
+      : `Pháo trầm đáy: ${narrate(Math.min(5, events.length - 1))} — theo biến, chiếu bí sau ${moves} nước nữa.`;
+  } else if ((bigWin && net >= 250) || (guardWin && net >= 150)) {
+    const key = bigWin && net >= 250 ? bigWin : guardWin!;
+    mechanism = key === bigWin ? "rút bắt quân" : "mưu Sĩ Tượng";
+    const t = tally(key.ply);
+    summary = `Pháo trầm đáy: ${narrate(t.upTo)} — ${t.text}.`;
   }
   if (!mechanism) {
     // Pháo mất ngay trong vài nửa nước đầu mới là "biếu không"; mất ở cuối biến dài là chuyện khác

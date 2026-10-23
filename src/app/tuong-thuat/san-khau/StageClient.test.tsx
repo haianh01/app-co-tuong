@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyMove, initialPosition } from "@/lib/xiangqi/engine";
 import { moveNotation } from "@/lib/xiangqi/notation";
@@ -325,5 +325,26 @@ describe("StageClient", () => {
     ws.receive({ t: "state", state });
     expect(screen.getByText("將軍")).toBeDefined();
     expect(screen.queryByText("CHIẾU TƯỚNG!")).toBeNull();
+  });
+
+  it("bấm nút 💬 hoặc dải ribbon mở Bảng Trận cờ & Lời bình chuyên gia", () => {
+    render(<StageClient />);
+    const ws = FakeSocket.all[0];
+    const state = stateAfterCentralCannon();
+    state.moves = [
+      { ply: 1, notation: "Pháo 2 bình 5", side: "r" },
+    ];
+    ws.receive({ t: "state", state });
+
+    // Ban đầu chưa có dialog
+    expect(screen.queryByRole("dialog", { name: /Biên bản trận cờ và Lời bình/i })).toBeNull();
+
+    // Bấm nút 💬 ở thanh dưới
+    const chatBtn = screen.getByLabelText(/Biên bản trận cờ và lời bình chuyên gia/i);
+    fireEvent.click(chatBtn);
+
+    // Dialog mở ra
+    expect(screen.getByRole("dialog", { name: /Biên bản trận cờ và Lời bình/i })).toBeDefined();
+    expect(screen.getByText(/TRẬN CỜ & LỜI BÌNH CHUYÊN GIA/i)).toBeDefined();
   });
 });

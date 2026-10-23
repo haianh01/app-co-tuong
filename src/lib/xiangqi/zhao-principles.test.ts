@@ -513,6 +513,21 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
       expect(r && !r.ok && r.reason).toContain("biếu không");
     });
 
+    it("lời bình kể đúng khi Pháo ăn Sĩ rồi bị Tướng ăn lại (không nói 'không bị ăn lại')", () => {
+      const t = real("4ka3/4a4/9/p2R4p/1c4pr1/4P4/P5P1P/4C4/4N4/r2AKAB2 b", 37, 82,
+        [[76, 83], [82, 84], [85, 84], [81, 83], [84, 75], [43, 79], [67, 76], [83, 2], [49, 40], [79, 77], [54, 45], [77, 86]], 206);
+      const r = checkDeepCannonBottom(t.before, t.move, t.after, t.options);
+      expect(r).toMatchObject({ ok: true, mechanism: "mưu Sĩ Tượng" });
+      expect(r && r.ok && r.summary).toContain("Tướng ăn Pháo");
+      expect(r && r.ok && r.summary).toContain("đổi Pháo lấy Sĩ, Mã");
+    });
+
+    it("nhắm Sĩ mà lấy chính Tướng làm ngòi thì không phải kiềm Sĩ Tượng", () => {
+      const t = real("4kab2/3Na4/b2cn3c/4n3p/P3p1p2/1CR6/3rP1P1P/2C1B1N2/4A4/4KAB2 w", 46, 1,
+        [[4, 3], [12, 19], [31, 20], [65, 20], [21, 19], [20, 18], [19, 82], [18, 0], [3, 12], [76, 66], [57, 66], [1, 6]], 278);
+      expect(checkDeepCannonBottom(t.before, t.move, t.after, t.options)).toMatchObject({ ok: false, layer: 1 });
+    });
+
     it("Pháo xuống đáy ăn Tượng mà không thắng thêm gì là ăn quân", () => {
       const t = real("2r1kab2/4a1c2/1c2b4/p3PR2p/2P6/9/P5p1P/1CN1C4/7r1/R1BAKAB2 b", 15, 87,
         [[86, 76], [2, 38], [64, 73], [79, 88], [81, 63], [87, 69], [76, 86], [69, 87], [86, 76], [22, 2]], 1);

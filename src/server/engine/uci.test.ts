@@ -35,6 +35,14 @@ describe("parseInfo", () => {
   });
 });
 
+describe("parseInfo: dòng cận (lượt tìm bị dừng giữa chừng)", () => {
+  it("đánh dấu lowerbound/upperbound", () => {
+    expect(parseInfo("info depth 17 multipv 1 score cp 24 lowerbound nodes 400277 pv e2c2 d9e8").bound).toBe("lowerbound");
+    expect(parseInfo("info depth 9 score cp -5 upperbound pv h2e2").bound).toBe("upperbound");
+    expect(parseInfo("info depth 16 multipv 1 score cp 27 pv e2c2 b7b8").bound).toBeUndefined();
+  });
+});
+
 describe("computeSearchTimeoutMs", () => {
   it("tính thời gian chờ theo movetime", () => {
     expect(computeSearchTimeoutMs({ movetime: 1_500 })).toBe(11_500);
@@ -164,6 +172,12 @@ describe.skipIf(!exe)("Pikafish thật", () => {
     expect(uciToMove(res.bestmove!)).toEqual({ from: 26, to: 21 });
     expect(engineScore(res.cp, res.mate)).toBe(99_999);
   }, 30_000);
+
+  it("hết nodes giữa chừng vẫn trả PV đầy đủ của độ sâu đã tìm xong, không lấy dòng lowerbound cụt", async () => {
+    // Thế cờ này với 400k nodes kết thúc bằng dòng "lowerbound" chỉ có 2 nước.
+    const res = await pool.search("r2akabr1/9/1cn1b3c/p1p1p3p/6p2/1CPN5/P3P1n1P/4C1N2/5R3/R1BAKAB2 w", { nodes: 400_000 });
+    expect(res.pv?.length ?? 0).toBeGreaterThan(4);
+  }, 60_000);
 
   it("chỉ tìm trong các nước được phép (searchmoves)", async () => {
     const pos = parseFen("rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w");

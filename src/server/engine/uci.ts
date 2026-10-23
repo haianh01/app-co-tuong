@@ -156,6 +156,7 @@ export function parseInfo(line: string): {
   multipv?: number;
   pv?: string[];
   wdl?: [number, number, number];
+  bound?: "lowerbound" | "upperbound";
 } {
   const t = line.split(/\s+/);
   const out: {
@@ -165,12 +166,14 @@ export function parseInfo(line: string): {
     multipv?: number;
     pv?: string[];
     wdl?: [number, number, number];
+    bound?: "lowerbound" | "upperbound";
   } = {};
   for (let i = 0; i < t.length; i++) {
     if (t[i] === "depth") out.depth = Number(t[i + 1]);
     else if (t[i] === "multipv") out.multipv = Number(t[i + 1]);
     else if (t[i] === "score" && t[i + 1] === "cp") out.cp = Number(t[i + 2]);
     else if (t[i] === "score" && t[i + 1] === "mate") out.mate = Number(t[i + 2]);
+    else if (t[i] === "lowerbound" || t[i] === "upperbound") out.bound = t[i] as "lowerbound" | "upperbound";
     else if (t[i] === "wdl") {
       const w = Number(t[i + 1]);
       const d = Number(t[i + 2]);
@@ -310,6 +313,9 @@ export class UciProcess {
     }
     const linesMap = new Map<number, EngineLine>();
     let last: { depth?: number; cp?: number; mate?: number; pv?: string[]; wdl?: [number, number, number] } = {};
+    // Biến đã có dòng điểm chính xác. Dòng lowerbound/upperbound là lượt tìm bị dừng giữa chừng (hết nodes/thời gian):
+    // điểm chỉ là cận và PV thường cụt còn 1-2 nước, nên không được đè lên kết quả của độ sâu đã tìm xong.
+    const exact = new Set<number>();
 
     this.send(`position fen ${fen}`);
     const go = ["go"];
@@ -326,6 +332,9 @@ export class UciProcess {
       (l) => {
         if (l.startsWith("info") && l.includes(" score ")) {
           const info = parseInfo(l);
+          const { bound, ...fields } = info;
+          if (bound && exact.has(info.multipv ?? 1)) return;
+          if (!bound) exact.add(info.multipv ?? 1);
           if (info.multipv !== undefined || info.pv !== undefined) {
             const mpv = info.multipv ?? 1;
             linesMap.set(mpv, {
@@ -338,10 +347,10 @@ export class UciProcess {
               wdl: info.wdl,
             });
             if (mpv === 1) {
-              last = { ...last, ...info };
+              last = { ...last, ...fields };
             }
           } else {
-            last = { ...last, ...info };
+            last = { ...last, ...fields };
           }
         }
       },

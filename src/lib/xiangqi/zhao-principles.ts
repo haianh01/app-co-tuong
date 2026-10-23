@@ -9,7 +9,7 @@ import { ZHAO_LESSONS } from "./zhao48-lessons";
 
 import {
   type Board, type Move, type Piece, type Side,
-  attackersOf, colOf, findKing, hasAnyLegalMove, inCheck, initialPosition, isDefended, legalMoves, opponent, play,
+  attackersOf, colOf, findKing, hasAnyLegalMove, inCheck, initialPosition, isDefended, legalMoves, legalMovesFrom, opponent, play,
   pseudoMoves, rowOf, sideOf, typeOf, crossedRiver, PIECE_VALUES,
 } from "./engine";
 import { exchangeGain, hangingPieces } from "./explain";
@@ -1288,6 +1288,14 @@ export function detectManhCongTuyenApDay(
   const tc = colOf(move.to);
   if (tc < 1 || tc > 7) return null;
 
+  // Áp đáy là để cắt Tướng khỏi Sĩ/Tượng: phải chiếu hoặc tạo đe dọa mới lên Sĩ/Tượng,
+  // và quân vừa lên không bị ăn không (đứng ở hàng 2 mà không làm gì thì chưa phải "mãnh công").
+  const threatsGuard = pieces(after, opp, "ab").some(
+    (sq) => attackersOf(after, sq, mover).includes(move.to) && !attackersOf(before, sq, mover).includes(move.from),
+  );
+  if (!inCheck(after, opp) && !threatsGuard) return null;
+  if (attackersOf(after, move.to, opp).length > 0 && attackersOf(after, move.to, mover).length === 0) return null;
+
   return fact(
     before,
     move,
@@ -1369,6 +1377,12 @@ export function detectChiemTuyenTot(
   const fr = rowOf(move.from);
   if (fr === pawnRow) return null;
 
+  // Chiếm tuyến Tốt để quét Tốt: phải nhắm được >= 2 Tốt đối phương trên tuyến (tính cả Tốt vừa ăn).
+  const opp = opponent(mover);
+  const pawnsHit = pieces(after, opp, "p").filter((sq) => rowOf(sq) === tr && attackersOf(after, sq, mover).includes(move.to)).length
+    + (before[move.to] && typeOf(before[move.to]!) === "p" ? 1 : 0);
+  if (pawnsHit < 2) return null;
+
   return fact(
     before,
     move,
@@ -1432,33 +1446,27 @@ export function detectTranhDoatLo3Lo7(
   const piece = before[move.from];
   if (!piece) return null;
   const mover = sideOf(piece);
+  const opp = opponent(mover);
   if (!soundMove(options)) return null;
 
   const tc = colOf(move.to);
   if (tc !== 2 && tc !== 6) return null;
 
   const pt = typeOf(piece);
-  const tr = rowOf(move.to);
-  const pawnRow = mover === "r" ? 3 : 6;
+  if (pt !== "p" && pt !== "r" && pt !== "c") return null;
+  if (pt === "p" && !crossedRiver(rowOf(move.to), mover)) return null;
 
-  if (pt === "p") {
-    // Tốt qua sông hoặc tiến qua sông trên lộ 3/7
-    if (!crossedRiver(tr, mover)) return null;
-  } else if (pt === "r") {
-    // Xe thâm nhập lộ 3/7 ở nửa bàn cờ đối phương (trừ chính tuyến tốt để tránh trùng lặp)
-    if (!crossedRiver(tr, mover)) return null;
-    if (tr === pawnRow) return null;
-  } else if (pt === "c") {
-    // Pháo qua sông hoặc Pháo đè mã/tượng ở lộ 3/7
-    if (!crossedRiver(tr, mover)) {
-      const opp = opponent(mover);
-      const oppHorseRow = mover === "r" ? 2 : 7;
-      const target = after[oppHorseRow * 9 + tc];
-      if (!target || sideOf(target) !== opp) return null;
-    }
-  } else {
-    return null;
-  }
+  // Bài 21: tranh lộ 3/7 là đánh trực diện vào Mã/Tượng cánh đó — nước đi phải tạo đe dọa MỚI
+  // lên Mã hoặc Tượng đối phương ở cánh ấy (đứng trên lộ 3/7 thôi thì chưa phải).
+  const wing = (c: number) => (tc === 2 ? c <= 3 : c >= 5);
+  const newTarget = pieces(after, opp, "nb").some((sq) => {
+    if (!wing(colOf(sq))) return false;
+    const att = attackersOf(after, sq, mover);
+    if (!att.includes(move.to) || attackersOf(before, sq, mover).includes(move.from)) return false;
+    // Phải là sức ép thật: quân bị nhắm không có căn, hoặc bị từ 2 quân ta trở lên dồn vào ("Pháo đè Mã kết hợp Xe").
+    return attackersOf(after, sq, opp).length === 0 || att.length >= 2;
+  });
+  if (!newTarget) return null;
 
   return fact(
     before,
@@ -1487,37 +1495,22 @@ export function detectPhongToaLoXe(
   const opp = opponent(mover);
   if (!soundMove(options)) return null;
 
+  // Xuất Xe từ góc (X1-2, X9-8) là nước khai cuộc thường lệ, không phải phong tỏa — chỉ xét Pháo.
+  if (typeOf(piece) !== "c") return null;
   const tc = colOf(move.to);
   if (tc !== 1 && tc !== 7) return null;
 
-  const pt = typeOf(piece);
-  const tr = rowOf(move.to);
-  const fc = colOf(move.from);
-
-  if (pt === "r") {
-    // Xuất Xe từ góc vào lộ 2/8 (X1-2, X9-8) trên sân nhà
-    if (crossedRiver(tr, mover)) return null;
-    const isCornerDev = (fc === 0 && tc === 1) || (fc === 8 && tc === 7);
-    if (!isCornerDev) return null;
-  } else if (pt === "c") {
-    // Pháo chuyển vào hoặc tiến trên lộ 2/8 để phong tỏa Xe đối phương
-    const oppCornerCols = tc === 1 ? [0, 1] : [7, 8];
-    const oppHomeRows = mover === "r" ? [0, 1, 2] : [7, 8, 9];
-    let oppRookNearby = false;
-    for (const r of oppHomeRows) {
-      for (const c of oppCornerCols) {
-        const p = after[r * 9 + c];
-        if (p && sideOf(p) === opp && typeOf(p) === "r") {
-          oppRookNearby = true;
-          break;
-        }
-      }
-      if (oppRookNearby) break;
-    }
-    if (!oppRookNearby) return null;
-  } else {
-    return null;
-  }
+  // Phong tỏa thật: Xe đối phương ở góc cánh đó mất hẳn đường ra (cơ động giảm >= 3 ô so với trước nước đi).
+  const oppCornerCols = tc === 1 ? [0, 1] : [7, 8];
+  const oppHomeRows = opp === "b" ? [0, 1, 2] : [7, 8, 9];
+  const blocked = pieces(after, opp, "r").some(
+    (sq) =>
+      oppCornerCols.includes(colOf(sq)) &&
+      oppHomeRows.includes(rowOf(sq)) &&
+      before[sq] === after[sq] &&
+      pseudoMoves(before, sq).length - pseudoMoves(after, sq).length >= 3,
+  );
+  if (!blocked) return null;
 
   return fact(
     before,
@@ -1674,7 +1667,8 @@ export function detectPhaoGanh(
     for (let j = i + 1; j < cannons.length; j++) {
       const c1 = cannons[i];
       const c2 = cannons[j];
-      if (rowOf(c1) === rowOf(c2) && !crossedRiver(rowOf(c1), mover)) {
+      // Thế gánh phải do chính Pháo vừa đi tạo thành (Mã/Xe đi qua làm đổi ngòi không tính).
+      if ((c1 === move.to || c2 === move.to) && rowOf(c1) === rowOf(c2) && !crossedRiver(rowOf(c1), mover)) {
         if (mutuallyDefend(after, c1, c2, mover)) {
           if (before[c1] && before[c2] && mutuallyDefend(before, c1, c2, mover)) {
             continue;
@@ -1798,8 +1792,9 @@ export function detectXeMaPhaoTamTu(
 
   if (rooksInWing.length === 0 || knightsInWing.length === 0 || cannonsInWing.length === 0) return null;
 
-  const activeCount = [...rooksInWing, ...knightsInWing, ...cannonsInWing].filter((sq) => crossedRiver(rowOf(sq), mover)).length;
-  if (activeCount < 2) return null;
+  // "Tam tử quy biên": cả Xe, Mã, Pháo đều đã qua sông ở cánh đó, không chỉ đứng cùng phía bàn cờ.
+  const across = (arr: number[]) => arr.some((sq) => crossedRiver(rowOf(sq), mover));
+  if (!across(rooksInWing) || !across(knightsInWing) || !across(cannonsInWing)) return null;
 
   const fc = colOf(move.from);
   const wasInWing = wing === "L" ? fc <= 3 : fc >= 5;
@@ -2075,6 +2070,12 @@ export function detectVayXe(
   }
   if (targetRook === -1) return null;
 
+  // "Vây" nghĩa là Xe hết đường thoát: mọi nước của nó đều vào ô bị ta khống chế (dọa đơn thuần thì Xe chạy là xong).
+  const escapes = legalMovesFrom({ board: after, turn: opp }, targetRook).filter(
+    (m) => attackersOf(play(after, m), m.to, mover).length === 0,
+  );
+  if (escapes.length > 0) return null;
+
   return fact(
     before,
     move,
@@ -2116,6 +2117,15 @@ export function detectVayPhao(
     }
   }
   if (targetCannon === -1) return null;
+
+  // "Vây" nghĩa là Pháo hết đường thoát: mọi nước của nó đều vào ô bị ta khống chế.
+  const escapes = legalMovesFrom({ board: after, turn: opp }, targetCannon).filter(
+    (m) => attackersOf(play(after, m), m.to, mover).length === 0,
+  );
+  if (escapes.length > 0) return null;
+  // Pháo có căn mà quân dọa đắt hơn Pháo thì ăn vào là lỗ — không phải bắt được Pháo.
+  const attacker = after[move.to];
+  if (attacker && attackersOf(after, targetCannon, opp).length > 0 && PIECE_VALUES[typeOf(attacker)] > PIECE_VALUES.c) return null;
 
   return fact(
     before,
@@ -2645,6 +2655,8 @@ export function detectPheTotPhanCong(
 
   const oppAttackers = attackersOf(after, move.to, opp);
   if (oppAttackers.length === 0) return null;
+  // Tốt đối phương ăn lại được thì chỉ là đổi Tốt (khai cuộc thường lệ), chưa phải phế Tốt mở đường.
+  if (oppAttackers.some((sq) => typeOf(after[sq]!) === "p")) return null;
 
   const moverDefenders = attackersOf(after, move.to, mover);
   if (moverDefenders.length >= oppAttackers.length && before[move.to]) return null;
@@ -2692,9 +2704,9 @@ export function detectChienThuatMuuBinh(
 
   if (colOf(move.to) === 4) return null;
 
-  const oppAttackers = attackersOf(after, move.to, opp);
-  const moverDefenders = attackersOf(after, move.to, mover);
-  if (oppAttackers.length > moverDefenders.length) return null;
+  // "Binh bất huyết nhẫn": ăn sạch — quân ăn không bị bắt lại, và là Tốt vỏ bọc chưa qua sông của đối phương.
+  if (attackersOf(after, move.to, opp).length > 0) return null;
+  if (crossedRiver(rowOf(move.to), opp)) return null;
 
   const moverPawns = pieces(after, mover, "p").length;
   const oppPawns = pieces(after, opp, "p").length;
@@ -2837,6 +2849,10 @@ const PRIORITY: Detector[] = [
   detectEndgameConversion,
 ];
 
+const PER_MOVE_EXCLUDED = new Set(
+  Object.values(ZHAO_LESSONS).filter((c) => c.kind === "summary" && c.tacticId).map((c) => c.tacticId as string),
+);
+
 /**
  * Mọi nguyên lý góc nhìn Triệu Hâm Hâm khớp với nước đi, theo thứ tự ưu tiên.
  * Có lời phê bình (nước vi phạm nguyên lý) thì chỉ trả về phê bình — không vừa chê vừa khen một nước.
@@ -2847,6 +2863,8 @@ export function detectAllZhaoTactics(
   const out: ZhaoMiddlegameFact[] = [];
   for (const detect of PRIORITY) {
     const f = detect(before, move, after, options);
+    // Bài tổng kết không gắn vào từng nước — gắn vào đâu cũng "đúng" nên thành nhiễu.
+    if (f && PER_MOVE_EXCLUDED.has(f.tactic)) continue;
     if (f && !out.some((x) => x.tactic === f.tactic)) {
       if (!f.lesson) {
         const card = Object.values(ZHAO_LESSONS).find((c) => c.tacticId === f.tactic);

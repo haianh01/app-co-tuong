@@ -6,6 +6,7 @@
 // - signals: dấu hiệu hình thế nhận biết trên bàn cờ
 // - quotes: các câu trích nguyên văn từ phụ đề kèm mốc thời gian [MM:SS]
 // - kind: "detectable" (nhận diện luật code) | "evaluative" (cần engine) | "summary" (tổng kết)
+//   Thẻ "summary" không gắn vào từng nước (detectAllZhaoTactics) — chỉ dùng làm lời giảng chung.
 // - video: mã YouTube video
 
 export type ZhaoLessonKind = "detectable" | "evaluative" | "summary";
@@ -789,7 +790,7 @@ export const ZHAO_LESSONS: Record<number, ZhaoLessonCard> = {
       { text: "Nên chúng ta hay nói nhất xe thập tự chính là ý này.", at: "00:53" },
       { text: "Khác với việc dùng mã. Mã là kiểm soát điểm đúng không? Nhưng xe là kiểm soát đường.", at: "00:30" },
     ],
-    kind: "detectable",
+    kind: "summary",
     video: "oLr-I_nSAFc",
     tacticId: "nhatXeThapTu",
   },
@@ -806,7 +807,7 @@ export const ZHAO_LESSONS: Record<number, ZhaoLessonCard> = {
       { text: "Điểm thứ hai, pháo có thể cung cấp sự bảo đảm về hỏa lực trong chiến đấu.", at: "00:45" },
       { text: "Điểm thứ năm vẫn phải nhắc đến đạn tử pháo. Đàn tử pháo tương hổ lẫn nhau, công thủ kim toàn cũng vô cùng hiệu quả.", at: "02:06" },
     ],
-    kind: "detectable",
+    kind: "summary",
     video: "P9e5aGjepDY",
     tacticId: "ngheThuatVanPhao",
   },
@@ -823,7 +824,7 @@ export const ZHAO_LESSONS: Record<number, ZhaoLessonCard> = {
       { text: "Trong giới cờ tướng chúng ta luôn có một câu nói dùng tốt xe mã pháo là chuyện thường, nhưng cao thủ thực sự chắc chắn phải giỏi dùng binh tốt.", at: "00:06" },
       { text: "Vì binh tốt một đi không trở lại, nó không thể quay về được nữa.", at: "05:33" },
     ],
-    kind: "detectable",
+    kind: "summary",
     video: "VLKh7DCmxoM",
     tacticId: "tieuBinhLapDaiCong",
   },
@@ -875,7 +876,7 @@ export const ZHAO_LESSONS: Record<number, ZhaoLessonCard> = {
       { text: "cái gọi là thế công chính là tại khu vực cục bộ quan trọng hình thành ưu thế đối kháng", at: "04:53" },
       { text: "Ví dụ này đã giải thích đầy đủ rằng cục bộ lấy nhiều đánh ít mới là nguyên tắc cốt lõi của tấn công.", at: "19:25" },
     ],
-    kind: "detectable",
+    kind: "summary",
     video: "P1vUbC9nw24",
     tacticId: "cucBoDiDaKichThieu",
   },

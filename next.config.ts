@@ -5,6 +5,9 @@ const nextConfig: NextConfig = {
   partialPrefetching: true,
   // PGlite nạp file WASM/dữ liệu lúc chạy, không đóng gói được.
   serverExternalPackages: ["@electric-sql/pglite"],
+  experimental: {
+    agentUpgrade: "security",
+  },
 };
 
 export default nextConfig;

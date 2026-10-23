@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { findBestMove } from "./ai";
-import { applyMove, legalMoves, parseFen, sq } from "./engine";
+import { applyMove, legalMoves, parseFen, play, sq } from "./engine";
 import { replayMoves } from "./game";
 import {
   classify,
@@ -14,6 +14,8 @@ import {
   winChance,
   winChanceFromWdl,
   getPikafishK,
+  isSignificantMove,
+  suppressRepeatedZhaoFacts,
   type MoveReview,
   type PositionEval,
   PIKAFISH_K,
@@ -477,3 +479,34 @@ describe("Dữ kiện kỳ lý chuyên gia tích hợp (B1-B7)", () => {
   });
 });
 
+describe("Chỉ bình kỳ lý ở nước đáng bình", () => {
+  const mv = (fr: number, fc: number, tr: number, tc: number) => ({ from: sq(fr, fc), to: sq(tr, tc) });
+
+  it("nước yên lặng không chiếu, không ăn, không dọa thì không đáng bình", () => {
+    const pos = parseFen("3akab2/4a4/9/9/9/9/9/9/9/R3K4 w - - 0 1");
+    const m = mv(9, 0, 8, 0);
+    expect(isSignificantMove(pos.board, m, play(pos.board, m), null)).toBe(false);
+  });
+
+  it("nước duy nhất theo MultiPV luôn đáng bình", () => {
+    const pos = parseFen("3akab2/4a4/9/9/9/9/9/9/9/R3K4 w - - 0 1");
+    const m = mv(9, 0, 8, 0);
+    expect(isSignificantMove(pos.board, m, play(pos.board, m), "only")).toBe(true);
+  });
+
+  it("dọa ăn quân lớn không căn là đáng bình", () => {
+    const pos = parseFen("3akab2/4a4/9/9/9/9/r8/9/9/1R2K4 w - - 0 1");
+    const m = mv(9, 1, 6, 1);
+    expect(isSignificantMove(pos.board, m, play(pos.board, m), null)).toBe(true);
+  });
+
+  it("cùng một kỳ lý của cùng một bên chỉ nói một lần trong 12 nửa nước", () => {
+    const zhao = (side: "r" | "b") => ({ kind: "zhaoMiddlegame", side, tactic: "songXePhoiHop", move: "X1.1", summary: "" });
+    const plies = Array.from({ length: 16 }, () => ({ facts: [] }) as unknown as MoveReview);
+    const tagged: [number, "r" | "b"][] = [[0, "r"], [2, "r"], [4, "r"], [14, "r"], [15, "b"]];
+    for (const [i, side] of tagged) plies[i].facts = [zhao(side) as never];
+    suppressRepeatedZhaoFacts(plies);
+    // Lặp lại ở nửa nước 2, 4 bị bỏ; nửa nước 14 đã cách lần nói trước (0) hơn 12; bên Đen tính riêng.
+    expect(tagged.map(([i]) => plies[i].facts.length)).toEqual([1, 0, 0, 1, 1]);
+  });
+});

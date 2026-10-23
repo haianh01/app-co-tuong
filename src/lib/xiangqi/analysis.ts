@@ -1,6 +1,6 @@
 import { findBestMove } from "./ai";
 import { assessPosition, type PositionAssessment } from "./assess";
-import { inCheck, legalMoves, opponent, play, type Board, type Move, type Side } from "./engine";
+import { attackersOf, inCheck, isDefended, legalMoves, opponent, play, PIECE_VALUES, sideOf, typeOf, type Board, type Move, type Side } from "./engine";
 import { explainMove, personaFacts, type Fact } from "./explain";
 import { endgamePrincipleFacts } from "./endgame-principles";
 import { detectIntent, type IntentFact } from "./intent";
@@ -278,6 +278,57 @@ export interface ReviewResult {
  * Đánh giá riêng 1 nước đi trong ván cờ.
  * Giúp LiveCoach chỉ cần tính nước mới mà không phải duyệt lại toàn bộ các nước cũ.
  */
+/**
+ * Nước "đáng bình": nước duy nhất/nước hay theo MultiPV, chiếu, ăn quân lớn, hoặc tạo đe dọa mới
+ * lên quân lớn đối phương (không căn, hoặc bị quân rẻ hơn dọa).
+ */
+export function isSignificantMove(before: Board, move: Move, after: Board, cls: MoveClass | null): boolean {
+  if (cls === "only" || cls === "brilliant") return true;
+  const piece = before[move.from];
+  if (!piece) return false;
+  const mover = sideOf(piece);
+  const opp = opponent(mover);
+  if (inCheck(after, opp)) return true;
+  const captured = before[move.to];
+  if (captured && typeOf(captured) !== "p") return true;
+  for (let sq = 0; sq < after.length; sq++) {
+    const p = after[sq];
+    if (!p || sideOf(p) !== opp || !"rnc".includes(typeOf(p))) continue;
+    if (!attackersOf(after, sq, mover).includes(move.to) || attackersOf(before, sq, mover).includes(move.from)) continue;
+    if (!isDefended(after, sq, opp) || PIECE_VALUES[typeOf(piece)] < PIECE_VALUES[typeOf(p)]) return true;
+  }
+  return false;
+}
+
+/**
+ * Chuyên gia chỉ bình kỳ lý ở nước quan trọng: lời chê chỉ đi với nước bị chấm lỗi,
+ * lời khen chỉ đi với nước không lỗi VÀ đáng bình; nước theo sách khai cuộc không gắn kỳ lý trung cuộc.
+ */
+function keepZhaoFact(f: Fact, cls: MoveClass | null, isFault: boolean, before: Board, move: Move, after: Board): boolean {
+  if (f.kind !== "zhaoMiddlegame") return true;
+  if (cls === "book") return false;
+  if (f.tone === "critique") return isFault;
+  return !isFault && isSignificantMove(before, move, after, cls);
+}
+
+/**
+ * Bỏ kỳ lý lặp lại: cùng một kỳ lý cho cùng một bên trong vòng `window` nửa nước gần nhất chỉ nói một lần
+ * (thế trận giữ nguyên thì bộ nhận diện cấu trúc khớp liên tục, nhắc lại mỗi nước thành nhiễu).
+ */
+export function suppressRepeatedZhaoFacts(reviews: MoveReview[], window = 12): void {
+  const lastSeen = new Map<string, number>();
+  reviews.forEach((r, i) => {
+    r.facts = r.facts.filter((f) => {
+      if (f.kind !== "zhaoMiddlegame") return true;
+      const key = `${f.side}:${f.tactic}`;
+      const prev = lastSeen.get(key);
+      if (prev !== undefined && i - prev <= window) return false;
+      lastSeen.set(key, i);
+      return true;
+    });
+  });
+}
+
 export function reviewMove(
   m: { move: Move; side: Side; notation: string },
   i: number,
@@ -452,7 +503,7 @@ export function reviewMove(
       evalBefore: before,
       evalAfter: afterEval,
       recentMoves: state.moves.slice(Math.max(0, i - 6), i).map((x) => x.move),
-    }),
+    }).filter((f) => keepZhaoFact(f, cls, isFault, state.history[i].board, m.move, state.history[i + 1].board)),
     // Nguyên lý tàn cuộc: hiện ở mọi góc nhìn bình luận
     ...endgamePrincipleFacts(state.history[i].board, m.move, state.history[i + 1].board, {
       pv: afterEval?.pv,
@@ -604,6 +655,8 @@ export function reviewGame(state: GameState, evals: (PositionEval | null)[]): Re
       acc[m.side].push(accuracy);
     }
   });
+
+  suppressRepeatedZhaoFacts(reviews);
 
   const avg = (xs: number[]) => (xs.length ? Math.round(xs.reduce((a, b) => a + b, 0) / xs.length) : null);
   const planThreads = trackPlanThreads(state.moves, state.history.map((h) => h.board), evals);

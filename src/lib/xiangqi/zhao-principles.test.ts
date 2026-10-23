@@ -19,6 +19,7 @@ import {
   detectSmotheredCannonMate,
   detectNgoaTaoKnight,
   detectOaTamKnight,
+  checkDeepCannonBottom,
   detectDeepCannonBottom,
   detectVoSuTienTotBien,
   detectMayUiTrungLo,
@@ -468,11 +469,54 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
     const fen = "3akab2/9/1C7/9/4P4/9/9/9/9/4K4 w - - 0 1";
     const deepCannonMove = mv(2, 1, 0, 1);
 
-    it("nhận diện Pháo cắm sâu xuống tuyến đáy đối phương kiềm tỏa phòng tuyến", () => {
+    // Thế cờ thật từ ván cao thủ, biến Pikafish ghi lại (ô = hàng * 9 + cột)
+    const line = (xs: number[][]): Move[] => xs.map(([from, to]) => ({ from, to }));
+    const real = (fen: string, from: number, to: number, pv: number[][], scoreForMover: number, loss = 0) => {
+      const pos = parseFen(fen);
+      const move = { from, to };
+      expect(isLegal(pos, move)).toBe(true);
+      const after = play(pos.board, move);
+      return { before: pos.board, move, after, options: { pv: line(pv), loss, evalAfter: { score: -scoreForMover } } };
+    };
+
+    it("chỉ có hình Pháo xuống đáy, không có biến engine thì không gắn", () => {
       const { before, after } = setup(fen, deepCannonMove);
-      const f = detectDeepCannonBottom(before, deepCannonMove, after, { loss: 0 });
+      expect(detectDeepCannonBottom(before, deepCannonMove, after, { loss: 0 })).toBeNull();
+      expect(checkDeepCannonBottom(before, deepCannonMove, after, { loss: 0 })).toMatchObject({ ok: false, layer: 3 });
+    });
+
+    it("rút bắt quân: Pháo chiếu rồi chính Pháo ăn Xe", () => {
+      const t = real("1R1rka3/4a4/4bc3/8p/5n3/9/P7P/B3C4/2C6/3AKAB2 w", 74, 2,
+        [[3, 21], [2, 5], [21, 3], [5, 3], [4, 5], [3, 12], [13, 3], [1, 3], [5, 14], [67, 64], [41, 30], [64, 10]], 1131);
+      expect(checkDeepCannonBottom(t.before, t.move, t.after, t.options)).toMatchObject({ ok: true, mechanism: "rút bắt quân" });
+      const f = detectDeepCannonBottom(t.before, t.move, t.after, t.options);
       expect(f?.tactic).toBe("phaoTramDay");
-      expect(f?.summary).toContain("Pháo trầm đáy");
+      expect(f?.summary).toContain("Pháo ăn Xe");
+    });
+
+    it("công sát: chính nước Pháo xuống đáy là chiếu bí (biến trống)", () => {
+      const t = real("4kab2/4a1c2/4b1n2/pN2p3p/9/P1B5P/4P4/4C4/c2CA4/4KAB2 b", 15, 87, [], 100000);
+      expect(checkDeepCannonBottom(t.before, t.move, t.after, t.options)).toMatchObject({ ok: true, mechanism: "công sát" });
+    });
+
+    it("Pháo đang bị dọa mà không thắng Xe hay chiếu bí thì là chạy quân", () => {
+      const t = real("2baka3/9/2n3cR1/p1p1p3p/1r7/P8/1rP1P3P/N1C1C1N2/9/2BAKAB2 b", 24, 87,
+        [[86, 76], [20, 13], [58, 49], [13, 24], [49, 40], [37, 40], [67, 58], [55, 64], [65, 67], [3, 13], [76, 66], [64, 66]], -294, 250);
+      expect(checkDeepCannonBottom(t.before, t.move, t.after, t.options)).toMatchObject({ ok: false, layer: 2 });
+    });
+
+    it("Pháo bị ăn ngay mà không lấy lại được là biếu không", () => {
+      const t = real("2bakab2/5r3/1R2c1n2/p3p1N1p/9/2P3P2/P1crP3P/BCN1C4/9/2RAKAB2 b", 56, 83,
+        [[63, 83], [14, 32], [67, 69], [31, 40], [84, 76], [40, 49], [58, 49], [57, 60], [33, 52], [60, 51], [69, 24], [51, 24]], 28);
+      const r = checkDeepCannonBottom(t.before, t.move, t.after, t.options);
+      expect(r).toMatchObject({ ok: false, layer: 3 });
+      expect(r && !r.ok && r.reason).toContain("biếu không");
+    });
+
+    it("Pháo xuống đáy ăn Tượng mà không thắng thêm gì là ăn quân", () => {
+      const t = real("2r1kab2/4a1c2/1c2b4/p3PR2p/2P6/9/P5p1P/1CN1C4/7r1/R1BAKAB2 b", 15, 87,
+        [[86, 76], [2, 38], [64, 73], [79, 88], [81, 63], [87, 69], [76, 86], [69, 87], [86, 76], [22, 2]], 1);
+      expect(checkDeepCannonBottom(t.before, t.move, t.after, t.options)).toMatchObject({ ok: false, layer: 2 });
     });
 
     it("không nhận khi Pháo di chuyển không tới tuyến đáy", () => {

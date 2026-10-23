@@ -707,7 +707,7 @@ export function AnalysisPanel({
                           </div>
                         )}
                         {(() => {
-                          const zhaoFact = m.facts.find((f): f is Fact & { kind: "zhaoMiddlegame"; lesson?: number; lessonTitle?: string; quote?: { text: string; at: string }; videoUrl?: string } => f.kind === "zhaoMiddlegame" && f.lesson !== undefined);
+                          const zhaoFact = m.facts.find((f): f is Fact & { lesson?: number; lessonTitle?: string; quote?: { text: string; at: string }; videoUrl?: string } => (f.kind === "zhaoMiddlegame" || f.kind === "endgamePrinciple") && (f as { lesson?: number }).lesson !== undefined);
                           const note = explainText(m.facts, m.side, m.ply, commentaryStyle);
                           return (
                             <>

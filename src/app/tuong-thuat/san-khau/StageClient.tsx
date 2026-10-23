@@ -7,7 +7,7 @@ import { useLocationSearch } from "@/hooks/useLocationSearch";
 import { STAGE_ROOM_RE, stageSocketUrl, type StageRelayMessage, type StageVoiceEvent } from "@/lib/stage-protocol";
 import { formatClock } from "@/lib/vision/zigavn-panels";
 import { PIECE_CHAR } from "@/lib/xiangqi/notation";
-import { inCheck, outcome, type PieceType, type Side } from "@/lib/xiangqi/engine";
+import { inCheck, outcome, type Board, type PieceType, type Side } from "@/lib/xiangqi/engine";
 import { playStageVoiceEvent, unlockAudio } from "@/lib/stage-voice";
 import { DEFAULT_STAGE_VOICE_LINES, formatEvalScore, liveClocks, type BigMoment, type StageClocks, type StagePlayer, type StageState } from "../stage-sync";
 import styles from "./stage.module.css";
@@ -530,7 +530,7 @@ function PlayerCard({
   );
 }
 
-/** Khung Live Streamer / OBS góc trên phải: gồm camera cutout, live stats và bình luận trực tiếp */
+/** Khung Camera Streamer / OBS góc trên phải: kích thước 590×340 (tỉ lệ chuẩn 16:9 của webcam) */
 function ZigaLiveCard({
   state,
   recap,
@@ -540,8 +540,53 @@ function ZigaLiveCard({
   recap: { shown: boolean; toggle: () => void };
   onTestVoice?: () => void;
 }) {
+  const [webcamActive, setWebcamActive] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const toggleWebcam = useCallback(async () => {
+    if (webcamActive) {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+      setWebcamActive(false);
+    } else {
+      try {
+        if (!navigator?.mediaDevices?.getUserMedia) {
+          alert("Trình duyệt không hỗ trợ truy cập camera.");
+          return;
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
+          audio: false,
+        });
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+        setWebcamActive(true);
+      } catch (err) {
+        console.warn("Không thể mở camera trình duyệt:", err);
+        alert("Không thể mở camera. Vui lòng cấp quyền truy cập camera trên trình duyệt hoặc sử dụng OBS overlay.");
+      }
+    }
+  }, [webcamActive]);
+
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
+
   return (
     <div className={styles.zigaLiveCard}>
+      {/* Thanh trạng thái Live phía trên */}
       <div className={styles.liveHeader}>
         <div className={styles.liveBadgeGroup}>
           <span className={styles.livePulseDot} />
@@ -562,39 +607,46 @@ function ZigaLiveCard({
         </div>
       </div>
 
+      {/* Vùng Camera chính: hiển thị video webcam hoặc khung ngắm OBS */}
       <div className={styles.liveCamArea}>
-        <div className={styles.camOverlayHint}>
-          <span>🎥 Khung Camera Streamer (OBS)</span>
-        </div>
-        <div className={styles.liveChatComments}>
-          <div className={styles.chatRow}>
-            <span className={styles.chatUserBadge}>🌸 Hạng 1</span>
-            <span className={styles.chatUserName}>QUỲNH TRỐNG DỨA:</span>
-            <span className={styles.chatMessage}>tốt ra đi</span>
+        {webcamActive ? (
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            className={styles.cameraVideo}
+          />
+        ) : (
+          <div className={styles.camPlaceholder}>
+            {/* 4 góc ngắm camera chuẩn chuyên nghiệp */}
+            <div className={styles.camCornerTL} aria-hidden="true" />
+            <div className={styles.camCornerTR} aria-hidden="true" />
+            <div className={styles.camCornerBL} aria-hidden="true" />
+            <div className={styles.camCornerBR} aria-hidden="true" />
+
+            <div className={styles.camCenterBadge}>
+              <div className={styles.camIconGlow}>
+                <span className={styles.camBigIcon}>🎥</span>
+              </div>
+              <span className={styles.camTitle}>KHUNG CAMERA STREAMER</span>
+              <span className={styles.camSubtitle}>Vị trí đặt nguồn Camera OBS (590 × 340)</span>
+            </div>
           </div>
-          <div className={styles.chatRow}>
-            <span className={styles.chatUserBadge}>❤️ caobang</span>
-            <span className={styles.chatUserName}>TRẤN NHỰA NANÔ:</span>
-            <span className={styles.chatMessage}>Ra xe giữ</span>
-          </div>
-          <div className={styles.chatRow}>
-            <span className={styles.chatUserName}>Tuyến Nguyễn Auto:</span>
-            <span className={styles.chatMessage}>Giống ván hoà của e a a</span>
-          </div>
-          <div className={styles.chatRow}>
-            <span className={styles.chatSystem}>Sóng Gió. đã tham gia</span>
-          </div>
-        </div>
+        )}
       </div>
 
+      {/* Thanh công cụ chân khung camera */}
       <div className={styles.liveFooterBar}>
-        <div className={styles.liveControlIcons} aria-hidden="true">
-          <span>⏸</span>
-          <span>⚡</span>
-          <span>✨</span>
-          <span>⭐</span>
-          <span>⚙</span>
-          <span>🏠</span>
+        <div className={styles.camFooterLeft}>
+          <button
+            type="button"
+            className={`${styles.miniToolBtn} ${webcamActive ? styles.camActiveBtn : ""}`}
+            onClick={toggleWebcam}
+            title={webcamActive ? "Tắt camera trình duyệt" : "Bật camera từ trình duyệt"}
+          >
+            {webcamActive ? "✕ Tắt Cam" : "📷 Bật Camera"}
+          </button>
         </div>
         <div className={styles.liveToolBtns}>
           {onTestVoice && (
@@ -828,7 +880,7 @@ function Ticker({ state }: { state: StageState }) {
 
 function getPreviewZigaState(): StageState {
   // Tái hiện chính xác 100% thế cờ trong ảnh mẫu Ziga của người dùng (media_1792683919137.png)
-  const board: (string | null)[] = Array(90).fill(null);
+  const board: Board = Array(90).fill(null);
   // Quân Đen (trên)
   board[0 * 9 + 2] = "b"; // 象
   board[0 * 9 + 3] = "a"; // 士
@@ -852,7 +904,7 @@ function getPreviewZigaState(): StageState {
   const targets = [5 * 9 + 6]; // Dấu hồng tâm tròn xanh neon tại ô (5, 6)
 
   return {
-    board: board as any,
+    board,
     turn: "b",
     ply: 27,
     lastMove: { from: 6 * 9 + 2, to: 7 * 9 + 7 },
@@ -883,7 +935,7 @@ function getPreviewZigaState(): StageState {
       voiceLines: DEFAULT_STAGE_VOICE_LINES,
     },
     openingName: "Ngũ Thất Pháo đối Bình Phong Mã",
-    materialBalance: { text: "Cân bằng quân lực", diff: 0, me: [], opponent: [] },
+    materialBalance: { text: "Cân bằng quân lực", advantageSide: null },
     recap: {
       roundAndPly: "Ván 1 · Nước 14",
       openingName: "Ngũ Thất Pháo đối Bình Phong Mã",
@@ -895,6 +947,8 @@ function getPreviewZigaState(): StageState {
     ready: null,
     trial: null,
     review: null,
+    captured: { redLost: [], blackLost: [] },
+    timestamp: Date.now(),
   };
 }
 

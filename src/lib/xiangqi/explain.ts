@@ -1366,7 +1366,10 @@ export function explainText(
         (f.kind === "pattern" && f.side === mover && f.action === "formed"),
     );
     const zhaoFacts = visible.filter((f): f is ZhaoMiddlegameFact => f.kind === "zhaoMiddlegame");
-    const lessonFact = zhaoFacts.find((f) => f.lesson !== undefined);
+    const lessonFact = visible.find(
+      (f): f is (ZhaoMiddlegameFact | EndgamePrincipleFact) =>
+        (f.kind === "zhaoMiddlegame" || f.kind === "endgamePrinciple") && f.lesson !== undefined,
+    );
     const lessonTag = lessonFact ? ` (Kỳ lý #${lessonFact.lesson}: ${lessonFact.lessonTitle})` : "";
     const quoteSuffix = lessonFact?.quote && lessonFact?.videoUrl
       ? ` 💬 Triệu Hâm Hâm (${lessonFact.quote.at}): "${lessonFact.quote.text}" [Xem video: ${lessonFact.videoUrl}]`
@@ -1374,6 +1377,9 @@ export function explainText(
 
     if (hasZhao && zhaoFacts.every((f) => f.tone === "critique")) {
       return `[Triệu Hâm Hâm - Cảnh tỉnh]${lessonTag}: ${base}${quoteSuffix}`;
+    }
+    if (lessonFact?.kind === "endgamePrinciple") {
+      return `[Triệu Hâm Hâm - Tàn cuộc]${lessonTag}: ${base}${quoteSuffix}`;
     }
     if (hasZhao) {
       return `[Triệu Hâm Hâm - Công sát]${lessonTag}: ${base}${quoteSuffix}`;

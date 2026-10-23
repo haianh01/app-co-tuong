@@ -562,6 +562,13 @@ export function ZigaBroadcastClient() {
         lastMove,
         checkSquare,
         notations: game.moves.map((m) => m.notation),
+        moves: game.moves.map((m, idx) => ({
+          ply: idx + 1,
+          notation: m.notation,
+          side: m.side,
+          from: m.move.from,
+          to: m.move.to,
+        })),
         arrows: sketch.present.arrows,
         highlights: sketch.present.marks,
         selected: liveZigaSelection?.from ?? null,

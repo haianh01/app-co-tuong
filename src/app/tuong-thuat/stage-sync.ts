@@ -180,6 +180,38 @@ export function formatEvalScore(score: number | null | undefined): string {
   return `⚫ Đen ưu (-${pts})`;
 }
 
+
+export interface StageZhaoLesson {
+  lesson: number;
+  title: string;
+  kind: "middlegame" | "endgame";
+  quote?: string;
+  videoUrl?: string;
+}
+
+export interface StageMoveItem {
+  ply: number;
+  notation: string;
+  side: Side;
+  from?: number;
+  to?: number;
+  commentary?: string | null;
+  evalCp?: number | null;
+  tag?: "brilliant" | "good" | "inaccuracy" | "mistake" | "blunder" | null;
+  zhaoLesson?: StageZhaoLesson | null;
+}
+
+export interface StageCommentaryDetail {
+  ply: number;
+  notation: string;
+  side: Side;
+  summary: string;
+  assessment?: string;
+  intent?: string;
+  betterMove?: string;
+  zhaoLesson?: StageZhaoLesson | null;
+}
+
 export interface StageState {
   board: Board;
   turn: Side;
@@ -208,6 +240,8 @@ export interface StageState {
   trial?: StageTrial | null;
   /** Trạng thái chiếu phân tích / xem lại ván trên màn sân khấu (null: ván trực tiếp). */
   review?: StageReviewState | null;
+  moves: StageMoveItem[];
+  activeCommentary?: StageCommentaryDetail | null;
   timestamp: number;
 }
 
@@ -336,6 +370,61 @@ export function generateRecap(params: {
   };
 }
 
+
+/** Lời bình chi tiết thế trận và ý đồ nước đi cho trận cờ sân khấu. */
+export function generateCommentaryDetail(params: {
+  board: Board;
+  turn: Side;
+  ply: number;
+  lastMove: Move | null;
+  lastNotation?: string;
+  capturedPiece?: string | null;
+  mySide: Side;
+  review?: StageReviewState | null;
+  openingName?: string;
+}): StageCommentaryDetail | null {
+  const { board, turn, ply, lastMove, lastNotation, capturedPiece, mySide, review, openingName } = params;
+  if (ply <= 0 || !lastNotation) return null;
+  const mover: Side = turn === "r" ? "b" : "r";
+  const who = sideName(mover, mySide);
+  const isCheck = inCheck(board, turn);
+
+  let summary = `${who} đi ${lastNotation}`;
+  if (isCheck) summary += " · Chiếu tướng!";
+  else if (capturedPiece) summary += ` · Ăn ${PIECE_NAME[typeOf(capturedPiece)]}!`;
+
+  let assessment: string | undefined;
+  if (review?.evalScore !== undefined && review?.evalScore !== null) {
+    assessment = formatEvalScore(review.evalScore);
+  }
+
+  let betterMove: string | undefined;
+  if (review?.bestNotation) {
+    betterMove = review.bestNotation;
+  }
+
+  let intent: string | undefined;
+  if (review?.turningPoint) {
+    intent = `Bước ngoặt #${review.turningPoint.index + 1}: ${review.turningPoint.description}`;
+  } else if (ply <= 6 && openingName) {
+    intent = `Triển khai thế trận khai cuộc ${openingName}`;
+  } else if (isCheck) {
+    intent = "Công kích tướng đối phương, đoạt tiên cơ";
+  } else if (capturedPiece) {
+    intent = `Ăn quân ${PIECE_NAME[typeOf(capturedPiece)]}, tích lũy ưu thế quân lực`;
+  }
+
+  return {
+    ply,
+    notation: lastNotation,
+    side: mover,
+    summary,
+    assessment,
+    intent,
+    betterMove,
+  };
+}
+
 /** Dựng trạng thái sân khấu từ ván đang theo dõi trên trang điều khiển. */
 export function buildStageState(params: {
   board: Board;
@@ -358,12 +447,35 @@ export function buildStageState(params: {
   trial?: StageTrial | null;
   /** Chiếu phân tích ván cũ lên sân khấu. */
   review?: StageReviewState | null;
+  /** Danh sách toàn bộ nước đi của ván cờ (nếu không có sẽ tự dựng từ `notations`). */
+  moves?: StageMoveItem[];
+  activeCommentary?: StageCommentaryDetail | null;
 }): StageState {
   const { board, turn, ply, lastMove, mySide, settings, capturedPiece } = params;
   const trial = params.trial ?? null;
   const notations = params.notations ?? [];
   const openingName = detectOpeningFromMoves(notations.slice(0, ply));
   const materialBalance = computeMaterialBalance(board, mySide);
+  const moves: StageMoveItem[] = params.moves ?? notations.map((notation, idx) => {
+    const movePly = idx + 1;
+    const moveSide: Side = movePly % 2 === 1 ? "r" : "b";
+    return {
+      ply: movePly,
+      notation,
+      side: moveSide,
+    };
+  });
+  const activeCommentary: StageCommentaryDetail | null = params.activeCommentary ?? generateCommentaryDetail({
+    board,
+    turn,
+    ply,
+    lastMove,
+    lastNotation: notations[ply - 1],
+    capturedPiece,
+    mySide,
+    review: params.review,
+    openingName,
+  });
   return {
     board,
     turn,
@@ -387,6 +499,8 @@ export function buildStageState(params: {
     clocks: params.clocks ?? null,
     trial,
     review: params.review ?? null,
+    moves,
+    activeCommentary,
     timestamp: Date.now(),
   };
 }

@@ -8,7 +8,7 @@ import { ZHAO_LESSONS } from "./zhao48-lessons";
 // Nguyên lý nào cần biến engine (PV) hay điểm số mà không có thì trả về null thay vì đoán.
 
 import {
-  type Board, type Move, type Piece, type Side,
+  type Board, type Move, type Piece, type PieceType, type Side,
   attackersOf, colOf, findKing, hasAnyLegalMove, inCheck, initialPosition, isDefended, legalMoves, legalMovesFrom, opponent, play,
   pseudoMoves, rowOf, sideOf, typeOf, crossedRiver, PIECE_VALUES,
 } from "./engine";
@@ -20,6 +20,8 @@ import {
   type ZhaoMiddlegameFact, type ZhaoTactics, type ZhaoTacticsOptions,
 } from "./middlegame";
 import { moveNotation, PIECE_NAME } from "./notation";
+import { classifyMoveOutcome } from "./move-outcome";
+import { MATE_SCORE, MATE_THRESHOLD } from "./uci";
 import { advance, attackPressure } from "./strategy";
 
 type Detector = (before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions) => ZhaoMiddlegameFact | null;
@@ -766,38 +768,135 @@ export function detectOaTamKnight(
 // 16. PHÁO TRẦM ĐÁY (Nghệ Thuật Phá Trận & Kiềm Chế - Triệu Hâm Hâm Bài 13 & 14)
 // ============================================================================
 
+/** Kết quả kiểm từng tầng của một kỳ lý: qua hết thì kèm cơ chế và lời bình; trượt thì ghi tầng trượt và lý do. */
+export type PrincipleCheck =
+  | { ok: true; mechanism: string; summary: string }
+  | { ok: false; layer: 1 | 2 | 3 | 4; reason: string };
+
+/** Các ô trong cung của phe `side`. */
+function palaceSquares(side: Side): number[] {
+  const rows = side === "b" ? [0, 1, 2] : [7, 8, 9];
+  return rows.flatMap((r) => [3, 4, 5].map((c) => r * 9 + c));
+}
+
 /**
- * Pháo cắm sâu xuống tuyến đáy đối phương (hàng 0 đối với Đỏ, hàng 9 đối với Đen)
- * để kiềm tỏa Sĩ Tượng và rình rập đòn sát sau lưng phòng tuyến.
+ * Pháo trầm đáy (Triệu Hâm Hâm bài 13–14), kiểm bốn tầng:
+ * 1. Hình: Pháo từ hàng khác cắm xuống hàng đáy đối phương, và chiếu Tướng hoặc nhắm Sĩ/Tượng ở hàng đáy.
+ * 2. Mục đích: không phải chỉ ăn quân (biến không thắng thêm gì ngoài quân vừa ăn), không phải chạy Pháo
+ *    đang bị dọa (trừ khi dẫn tới sát hoặc thắng Xe).
+ * 3. Cơ chế, theo đúng con Pháo đó trong biến engine — bài giảng: tác dụng là "công sát, rút bắt quân,
+ *    mưu Sĩ Tượng"; "xuống đáy không có tác dụng là biếu không":
+ *    - công sát: chiếu bí mà Pháo có góp sức (có nước chiếu của Pháo, hoặc Pháo khống chế ô trong cung);
+ *    - rút bắt quân: thắng quân lớn do chính Pháo ăn, hoặc ngay sau nước chiếu của Pháo;
+ *    - mưu Sĩ Tượng: như trên nhưng ăn Sĩ/Tượng và giữ được.
+ * 4. Kết quả: không hớ, và engine chấm bên đi từ +150 trở lên.
+ * Trả về null khi nước đi không phải Pháo cắm xuống đáy (không phải ứng viên).
  */
-export function detectDeepCannonBottom(
+export function checkDeepCannonBottom(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
-): ZhaoMiddlegameFact | null {
+): PrincipleCheck | null {
   const piece = before[move.from];
   if (!piece || typeOf(piece) !== "c") return null;
   const mover = sideOf(piece);
   const opp = opponent(mover);
-  if (!soundMove(options)) return null;
-
-  const tr = rowOf(move.to);
-  const isBottomRow = mover === "r" ? tr === 0 : tr === 9;
-  if (!isBottomRow) return null;
-
+  const bottom = mover === "r" ? 0 : 9;
   // Phải từ hàng trên cắm xuống đáy, không tính Pháo đã ở đáy di chuyển ngang
-  const fr = rowOf(move.from);
-  const wasBottomRow = mover === "r" ? fr === 0 : fr === 9;
-  if (wasBottomRow) return null;
+  if (rowOf(move.to) !== bottom || rowOf(move.from) === bottom) return null;
+  const oppKing = findKing(after, opp);
+  if (oppKing === -1) return null;
 
-  const kingSq = findKing(after, opp);
-  if (kingSq === -1) return null;
+  // Tầng 1: hình
+  const checks = attackersOf(after, oppKing, mover).includes(move.to);
+  const aims = after.some((p, sq) =>
+    !!p && sideOf(p) === opp && "ab".includes(typeOf(p)) && rowOf(sq) === bottom && attackersOf(after, sq, mover).includes(move.to));
+  if (!checks && !aims) return { ok: false, layer: 1, reason: "Pháo xuống đáy nhưng không chiếu Tướng, không nhắm Sĩ/Tượng" };
 
-  return fact(
-    before,
-    move,
-    "phaoTramDay",
-    "Pháo trầm đáy: Pháo cắm sâu xuống tuyến đáy kiềm tỏa Sĩ Tượng và rình rập đòn sát sau lưng đối phương — thế công then chốt theo Triệu Hâm Hâm.",
-    "Pháo trầm đáy"
-  );
+  const pv = pvAfterMove(options, move);
+  if (!options?.evalAfter) return { ok: false, layer: 3, reason: "Không có biến engine để kiểm" };
+  const scoreForMover = -options.evalAfter.score;
+  const moverMates = scoreForMover >= MATE_THRESHOLD;
+  // Chính nước này chiếu bí thì biến trống là đúng; còn lại cần biến đủ dài mới kết luận được
+  if (!moverMates && pv.length < 3) return { ok: false, layer: 3, reason: "Không có biến engine để kiểm" };
+
+  // Theo đúng con Pháo vừa đi qua biến: nó chiếu ở nửa nước nào, ăn được gì, quân nào ăn ngay sau nước chiếu của nó
+  const line = [move, ...pv].slice(0, 16);
+  const notes: string[] = [];
+  const cannonChecks: number[] = [];
+  const credited: { ply: number; type: PieceType; by: PieceType }[] = [];
+  let board = before;
+  let c = move.from;
+  let lostAt = -1;
+  for (const [ply, m] of line.entries()) {
+    const p = board[m.from];
+    if (!p) break;
+    const victim = board[m.to];
+    const next = play(board, m);
+    notes.push(moveNotation(board, m));
+    if (sideOf(p) === mover) {
+      if (m.from === c) c = m.to;
+      if (victim && ply > 0 && (m.to === c || cannonChecks.includes(ply - 2))) {
+        credited.push({ ply, type: typeOf(victim), by: typeOf(p) });
+      }
+      const k = findKing(next, opp);
+      if (c !== -1 && k !== -1 && attackersOf(next, k, mover).includes(c)) cannonChecks.push(ply);
+    } else if (m.to === c) {
+      lostAt = ply;
+      c = -1;
+    }
+    board = next;
+  }
+
+  const o = classifyMoveOutcome(before, move, pv, { scoreForMover, moverMates });
+  const captured = before[move.to];
+  const capVal = captured ? PIECE_VALUES[typeOf(captured)] : 0;
+  const net = o.materialSettled - capVal;
+  const palaceHit = c !== -1 && palaceSquares(opp).some((sq) => sq !== c && guards(board, c, sq));
+  const inMate = moverMates && c !== -1 && (cannonChecks.length > 0 || palaceHit);
+  const bigWin = credited.find((x) => "rnc".includes(x.type));
+  const guardWin = credited.find((x) => "ab".includes(x.type));
+
+  // Tầng 2: Pháo đang bị dọa thì mục đích chính là chạy quân, trừ khi đòn rất lớn
+  const threatened = (exchangeGain(before, move.from, opp) ?? 0) > 0;
+  if (threatened && !inMate && bigWin?.type !== "r") {
+    return { ok: false, layer: 2, reason: "Pháo đang bị dọa ăn có lời — nước này chủ yếu là chạy Pháo" };
+  }
+
+  // Tầng 3: cơ chế
+  const said = checks ? "Pháo trầm đáy chiếu Tướng" : "Pháo trầm đáy kiềm Sĩ Tượng";
+  let mechanism: string | null = null;
+  let summary = "";
+  if (inMate) {
+    const moves = Math.max(1, Math.round((MATE_SCORE - scoreForMover) / 2));
+    mechanism = "công sát";
+    summary = `${said}, góp sức vào đòn sát — theo biến, chiếu bí sau ${moves} nước nữa (${notes.slice(0, 6).join(" ")}).`;
+  } else if (bigWin && net >= 250) {
+    mechanism = "rút bắt quân";
+    const how = bigWin.by === "c" ? `Pháo ăn ${PIECE_NAME[bigWin.type]}` : `${PIECE_NAME[bigWin.by]} ăn ${PIECE_NAME[bigWin.type]} ngay sau nước Pháo chiếu`;
+    summary = `${said}, đối phương phải ứng phó, rồi ${how} (${notes.slice(0, bigWin.ply + 1).join(" ")}) — thắng ${PIECE_NAME[bigWin.type]}.`;
+  } else if (guardWin && net >= 150) {
+    mechanism = "mưu Sĩ Tượng";
+    summary = `${said}, rồi ăn được ${PIECE_NAME[guardWin.type]} mà không bị ăn lại (${notes.slice(0, guardWin.ply + 1).join(" ")}).`;
+  }
+  if (!mechanism) {
+    // Pháo mất ngay trong vài nửa nước đầu mới là "biếu không"; mất ở cuối biến dài là chuyện khác
+    if (lostAt >= 0 && lostAt <= 5) return { ok: false, layer: 3, reason: `Pháo bị ăn ở nửa nước ${lostAt} mà không lấy lại tương xứng — "biếu không"` };
+    if (captured) return { ok: false, layer: 2, reason: `Nước này là Pháo ăn ${PIECE_NAME[typeOf(captured)]}, biến không thắng thêm gì — mục đích là ăn quân` };
+    return { ok: false, layer: 3, reason: "Biến không cho thấy Pháo phát huy tác dụng: không sát, không thắng quân nhờ Pháo" };
+  }
+
+  // Tầng 4: kết quả
+  if (!soundMove(options)) return { ok: false, layer: 4, reason: `Nước đi hớ ${options.loss ?? "?"} điểm so với nước tốt nhất` };
+  if (scoreForMover < 150) return { ok: false, layer: 4, reason: `Engine chỉ chấm bên đi ${scoreForMover >= 0 ? "+" : ""}${scoreForMover}` };
+  return { ok: true, mechanism, summary };
+}
+
+/** Pháo trầm đáy: chỉ gắn khi qua cả bốn tầng của checkDeepCannonBottom. */
+export function detectDeepCannonBottom(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const r = checkDeepCannonBottom(before, move, after, options);
+  if (!r?.ok) return null;
+  return fact(before, move, "phaoTramDay", r.summary, "Pháo trầm đáy");
 }
 
 // ============================================================================

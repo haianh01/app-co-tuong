@@ -331,15 +331,23 @@
 /* Vòng xanh neon Ziga quanh quân đang chọn: giống hệt ảnh mẫu Ziga */
 .selectedCorners {
   position: absolute;
+  box-sizing: border-box;
   width: calc(var(--piece-size) * 1.18);
   aspect-ratio: 1;
   translate: -50% -50%;
+  transform-origin: center center;
   pointer-events: none;
   z-index: 4;
   border-radius: 50%;
-  border: 3.5px solid #00ff44;
+  border: 3px solid #00ff44;
   box-shadow: 0 0 16px rgba(0, 255, 68, 0.95), inset 0 0 8px rgba(0, 255, 68, 0.5);
   animation: zigaCornerPulse 1.4s ease-in-out infinite alternate;
+}
+
+/* Trong chế độ Ziga: quân đang chọn giữ nguyên vị trí tâm ô cờ (không nhảy lên 4px làm lệch vòng xanh) và không dùng viền vàng */
+.zigaBoard .piece.selected {
+  transform: none;
+  box-shadow: 0 3px 0 var(--piece-edge), 0 5px 8px rgba(0, 0, 0, 0.35);
 }
 
 @keyframes zigaCornerPulse {

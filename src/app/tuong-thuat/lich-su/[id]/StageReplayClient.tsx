@@ -141,6 +141,13 @@ export function StageReplayClient({ id }: { id: string }) {
         lastMove: currentLastMove,
         checkSquare: null,
         notations: gameState.moves.map((m) => m.notation),
+        moves: gameState.moves.map((m, idx) => ({
+          ply: idx + 1,
+          notation: m.notation,
+          side: m.side,
+          from: m.move.from,
+          to: m.move.to,
+        })),
         arrows: [],
         highlights: [],
         mySide: game.mySide === "b" ? "b" : "r",

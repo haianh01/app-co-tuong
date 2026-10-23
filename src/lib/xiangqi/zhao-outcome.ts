@@ -52,7 +52,8 @@ const RULES: Record<string, Rule> = {
   khongTamPhao: attackPaysOff,
   thienDiaPhao: attackPaysOff,
   khuyetSiSongXe: attackPaysOff,
-  phaoTramDay: attackPaysOff,
+  // Bộ nhận diện đã tự kiểm cơ chế theo đúng con Pháo (checkDeepCannonBottom); ở đây chỉ chặn biến lỗ vật chất
+  phaoTramDay: (o) => o.kind === "mate" || o.materialSettled >= 150,
   phaoDayKhoaXe: attackPaysOff,
   manhCongTuyenApDay: attackPaysOff,
   oanhTacLoSuon: attackPaysOff,

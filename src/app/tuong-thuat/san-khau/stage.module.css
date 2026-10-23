@@ -420,78 +420,110 @@
 .liveCamArea {
   flex: 1;
   position: relative;
-  padding: 10px 16px;
   display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, rgba(30, 38, 50, 0.7) 0%, rgba(10, 14, 20, 0.96) 100%);
   overflow: hidden;
 }
 
-.camOverlayHint {
+.cameraVideo {
   position: absolute;
-  top: 10px;
-  left: 16px;
-  display: inline-flex;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  background: #000;
+}
+
+.camPlaceholder {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 9px;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.55);
-  border: 1px dashed rgba(227, 168, 58, 0.6);
-  color: #ffd257;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.5px;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.camCornerTL,
+.camCornerTR,
+.camCornerBL,
+.camCornerBR {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  border-color: rgba(227, 168, 58, 0.75);
+  border-style: solid;
   pointer-events: none;
 }
 
-.liveChatComments {
+.camCornerTL {
+  top: 14px;
+  left: 14px;
+  border-width: 2.5px 0 0 2.5px;
+}
+
+.camCornerTR {
+  top: 14px;
+  right: 14px;
+  border-width: 2.5px 2.5px 0 0;
+}
+
+.camCornerBL {
+  bottom: 14px;
+  left: 14px;
+  border-width: 0 0 2.5px 2.5px;
+}
+
+.camCornerBR {
+  bottom: 14px;
+  right: 14px;
+  border-width: 0 2.5px 2.5px 0;
+}
+
+.camCenterBadge {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  z-index: 1;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  user-select: none;
+  pointer-events: none;
 }
 
-.chatRow {
-  font-size: 14px;
-  line-height: 1.3;
+.camIconGlow {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: rgba(227, 168, 58, 0.12);
+  border: 1.5px solid rgba(227, 168, 58, 0.5);
   display: flex;
-  align-items: baseline;
-  gap: 6px;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 22px rgba(227, 168, 58, 0.25);
 }
 
-.chatUserBadge {
-  flex: none;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: rgba(236, 72, 153, 0.35);
-  border: 1px solid #ec4899;
-  color: #fbcfe8;
-  font-size: 11px;
-  font-weight: 800;
+.camBigIcon {
+  font-size: 28px;
 }
 
-.chatUserName {
-  flex: none;
-  color: #94a3b8;
-  font-weight: 800;
+.camTitle {
+  font-size: 15px;
+  font-weight: 900;
+  color: #ffd257;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
 }
 
-.chatMessage {
-  color: #ffffff;
+.camSubtitle {
+  font-size: 12px;
   font-weight: 600;
-}
-
-.chatSystem {
-  color: #cbd5e1;
-  font-style: italic;
-  font-size: 13px;
-  opacity: 0.8;
+  color: #94a3b8;
+  letter-spacing: 0.3px;
 }
 
 .liveFooterBar {
@@ -503,13 +535,16 @@
   background: rgba(10, 14, 20, 0.55);
 }
 
-.liveControlIcons {
+.camFooterLeft {
   display: flex;
   align-items: center;
-  gap: 12px;
-  font-size: 15px;
-  color: #94a3b8;
-  cursor: default;
+  gap: 8px;
+}
+
+.camActiveBtn {
+  background: rgba(220, 38, 38, 0.35) !important;
+  border-color: #ef4444 !important;
+  color: #fca5a5 !important;
 }
 
 .liveToolBtns {

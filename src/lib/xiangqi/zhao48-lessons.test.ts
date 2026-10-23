@@ -6,7 +6,8 @@ import { ZHAO_LESSONS } from "./zhao48-lessons";
 describe("zhao48-lessons: kiểm tra tính xác thực của thẻ bài kỳ lý", () => {
   const expertDir = path.resolve(__dirname, "../../../.data/expert-commentary");
 
-  it("mọi câu trích (quote) phải tồn tại nguyên văn trong phụ đề và đúng mốc thời gian", () => {
+  // Phụ đề gốc nằm trong .data/ (không đưa lên git vì có bản quyền): máy không có thì không kiểm được, bỏ qua thay vì báo lỗi.
+  it.skipIf(!fs.existsSync(expertDir))("mọi câu trích (quote) phải tồn tại nguyên văn trong phụ đề và đúng mốc thời gian", () => {
     const lessons = Object.values(ZHAO_LESSONS);
     expect(lessons.length).toBeGreaterThan(0);
 

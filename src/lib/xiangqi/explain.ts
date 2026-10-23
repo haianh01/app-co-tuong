@@ -1395,7 +1395,7 @@ export function explainText(
       (f) =>
         f.kind === "parried" ||
         f.kind === "endgame" ||
-        (f.kind === "endgamePrinciple" && f.side === mover && f.tone !== "critique") ||
+        (f.kind === "endgamePrinciple" && f.side === mover && !f.tone) ||
         ((f.kind === "openFile" || f.kind === "exchange") && f.side === mover),
     );
     if (hasXu && xuFacts.every((f) => f.kind === "xuMiddlegame" && f.tone === "critique")) return `[Hứa Ngân Xuyên - Cảnh tỉnh]: ${base}`;

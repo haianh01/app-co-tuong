@@ -315,6 +315,15 @@ function keepZhaoFact(f: Fact, cls: MoveClass | null, isFault: boolean, before: 
   return !isFault && isSignificantMove(before, move, after, cls);
 }
 
+/**
+ * Nguyên lý tàn cuộc: lời chê chỉ đi với nước bị chấm lỗi, lời khen chỉ đi với nước không lỗi
+ * (bộ nhận diện đã tự kiểm biến engine); ghi chú loại tàn cuộc không khen chê nên luôn giữ.
+ */
+function keepEndgameFact(f: Fact, isFault: boolean): boolean {
+  if (f.kind !== "endgamePrinciple" || f.tone === "note") return true;
+  return f.tone === "critique" ? isFault : !isFault;
+}
+
 /** Kết quả của nước đi theo biến engine (null khi không có điểm/biến sau nước đi). */
 export function moveOutcomeFromEval(before: Board, move: Move, afterEval: PositionEval | null): MoveOutcome | null {
   if (!afterEval) return null;
@@ -327,17 +336,26 @@ export function moveOutcomeFromEval(before: Board, move: Move, afterEval: Positi
 }
 
 /**
- * Bỏ kỳ lý lặp lại: cùng một kỳ lý cho cùng một bên trong vòng `window` nửa nước gần nhất chỉ nói một lần
- * (thế trận giữ nguyên thì bộ nhận diện cấu trúc khớp liên tục, nhắc lại mỗi nước thành nhiễu).
+ * Bỏ kỳ lý lặp lại: cùng một kỳ lý (trung cuộc hoặc tàn cuộc) cho cùng một bên trong vòng `window` nửa nước gần nhất
+ * chỉ nói một lần (thế trận giữ nguyên thì bộ nhận diện khớp liên tục, nhắc lại mỗi nước thành nhiễu).
+ * Ghi chú loại tàn cuộc chỉ nói một lần cho cả ván.
  */
 export function suppressRepeatedZhaoFacts(reviews: MoveReview[], window = 12): void {
   const lastSeen = new Map<string, number>();
   reviews.forEach((r, i) => {
     r.facts = r.facts.filter((f) => {
-      if (f.kind !== "zhaoMiddlegame") return true;
-      const key = `${f.side}:${f.tactic}`;
+      let key: string;
+      let span = window;
+      if (f.kind === "zhaoMiddlegame") {
+        key = `${f.side}:${f.tactic}`;
+      } else if (f.kind === "endgamePrinciple") {
+        key = f.tone === "note" ? `note:${f.principle}` : `${f.side}:${f.principle}`;
+        if (f.tone === "note") span = Infinity;
+      } else {
+        return true;
+      }
       const prev = lastSeen.get(key);
-      if (prev !== undefined && i - prev <= window) return false;
+      if (prev !== undefined && i - prev <= span) return false;
       lastSeen.set(key, i);
       return true;
     });
@@ -526,7 +544,7 @@ export function reviewMove(
       loss,
       evalBefore: before,
       evalAfter: afterEval,
-    }),
+    }).filter((f) => keepEndgameFact(f, isFault)),
   );
 
   // 2. Ý đồ của nước AI đề xuất tốt hơn nếu nước đi bị chấm lỗi (B4)

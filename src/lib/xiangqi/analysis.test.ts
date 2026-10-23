@@ -510,3 +510,42 @@ describe("Chỉ bình kỳ lý ở nước đáng bình", () => {
     expect(tagged.map(([i]) => plies[i].facts.length)).toEqual([1, 0, 0, 1, 1]);
   });
 });
+
+describe("Nguyên lý tàn cuộc trong reviewMove / reviewGame", () => {
+  // Ván đại sư (xqbase): Xe đỏ ăn Tốt đen, đen không lấy lại được. Điểm và biến Pikafish 30k nodes.
+  const fen = "3a2b2/4k4/1c1abN3/4pR2p/3P5/2B1P4/2r6/9/4A4/2BAK4 w";
+  const take = { from: 32, to: 31 };
+  const pv = [[13, 14], [31, 32], [21, 13], [23, 16], [13, 23], [32, 30], [56, 47], [30, 3], [19, 20], [83, 63], [47, 49], [3, 6], [14, 13]]
+    .map(([from, to]) => ({ from, to }));
+  const afterEval: PositionEval = { score: -238, best: pv[0], pv };
+  const endgameFacts = (r: MoveReview) => r.facts.filter((f) => f.kind === "endgamePrinciple");
+
+  it("khen mưu Binh khi nước ăn Tốt là nước engine chọn", () => {
+    const state = replayMoves([take], fen);
+    const { review } = reviewMove(state.moves[0], 0, state, { score: 273, best: take }, afterEval);
+    expect(review.cls).not.toBe("inaccuracy");
+    expect(endgameFacts(review).map((f) => f.kind === "endgamePrinciple" && f.principle)).toEqual(["muuBinhCoXe"]);
+  });
+
+  it("cùng nước đó nhưng engine chấm là nước lỗi (bỏ lỡ nước thắng hơn nhiều) thì không khen", () => {
+    const state = replayMoves([take], fen);
+    const { review } = reviewMove(state.moves[0], 0, state, { score: 700, best: { from: 23, to: 13 } }, afterEval);
+    expect(["inaccuracy", "mistake", "blunder", "missedWin"]).toContain(review.cls);
+    expect(endgameFacts(review)).toEqual([]);
+  });
+
+  it("kỳ lý tàn cuộc lặp lại của cùng một bên trong 12 nửa nước chỉ nói một lần; ghi chú loại tàn cuộc chỉ một lần cả ván", () => {
+    const eg = (side: "r" | "b", principle: string, tone?: "note") =>
+      ({ kind: "endgamePrinciple", side, principle, move: "X1.1", summary: "", ...(tone ? { tone } : {}) });
+    const plies = Array.from({ length: 40 }, () => ({ facts: [] }) as unknown as MoveReview);
+    plies[0].facts = [eg("r", "muuBinhCoXe") as never];
+    plies[4].facts = [eg("r", "muuBinhCoXe") as never];
+    plies[5].facts = [eg("b", "muuBinhCoXe") as never];
+    plies[20].facts = [eg("r", "muuBinhCoXe") as never];
+    plies[1].facts = [eg("b", "maPhaoDoiMaPhao", "note") as never];
+    plies[33].facts = [eg("r", "maPhaoDoiMaPhao", "note") as never];
+    suppressRepeatedZhaoFacts(plies);
+    expect([0, 4, 5, 20].map((i) => plies[i].facts.length)).toEqual([1, 0, 1, 1]);
+    expect([1, 33].map((i) => plies[i].facts.length)).toEqual([1, 0]);
+  });
+});

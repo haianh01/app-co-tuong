@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { isLegal, parseFen, play, sq, type Board, type Move } from "./engine";
 import { explainText, personaFacts } from "./explain";
+import { detectPalaceBreaker, detectSacrificeForInitiative } from "./middlegame";
 import {
   detectAllZhaoTactics,
   detectCannonMount,
@@ -69,6 +70,22 @@ function setup(fen: string, move: Move): { before: Board; after: Board } {
   const pos = parseFen(fen);
   expect(isLegal(pos, move)).toBe(true);
   return { before: pos.board, after: play(pos.board, move) };
+}
+
+/**
+ * Thế cờ thật (ván đại sư xqbase) kèm điểm và biến chính Pikafish 30k nodes: `before` = điểm thế trước theo bên đi,
+ * `afterForOpp` = điểm thế sau theo bên đối phương, `pv` = biến của thế sau (bắt đầu bằng nước đáp).
+ */
+function attack(fen: string, from: number, to: number, pv: number[][], before: number, afterForOpp: number, loss = 0) {
+  const pos = parseFen(fen);
+  const move = { from, to };
+  expect(isLegal(pos, move)).toBe(true);
+  return {
+    before: pos.board,
+    move,
+    after: play(pos.board, move),
+    options: { pv: pv.map(([f, t]) => ({ from: f, to: t })), loss, evalBefore: { score: before }, evalAfter: { score: afterForOpp } },
+  };
 }
 
 describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
@@ -225,11 +242,9 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
     const fen = "3aka3/9/9/9/9/9/9/3NC4/9/4K4 w - - 0 1";
     const mount = mv(7, 3, 5, 4);
 
-    it("nhận diện quân làm ngòi cho Pháo chiếu", () => {
+    it("chỉ có hình (quân làm ngòi cho Pháo chiếu) mà không có biến engine xác nhận đòn: không gắn", () => {
       const { before, after } = setup(fen, mount);
-      const f = detectCannonMount(before, mount, after, { loss: 0 });
-      expect(f?.tactic).toBe("giaPhao");
-      expect(f?.summary).toContain("chiếu Tướng");
+      expect(detectCannonMount(before, mount, after, { loss: 0 })).toBeNull();
     });
 
     it("không nhận khi quân đi không nằm giữa Pháo và mục tiêu", () => {
@@ -345,14 +360,9 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
     const fen = "4kab2/9/4b4/1R7/4P4/9/9/4B4/4A4/1R2KAB2 w - - 0 1";
     const rookAttack = mv(3, 1, 0, 1);
 
-    it("nhận diện Song Xe áp thành khi đối phương khuyết Sĩ", () => {
+    it("chỉ có hình (Song Xe áp thành khi đối phương khuyết Sĩ) mà không có biến engine xác nhận đòn: không gắn", () => {
       const { before, after } = setup(fen, rookAttack);
-      const f = detectKhuyetSiSongXe(before, rookAttack, after, { loss: 0 });
-      expect(f?.tactic).toBe("khuyetSiSongXe");
-      expect(f?.lesson).toBe(1);
-      expect(f?.lessonTitle).toContain("Khuyết Sĩ Kỵ Song Xe");
-      expect(f?.videoUrl).toContain("n3SbgwL1GAI");
-      expect(f?.summary).toContain("Khuyết Sĩ kỵ Song Xe");
+      expect(detectKhuyetSiSongXe(before, rookAttack, after, { loss: 0 })).toBeNull();
     });
 
     it("không nhận khi đối phương còn đủ 2 Sĩ", () => {
@@ -424,11 +434,9 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
     const fen = "4k4/9/9/1N7/4P4/9/9/9/9/4K4 w - - 0 1";
     const knightMove = mv(3, 1, 1, 2);
 
-    it("nhận diện Mã nhảy vào yếu huyệt Ngọa Tào hàng 2 dọa sát", () => {
+    it("chỉ có hình (Mã nhảy vào yếu huyệt Ngọa Tào hàng 2 dọa sát) mà không có biến engine xác nhận đòn: không gắn", () => {
       const { before, after } = setup(fen, knightMove);
-      const f = detectNgoaTaoKnight(before, knightMove, after, { loss: 0 });
-      expect(f?.tactic).toBe("ngoaTaoMa");
-      expect(f?.summary).toContain("Mã Ngọa Tào");
+      expect(detectNgoaTaoKnight(before, knightMove, after, { loss: 0 })).toBeNull();
     });
 
     it("không nhận khi Mã nhảy tới ô không phải Ngọa Tào", () => {
@@ -631,7 +639,7 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
       const f = detectDoatTrungBinh(before, takeCenterPawn, after, { loss: 0 });
       expect(f?.tactic).toBe("doatTrungBinh");
       expect(f?.lesson).toBe(11);
-      expect(f?.summary).toContain("Chiến thuật đoạt trung binh");
+      expect(f?.summary).toContain("Mã ăn Tốt giữa");
     });
 
     it("không nhận khi ăn tốt biên thay vì tốt giữa", () => {
@@ -646,12 +654,9 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
     const fen = "4k4/9/9/9/4P4/9/9/4C4/9/4K4 w - - 0 1";
     const unmaskCannon = mv(4, 4, 4, 3);
 
-    it("nhận diện tạo lập thế Không Tâm Pháo ngắm thẳng cung Tướng không có che chắn", () => {
+    it("chỉ có hình (tạo lập thế Không Tâm Pháo ngắm thẳng cung Tướng không có che chắn) mà không có biến engine xác nhận đòn: không gắn", () => {
       const { before, after } = setup(fen, unmaskCannon);
-      const f = detectKhongTamPhao(before, unmaskCannon, after, { loss: 0 });
-      expect(f?.tactic).toBe("khongTamPhao");
-      expect(f?.lesson).toBe(12);
-      expect(f?.summary).toContain("Không tâm pháo");
+      expect(detectKhongTamPhao(before, unmaskCannon, after, { loss: 0 })).toBeNull();
     });
 
     it("không nhận khi trên cột 4 vẫn còn quân che chắn trước mặt Tướng", () => {
@@ -673,12 +678,9 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
     const fen = "3akab2/9/1C7/9/9/9/9/4C4/9/4K4 w - - 0 1";
     const toBottom = mv(2, 1, 0, 1);
 
-    it("nhận diện tạo lập thế Thiên Địa Pháo: 1 Pháo trung lộ, 1 Pháo cắm đáy", () => {
+    it("chỉ có hình (tạo lập thế Thiên Địa Pháo: 1 Pháo trung lộ, 1 Pháo cắm đáy) mà không có biến engine xác nhận đòn: không gắn", () => {
       const { before, after } = setup(fen, toBottom);
-      const f = detectThienDiaPhao(before, toBottom, after, { loss: 0 });
-      expect(f?.tactic).toBe("thienDiaPhao");
-      expect(f?.lesson).toBe(14);
-      expect(f?.summary).toContain("Thiên Địa Pháo");
+      expect(detectThienDiaPhao(before, toBottom, after, { loss: 0 })).toBeNull();
     });
 
     it("không nhận khi Pháo cắm đáy mà không có Pháo trung lộ", () => {
@@ -692,12 +694,9 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
     const fen = "r3kab2/4a4/1C7/9/9/9/9/9/9/4K4 w - - 0 1";
     const toCorner = mv(2, 1, 0, 1);
 
-    it("nhận diện cắm Pháo xuống đáy góc khóa Xe đối phương", () => {
+    it("chỉ có hình (cắm Pháo xuống đáy góc khóa Xe đối phương) mà không có biến engine xác nhận đòn: không gắn", () => {
       const { before, after } = setup(fen, toCorner);
-      const f = detectPhaoDayKhoaXe(before, toCorner, after, { loss: 0 });
-      expect(f?.tactic).toBe("phaoDayKhoaXe");
-      expect(f?.lesson).toBe(15);
-      expect(f?.summary).toContain("Pháo đáy khóa Xe");
+      expect(detectPhaoDayKhoaXe(before, toCorner, after, { loss: 0 })).toBeNull();
     });
 
     it("không nhận khi đối phương không có Xe ở góc bị khóa", () => {
@@ -711,12 +710,9 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
     const fen = "3akab2/4a4/9/3R5/9/3C5/9/9/9/4K4 w - - 0 1";
     const attackFlank = mv(3, 3, 1, 3);
 
-    it("nhận diện tập trung Song Xe Pháo ở lộ sườn dội hỏa lực tổng lực", () => {
+    it("chỉ có hình (tập trung Song Xe Pháo ở lộ sườn dội hỏa lực tổng lực) mà không có biến engine xác nhận đòn: không gắn", () => {
       const { before, after } = setup(fen, attackFlank);
-      const f = detectOanhTacLoSuon(before, attackFlank, after, { loss: 0 });
-      expect(f?.tactic).toBe("oanhTacLoSuon");
-      expect(f?.lesson).toBe(16);
-      expect(f?.summary).toContain("Oanh tạc lộ sườn");
+      expect(detectOanhTacLoSuon(before, attackFlank, after, { loss: 0 })).toBeNull();
     });
 
     it("không nhận khi chỉ có 1 quân lớn ở lộ sườn", () => {
@@ -730,12 +726,9 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
     const fen = "3akab2/4a4/9/3R5/9/9/9/9/9/4K4 w - - 0 1";
     const toApDay = mv(3, 3, 1, 3);
 
-    it("nhận diện Xe đột kích vào tuyến áp đáy (hàng 2 cung Tướng)", () => {
+    it("chỉ có hình (Xe đột kích vào tuyến áp đáy (hàng 2 cung Tướng)) mà không có biến engine xác nhận đòn: không gắn", () => {
       const { before, after } = setup(fen, toApDay);
-      const f = detectManhCongTuyenApDay(before, toApDay, after, { loss: 0 });
-      expect(f?.tactic).toBe("manhCongTuyenApDay");
-      expect(f?.lesson).toBe(17);
-      expect(f?.summary).toContain("Mạnh công tuyến áp đáy");
+      expect(detectManhCongTuyenApDay(before, toApDay, after, { loss: 0 })).toBeNull();
     });
 
     it("không nhận khi Xe di chuyển tới hàng khác không phải tuyến áp đáy", () => {
@@ -812,13 +805,10 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
   describe("detectTranhDoatLo3Lo7 (Kỳ lý #21 - Tranh đoạt lộ 3 và lộ 7)", () => {
     const pawnCross = mv(4, 2, 3, 2);
 
-    it("nhận diện Tốt qua sông lộ 3 đè thẳng vào Mã đối phương", () => {
+    it("chỉ có hình (Tốt qua sông lộ 3 đè thẳng vào Mã đối phương) mà không có biến engine xác nhận đòn: không gắn", () => {
       const fen = "3akab2/4a4/2n6/9/2P6/9/9/9/9/4K4 w - - 0 1";
       const { before, after } = setup(fen, pawnCross);
-      const f = detectTranhDoatLo3Lo7(before, pawnCross, after, { loss: 0 });
-      expect(f?.tactic).toBe("tranhDoatLo3Lo7");
-      expect(f?.lesson).toBe(21);
-      expect(f?.summary).toContain("Tranh đoạt lộ 3 và lộ 7");
+      expect(detectTranhDoatLo3Lo7(before, pawnCross, after, { loss: 0 })).toBeNull();
     });
 
     it("không nhận khi chỉ đứng trên lộ 3 mà không đe dọa Mã/Tượng nào", () => {
@@ -878,12 +868,9 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
     const fen = "3akab2/4a4/9/1R7/9/9/9/1R7/9/4K4 w - - 0 1";
     const advanceRook = mv(7, 1, 4, 1);
 
-    it("nhận diện đôi Xe cùng thâm nhập sâu vào trận địa đối phương", () => {
+    it("chỉ có hình (đôi Xe cùng thâm nhập sâu vào trận địa đối phương) mà không có biến engine xác nhận đòn: không gắn", () => {
       const { before, after } = setup(fen, advanceRook);
-      const f = detectSongXePhoiHop(before, advanceRook, after, { loss: 0 });
-      expect(f?.tactic).toBe("songXePhoiHop");
-      expect(f?.lesson).toBe(25);
-      expect(f?.summary).toContain("Song Xe phối hợp");
+      expect(detectSongXePhoiHop(before, advanceRook, after, { loss: 0 })).toBeNull();
     });
 
     it("không nhận khi chỉ có một Xe trên bàn cờ", () => {
@@ -935,12 +922,9 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
     const fen = "3akab2/4a4/1R7/3N5/9/9/9/2C6/9/4K4 w - - 0 1";
     const cannonJoin = mv(7, 2, 4, 2);
 
-    it("nhận diện ba quân Xe Mã Pháo cùng quy tụ một cánh (tam tử quy biên)", () => {
+    it("chỉ có hình (ba quân Xe Mã Pháo cùng quy tụ một cánh (tam tử quy biên)) mà không có biến engine xác nhận đòn: không gắn", () => {
       const { before, after } = setup(fen, cannonJoin);
-      const f = detectXeMaPhaoTamTu(before, cannonJoin, after, { loss: 0 });
-      expect(f?.tactic).toBe("xeMaPhaoTamTu");
-      expect(f?.lesson).toBe(28);
-      expect(f?.summary).toContain("Xe Mã Pháo tam tử");
+      expect(detectXeMaPhaoTamTu(before, cannonJoin, after, { loss: 0 })).toBeNull();
     });
 
     it("không nhận khi quân chuyển sang cánh đối diện", () => {
@@ -954,12 +938,9 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
     const fen = "3akab2/4a4/1R7/3N5/9/1N7/9/9/9/4K4 w - - 0 1";
     const knightAdvance = mv(5, 1, 3, 2);
 
-    it("nhận diện Xe cùng đôi Mã hiệp đồng tác chiến qua sông", () => {
+    it("chỉ có hình (Xe cùng đôi Mã hiệp đồng tác chiến qua sông) mà không có biến engine xác nhận đòn: không gắn", () => {
       const { before, after } = setup(fen, knightAdvance);
-      const f = detectXeSongMa(before, knightAdvance, after, { loss: 0 });
-      expect(f?.tactic).toBe("xeSongMa");
-      expect(f?.lesson).toBe(29);
-      expect(f?.summary).toContain("Xe Song Mã");
+      expect(detectXeSongMa(before, knightAdvance, after, { loss: 0 })).toBeNull();
     });
 
     it("không nhận khi Mã chưa qua sông", () => {
@@ -973,12 +954,9 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
     const fen = "3akab2/4a4/1R7/9/1C7/9/9/2C6/9/4K4 w - - 0 1";
     const cannonAdvance = mv(7, 2, 3, 2);
 
-    it("nhận diện Xe Song Pháo cùng tập kết dồn hỏa lực ở một cánh", () => {
+    it("chỉ có hình (Xe Song Pháo cùng tập kết dồn hỏa lực ở một cánh) mà không có biến engine xác nhận đòn: không gắn", () => {
       const { before, after } = setup(fen, cannonAdvance);
-      const f = detectXeSongPhao(before, cannonAdvance, after, { loss: 0 });
-      expect(f?.tactic).toBe("xeSongPhao");
-      expect(f?.lesson).toBe(30);
-      expect(f?.summary).toContain("Xe Song Pháo");
+      expect(detectXeSongPhao(before, cannonAdvance, after, { loss: 0 })).toBeNull();
     });
 
     it("không nhận khi Pháo rời khỏi cánh công", () => {
@@ -992,12 +970,9 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
     const fen = "3akab2/3Ra4/9/9/9/9/9/3N5/9/4K4 w - - 0 1";
     const rookChopAdvisor = mv(1, 3, 0, 3);
 
-    it("nhận diện Xe Mã phối hợp chém Sĩ phá vỡ trận hình đối phương", () => {
+    it("chỉ có hình (Xe Mã phối hợp chém Sĩ phá vỡ trận hình đối phương) mà không có biến engine xác nhận đòn: không gắn", () => {
       const { before, after } = setup(fen, rookChopAdvisor);
-      const f = detectXeMaLanhChieu(before, rookChopAdvisor, after, { loss: 0 });
-      expect(f?.tactic).toBe("xeMaLanhChieu");
-      expect(f?.lesson).toBe(31);
-      expect(f?.summary).toContain("Xe Mã lãnh chiêu");
+      expect(detectXeMaLanhChieu(before, rookChopAdvisor, after, { loss: 0 })).toBeNull();
     });
 
     it("không nhận khi không có Mã phối hợp", () => {
@@ -1048,15 +1023,12 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
   });
 
   describe("detectVayXe (Kỳ lý #34 - Vây Xe)", () => {
-    it("nhận diện dọa ăn Xe thâm nhập đã hết đường thoát (mọi ô thoát đều bị khống chế)", () => {
+    it("chỉ có hình (dọa ăn Xe thâm nhập đã hết đường thoát (mọi ô thoát đều bị khống chế)) mà không có biến engine xác nhận đòn: không gắn", () => {
       // Xe Đen kẹt ở góc: ăn Mã (8,0) thì Mã (6,1) ăn lại, ăn Tượng (9,2) thì Tượng (7,4) ăn lại, ra (9,1) thì Mã (7,2) ăn.
       const fen = "3akab2/4a4/9/9/9/3C5/1N7/2N1B4/N3K4/r1B6 w - - 0 1";
       const cannonPin = mv(5, 3, 5, 0);
       const { before, after } = setup(fen, cannonPin);
-      const f = detectVayXe(before, cannonPin, after, { loss: 0 });
-      expect(f?.tactic).toBe("vayXe");
-      expect(f?.lesson).toBe(34);
-      expect(f?.summary).toContain("Vây Xe đối phương");
+      expect(detectVayXe(before, cannonPin, after, { loss: 0 })).toBeNull();
     });
 
     it("không nhận khi Xe bị dọa vẫn còn đường thoát", () => {
@@ -1075,14 +1047,11 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
   });
 
   describe("detectVayPhao (Kỳ lý #35 - Vây Pháo)", () => {
-    it("nhận diện dọa ăn Pháo thâm nhập đã hết đường thoát", () => {
+    it("chỉ có hình (dọa ăn Pháo thâm nhập đã hết đường thoát) mà không có biến engine xác nhận đòn: không gắn", () => {
       const fen = "3akab2/4a4/9/9/9/2N6/9/9/N3K4/cN7 w - - 0 1";
       const attackCannon = mv(5, 2, 7, 1);
       const { before, after } = setup(fen, attackCannon);
-      const f = detectVayPhao(before, attackCannon, after, { loss: 0 });
-      expect(f?.tactic).toBe("vayPhao");
-      expect(f?.lesson).toBe(35);
-      expect(f?.summary).toContain("Vây Pháo cô lập");
+      expect(detectVayPhao(before, attackCannon, after, { loss: 0 })).toBeNull();
     });
 
     it("không nhận khi Pháo bị dọa vẫn còn đường thoát an toàn", () => {
@@ -1104,12 +1073,9 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
     const fen = "3akab2/4a4/9/9/9/9/9/n8/9/R3K4 w - - 0 1";
     const attackEdgeKnight = mv(9, 0, 8, 0);
 
-    it("nhận diện dồn ép bao vây Mã biên đối phương", () => {
+    it("chỉ có hình (dồn ép bao vây Mã biên đối phương) mà không có biến engine xác nhận đòn: không gắn", () => {
       const { before, after } = setup(fen, attackEdgeKnight);
-      const f = detectMaPhungBienTatVong(before, attackEdgeKnight, after, { loss: 0 });
-      expect(f?.tactic).toBe("maPhungBienTatVong");
-      expect(f?.lesson).toBe(36);
-      expect(f?.summary).toContain("Mã phùng biên tất vong");
+      expect(detectMaPhungBienTatVong(before, attackEdgeKnight, after, { loss: 0 })).toBeNull();
     });
 
     it("không nhận khi Mã đối phương không đứng ở cột biên", () => {
@@ -1123,12 +1089,9 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
     const fen = "3nkab2/4a4/R8/9/9/9/9/9/9/4K4 w - - 0 1";
     const attackCornerKnight = mv(2, 0, 2, 3);
 
-    it("nhận diện dồn ép bao vây Quải Giác Mã đối phương", () => {
+    it("chỉ có hình (dồn ép bao vây Quải Giác Mã đối phương) mà không có biến engine xác nhận đòn: không gắn", () => {
       const { before, after } = setup(fen, attackCornerKnight);
-      const f = detectVayMaGiac(before, attackCornerKnight, after, { loss: 0 });
-      expect(f?.tactic).toBe("vayMaGiac");
-      expect(f?.lesson).toBe(37);
-      expect(f?.summary).toContain("Vây Mã Giác");
+      expect(detectVayMaGiac(before, attackCornerKnight, after, { loss: 0 })).toBeNull();
     });
 
     it("không nhận khi đối phương không có Mã ở góc cung", () => {
@@ -1318,7 +1281,8 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
       const f = detectChienThuatMuuBinh(before, capturePawn, after, { loss: 0 });
       expect(f?.tactic).toBe("chienThuatMuuBinh");
       expect(f?.lesson).toBe(47);
-      expect(f?.summary).toContain("Chiến thuật mưu Binh");
+      expect(f?.summary).toContain("Xe ăn Tốt");
+      expect(f?.summary).toContain("không bị bắt lại");
     });
 
     it("không nhận khi ăn Tốt đã qua sông (ăn quân thường, không phải mưu Binh)", () => {
@@ -1375,12 +1339,197 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
       expect(explainText(facts, "r", 1, "zhaoXinxin")).toMatch(/^\[Triệu Hâm Hâm - Cảnh tỉnh\]/);
     });
 
-    it("personaFacts giữ tối đa 2 nguyên lý Triệu mỗi nước", () => {
-      const fen = "3aka3/9/9/9/9/9/9/3NC4/9/4K4 w - - 0 1";
-      const { before, after } = setup(fen, mv(7, 3, 5, 4));
-      const zhao = personaFacts(before, mv(7, 3, 5, 4), after, { loss: 0 }).filter((f) => f.kind === "zhaoMiddlegame");
+    it("personaFacts giữ tối đa 2 nguyên lý Triệu mỗi nước (ván đại sư: Mã ngọa tào chiếu bắt Pháo)", () => {
+      const t = attack("2baka3/9/4b1n2/CN2p4/Pc3n2p/2P6/4P1p1P/4B4/4A4/2BAK4 w", 28, 11,
+        [[4, 13], [36, 37], [13, 14], [27, 9], [14, 23], [58, 49], [60, 59], [9, 10], [59, 58], [37, 28], [22, 6], [85, 86], [24, 43], [28, 29], [43, 60], [29, 30], [60, 79], [86, 85]], 288, -286);
+      const zhao = personaFacts(t.before, t.move, t.after, t.options).filter((f) => f.kind === "zhaoMiddlegame");
       expect(zhao.length).toBeGreaterThan(0);
       expect(zhao.length).toBeLessThanOrEqual(2);
     });
+
+    it("hai kỳ lý cùng kể một biến engine thì chỉ giữ kỳ lý đứng trước (ván đại sư: Xe ăn Sĩ, đen ăn Pháo)", () => {
+      const t = attack("4RabC1/3k3r1/7r1/4p3p/2p3b2/4c4/P1n5P/2N1B4/4A4/2BAKR3 w", 4, 5,
+        [[16, 7], [86, 14], [12, 21], [5, 3], [21, 22], [65, 58], [56, 73], [67, 87], [25, 88], [83, 67], [7, 70], [3, 2], [49, 67], [85, 86], [88, 87], [86, 77]], 223, -181);
+      const zhao = detectAllZhaoTactics(t.before, t.move, t.after, t.options);
+      const lines = zhao.map((f) => f.line).filter(Boolean);
+      expect(new Set(lines).size).toBe(lines.length);
+      expect(zhao.map((f) => f.tactic)).toContain("tramSiPhaTuong");
+      expect(zhao.map((f) => f.tactic)).not.toContain("pheQuanPhaSiTuong");
+    });
+  });
+});
+
+describe("zhao-principles: kỳ lý tấn công chỉ gắn khi biến engine cho thấy đúng các quân làm nên hình ra tay", () => {
+  describe("Giá Pháo", () => {
+    it("ván đại sư: Tốt bình làm ngòi, Pháo chiếu lộ diện, theo biến Tốt ăn Mã", () => {
+      const t = attack("3a5/4k4/5a3/3P2N2/1P1n2b2/4C4/4p4/4BA3/4A1n2/2BK5 w", 30, 31,
+        [[13, 12], [37, 38], [78, 59], [38, 39], [58, 57], [31, 32], [3, 13], [49, 51], [12, 3], [33, 16], [42, 26], [32, 23], [13, 23], [16, 23], [59, 48], [51, 49]], 573, -575);
+      const f = detectCannonMount(t.before, t.move, t.after, t.options);
+      expect(f?.tactic).toBe("giaPhao");
+      expect(f?.summary).toContain("Pháo chiếu");
+      expect(f?.summary).toContain("Tốt ăn Mã");
+    });
+
+    it("ván đại sư: Xe làm ngòi cho Pháo dọa ăn Pháo, nhưng đối phương chỉ cần đổi lại — không gắn", () => {
+      const t = attack("2bR1a3/C1c1k2r1/6n2/4p3p/2p3b2/4c4/Prn5P/2N1B1C2/4A4/2BAK3R b", 55, 10,
+        [[9, 11], [10, 11], [69, 24], [2, 22], [89, 86], [11, 12], [3, 1], [12, 75], [1, 10], [75, 12], [10, 28], [12, 66], [28, 10], [66, 12]], 0, 0);
+      expect(detectCannonMount(t.before, t.move, t.after, t.options)).toBeNull();
+    });
+  });
+
+  it("ván đại sư: Xe Mã Pháo cùng dồn về một cánh, Xe chiếu đôi cùng Pháo rồi bắt Pháo — Xe Mã Pháo tam tử", () => {
+    const t = attack("4kab2/4a1c2/2R1b4/9/9/1r1n2PNC/P1C1P3P/3AB4/9/c3KAB2 b", 46, 82,
+      [[85, 76], [82, 73], [56, 74], [48, 59], [76, 75], [81, 83], [20, 18], [73, 74], [75, 84], [83, 81], [18, 19], [59, 52], [19, 1], [22, 2], [66, 76], [74, 11], [53, 44], [13, 3]], 566, -508, 58);
+    const f = detectXeMaPhaoTamTu(t.before, t.move, t.after, t.options);
+    expect(f?.tactic).toBe("xeMaPhaoTamTu");
+    expect(f?.lesson).toBe(28);
+    expect(f?.summary).toContain("Xe chiếu đôi cùng Pháo");
+  });
+
+  it("ván đại sư: Mã nhảy vào ngọa tào chiếu, Tướng phải tránh, Tốt ăn Pháo — Mã ngọa tào (gọi đúng lộ theo bên đi)", () => {
+    const t = attack("2baka3/9/4b1n2/CN2p4/Pc3n2p/2P6/4P1p1P/4B4/4A4/2BAK4 w", 28, 11,
+      [[4, 13], [36, 37], [13, 14], [27, 9], [14, 23], [58, 49], [60, 59], [9, 10], [59, 58], [37, 28], [22, 6], [85, 86], [24, 43], [28, 29], [43, 60], [29, 30], [60, 79], [86, 85]], 288, -286);
+    const f = detectNgoaTaoKnight(t.before, t.move, t.after, t.options);
+    expect(f?.tactic).toBe("ngoaTaoMa");
+    expect(f?.summary).toContain("hàng 2 lộ 7");
+    expect(f?.summary).toContain("Tốt ăn Pháo");
+  });
+
+  it("ván đại sư: Pháo xuống đáy thành Thiên Địa Pháo, chiếu liên tục rồi ăn Xe", () => {
+    const t = attack("1R1rka3/4a4/4bc3/8p/5n3/9/P7P/B3C4/2C6/3AKAB2 w", 74, 2,
+      [[3, 21], [2, 5], [21, 3], [5, 3], [4, 5], [3, 75], [5, 14], [1, 28], [35, 44], [63, 83]], 831, -830);
+    const f = detectThienDiaPhao(t.before, t.move, t.after, t.options);
+    expect(f?.tactic).toBe("thienDiaPhao");
+    expect(f?.lesson).toBe(14);
+    expect(f?.summary).toContain("Pháo ăn Xe");
+  });
+
+  it("ván đại sư: Xe Pháo dồn trên lộ sườn, thí Xe chiếu rồi sát — Oanh tạc lộ sườn", () => {
+    const t = attack("2bakab2/9/6n2/p3p1p1p/2P2r3/4RnP2/P2Ccr2P/4C4/4A4/2BAK1B1R b", 59, 86,
+      [[85, 86], [50, 69], [86, 85], [41, 86]], 99995, -99996);
+    const f = detectOanhTacLoSuon(t.before, t.move, t.after, t.options);
+    expect(f?.tactic).toBe("oanhTacLoSuon");
+    expect(f?.lesson).toBe(16);
+    expect(f?.summary).toContain("chiếu bí");
+  });
+
+  it("ván đại sư: Xe vào hàng 2 cung Tướng chiếu, chuỗi chiếu kết thúc bằng Xe ăn Pháo — Mạnh công tuyến áp đáy", () => {
+    const t = attack("9/1r3k3/9/8p/6R2/4cr3/P2R4P/4B4/1n2A4/2B1KA3 w", 42, 15,
+      [[14, 23], [57, 21], [49, 22], [15, 24], [23, 14], [24, 22], [10, 64], [21, 12], [14, 5], [12, 3], [5, 14], [22, 24], [73, 66], [85, 84]], 485, -403);
+    const f = detectManhCongTuyenApDay(t.before, t.move, t.after, t.options);
+    expect(f?.tactic).toBe("manhCongTuyenApDay");
+    expect(f?.lesson).toBe(17);
+    expect(f?.summary).toContain("Xe ăn Pháo");
+  });
+
+  describe("Tranh đoạt lộ 3, lộ 7", () => {
+    it("ván đại sư: Xe vào lộ 7 nhắm Mã biên, theo biến chính Xe ăn Mã", () => {
+      const t = attack("2bak4/4an3/2R1b4/4p3p/p5P2/9/P3P1r1P/n2CB1N2/4A4/4KAB2 w", 20, 65,
+        [[14, 25], [42, 41], [25, 14], [65, 63], [14, 33], [41, 32]], 391, -422);
+      const f = detectTranhDoatLo3Lo7(t.before, t.move, t.after, t.options);
+      expect(f?.tactic).toBe("tranhDoatLo3Lo7");
+      expect(f?.summary).toContain("Xe ăn Mã");
+    });
+
+    it("ván đại sư: Pháo vào lộ 3 nhắm Mã nhưng quân ra tay trong biến là quân khác, thế cân bằng — không gắn", () => {
+      const t = attack("1rbaka1R1/1r7/2n3c2/p1p1p3p/9/P1P6/c3P1n1P/2C1C1N2/2N6/R1BAKAB2 b", 54, 56,
+        [[74, 63], [60, 67], [87, 67], [10, 64], [69, 50], [64, 65], [63, 56], [65, 56], [50, 39], [56, 57], [39, 20], [1, 73], [20, 31], [73, 75], [86, 76], [24, 22], [31, 50]], 12, -30);
+      expect(detectTranhDoatLo3Lo7(t.before, t.move, t.after, t.options)).toBeNull();
+    });
+  });
+
+  describe("Xe Song Mã", () => {
+    it("ván đại sư: Mã chiếu, Xe chiếu tiếp rồi Xe ăn Mã — cả Xe lẫn Mã cùng ra tay", () => {
+      const t = attack("2bk5/4a4/3ab1n2/p1N2R3/8p/2P1C4/P1Nr4c/4B3B/4A4/4K4 w", 29, 10,
+        [[3, 4], [56, 45], [24, 43], [32, 34], [4, 5], [34, 7], [5, 14], [7, 43], [57, 59], [45, 28], [59, 50], [28, 39], [50, 49], [43, 41], [13, 23], [10, 21], [49, 67], [21, 4], [14, 13], [4, 15], [13, 14]], 603, -557);
+      const f = detectXeSongMa(t.before, t.move, t.after, t.options);
+      expect(f?.tactic).toBe("xeSongMa");
+      expect(f?.lesson).toBe(29);
+      expect(f?.summary).toContain("Xe ăn Mã");
+    });
+
+    it("ván đại sư: Xe đen ăn Pháo một mình, thế cân bằng (−6) — không phải Xe Song Mã", () => {
+      const t = attack("4kab2/4a4/2n1b4/p2CN3p/5R3/2P4r1/P3C3n/4B4/4A4/4KA3 b", 52, 49,
+        [[31, 50], [49, 58], [47, 38], [58, 59], [38, 29], [20, 31], [41, 40], [31, 42]], -6, 8);
+      expect(detectXeSongMa(t.before, t.move, t.after, t.options)).toBeNull();
+    });
+  });
+
+  it("ván đại sư: đen còn một Sĩ, hai Xe đỏ cùng đánh vào cung, theo biến đổi Xe lấy Tượng Sĩ Mã Xe — Khuyết Sĩ kỵ Song Xe", () => {
+    const t = attack("2bakc3/3R2R2/2n1b3c/2p1r3p/p3C1p2/2P1P4/P5P1P/1r2B1N2/4A4/4KAB2 w", 15, 24,
+      [[26, 17], [24, 22], [3, 13], [22, 13], [20, 13], [12, 13], [4, 3], [13, 31], [64, 82], [76, 84], [82, 84], [85, 76], [17, 15], [40, 37], [5, 4], [37, 1], [2, 22], [1, 4], [84, 75], [76, 85]], 391, -378);
+    const f = detectKhuyetSiSongXe(t.before, t.move, t.after, t.options);
+    expect(f?.tactic).toBe("khuyetSiSongXe");
+    expect(f?.lesson).toBe(1);
+    expect(f?.videoUrl).toContain("n3SbgwL1GAI");
+    expect(f?.summary).toContain("chỉ còn một Sĩ");
+  });
+
+  describe("Vây quân: biến phải bắt được đúng con bị vây", () => {
+    it("ván đại sư: Xe chặn đường lui của Pháo đã vào sâu, theo biến Xe ăn Pháo — Vây Pháo", () => {
+      const t = attack("r3kab2/1R2a4/nR1cb4/p3p3p/5NpC1/8r/P3P2N1/4B4/4A4/4KAB2 b", 53, 52,
+        [[61, 68], [52, 43], [41, 30], [43, 34], [54, 45], [34, 32], [30, 37], [22, 38], [68, 49], [32, 41], [19, 28], [21, 24], [28, 31]], -35, 45);
+      const f = detectVayPhao(t.before, t.move, t.after, t.options);
+      expect(f?.tactic).toBe("vayPhao");
+      expect(f?.lesson).toBe(35);
+      expect(f?.summary).toContain("Xe ăn Pháo");
+    });
+
+    it("ván đại sư: nước chiếu lộ diện khiến Pháo đen hết đường chạy chỉ vì phải đỡ chiếu — không gọi là vây", () => {
+      const t = attack("3k1ab2/4a4/4b4/9/1C4p2/2BC5/P2c2P1P/3Ac1n2/9/4KA3 w", 37, 39,
+        [[3, 4], [39, 57], [67, 31], [54, 45], [69, 58], [85, 84], [58, 77], [86, 76], [77, 60], [45, 36], [31, 49], [48, 30], [60, 41], [30, 28], [41, 30]], -36, 35);
+      expect(detectVayPhao(t.before, t.move, t.after, t.options)).toBeNull();
+    });
+
+    it("ván đại sư: Pháo dồn Mã biên, theo biến chính Pháo ăn Mã — Mã phùng biên tất vong", () => {
+      const t = attack("3akab2/9/2n1b1nrc/p1p1pR2p/3c5/3r2P2/P1P1P3P/NC2B1N2/2C6/1R1AKAB2 b", 39, 36,
+        [[56, 47], [36, 63], [51, 42], [24, 13], [69, 50]], 39, -32);
+      const f = detectMaPhungBienTatVong(t.before, t.move, t.after, t.options);
+      expect(f?.tactic).toBe("maPhungBienTatVong");
+      expect(f?.lesson).toBe(36);
+      expect(f?.summary).toContain("Pháo ăn Mã");
+    });
+
+    it("ván đại sư: nước Pháo ăn Xe thì mục đích là ăn Xe, không phải dồn Mã biên — không gắn", () => {
+      const t = attack("2bak4/4a4/nC2b2rc/p1r3p1p/9/2P3P2/P7P/N3B4/9/2BAKA2R w", 19, 25,
+        [[29, 32], [89, 88], [32, 59], [47, 38], [22, 38], [88, 34], [26, 62], [34, 35], [38, 22], [25, 18], [2, 18], [35, 8], [13, 5], [54, 45]], -2, 0);
+      expect(detectMaPhungBienTatVong(t.before, t.move, t.after, t.options)).toBeNull();
+    });
+  });
+
+  describe("Khí tử tranh tiên", () => {
+    it("ván đại sư: thí Mã chiếu, Sĩ ăn Mã, Xe chiếu tiếp rồi ăn Pháo", () => {
+      const t = attack("4kab2/4a4/4b2N1/1R2P3p/9/4C4/P2r2p2/1C7/4A2n1/c1BAK1c2 b", 79, 68,
+        [[76, 68], [57, 58], [85, 86], [58, 49], [25, 32], [49, 50]], -79, 114);
+      const f = detectSacrificeForInitiative(t.before, t.move, t.after, t.options);
+      expect(f?.tactic).toBe("khiTuTranhTien");
+      expect(f?.summary).toContain("Đỏ Sĩ ăn Mã");
+      expect(f?.summary).toContain("Xe ăn Pháo");
+      expect(f?.summary).not.toContain("Lục Mạch");
+    });
+
+    it("ván đại sư: Xe chiếu, bị Sĩ ăn rồi Xe kia ăn lại ngay — đó là đổi Xe, không phải thí quân", () => {
+      const t = attack("4kab2/4a4/1c2b2cn/pR1rn4/6p2/2R5C/P1CrP1P1P/4B1N2/2N1A4/4KAB2 b", 57, 84,
+        [[76, 84], [30, 28], [58, 49], [31, 50], [56, 59], [26, 43], [74, 57], [50, 61], [59, 61], [25, 61]], -33, 42);
+      expect(detectSacrificeForInitiative(t.before, t.move, t.after, t.options)).toBeNull();
+    });
+  });
+
+  it("ván đại sư: Pháo ăn Tượng chiếu, Sĩ đỡ, Xe ăn thêm Tượng — Trảm Tượng kể lại đúng biến, không nói quá", () => {
+    const t = attack("2bakr3/4a4/4b1n2/p3n3p/4C4/4P4/P1R2cp1P/1C2B1N2/4A4/4KA3 w", 40, 22,
+      [[13, 21], [56, 2], [5, 14], [69, 58], [14, 10], [58, 47], [10, 55], [49, 40], [59, 56], [47, 58], [31, 42], [58, 51], [4, 13], [64, 66], [13, 22], [2, 29], [42, 49], [51, 32], [49, 66], [76, 66]], 103, -162);
+    const f = detectPalaceBreaker(t.before, t.move, t.after, t.options);
+    expect(f?.tactic).toBe("tramSiPhaTuong");
+    expect(f?.summary).toContain("thắng 2 Tượng");
+    expect(f?.summary).not.toContain("hiểm nghèo");
+  });
+
+  it("ván đại sư: Pháo ăn Tượng chiếu, Sĩ đỡ, Xe ăn Xe — Khéo phá Sĩ Tượng kể lại phần tiếp theo", () => {
+    const t = attack("1r2kab2/1R2a4/4b4/p3n4/5n2p/P1R6/6c2/N3C1N2/9/2BAKAB2 b", 60, 87,
+      [[86, 76], [1, 10], [63, 56], [41, 48], [69, 50], [48, 67]], 71, -54);
+    const f = detectKheoPhaSiTuong(t.before, t.move, t.after, t.options);
+    expect(f?.tactic).toBe("kheoPhaSiTuong");
+    expect(f?.summary).toContain("không phải trả giá");
+    expect(f?.summary).toContain("Xe ăn Xe");
   });
 });

@@ -10,7 +10,7 @@ import { PIECE_CHAR } from "@/lib/xiangqi/notation";
 import { applyMove, inCheck, initialPosition, outcome, type Board, type PieceType, type Side } from "@/lib/xiangqi/engine";
 import { MatchCommentaryDrawer } from "./MatchCommentaryDrawer";
 import { playStageVoiceEvent, unlockAudio } from "@/lib/stage-voice";
-import { DEFAULT_STAGE_VOICE_LINES, formatEvalScore, liveClocks, type BigMoment, type StageClocks, type StageMoveItem, type StagePlayer, type StageState } from "../stage-sync";
+import { DEFAULT_STAGE_VOICE_LINES, formatEvalScore, liveClocks, zigaEloRank, type BigMoment, type StageClocks, type StageMoveItem, type StagePlayer, type StageState, type ZigaRankTier } from "../stage-sync";
 import styles from "./stage.module.css";
 
 /** Thẻ tóm tắt cho người mới vào: chỉ hiện khi người dùng bấm hoặc nhận tin recap từ trang điều khiển. */
@@ -168,60 +168,97 @@ function clockView(clocks: StageClocks | null, who: "me" | "opponent", now: numb
 
 const pieceChar = (side: Side, t: PieceType) => PIECE_CHAR[side === "r" ? t.toUpperCase() : t];
 
-// Huy hiệu danh hiệu chuẩn Ziga (Kỳ Thủ tím hoàng gia với vương miện và ngọc lục lam, Kỳ Sĩ đỏ ruby với viền vàng kim)
-function RankEmblem({ title }: { title: string }) {
+// Huy hiệu danh hiệu chuẩn Ziga theo 5 bậc: Tập sự, Phong trào, Kỳ thủ, Kỳ sĩ, Kỳ vương
+function RankEmblem({ title, tier }: { title: string; tier?: ZigaRankTier }) {
   const id = useId();
-  const isOpp = title.toLowerCase().includes("thủ") || title.toLowerCase().includes("đối");
-  const isPurple = isOpp || title === "Kỳ Thủ";
+  const t: ZigaRankTier = tier || (
+    title.toLowerCase().includes("vương") || title.toLowerCase().includes("kiện tướng") ? "kyvuong" :
+    title.toLowerCase().includes("sĩ") || title.toLowerCase().includes("sỹ") ? "kysi" :
+    title.toLowerCase().includes("thủ") || title.toLowerCase().includes("đối") ? "kythu" :
+    title.toLowerCase().includes("phong") ? "phongtrao" :
+    title.toLowerCase().includes("tập") ? "tapsu" : "kysi"
+  );
 
   const crownId = `${id}-crown`;
   const bgId = `${id}-bg`;
   const borderId = `${id}-border`;
 
+  // Cấu hình bảng màu sắc nét cho từng bậc danh hiệu Ziga
+  const theme = useMemo(() => {
+    switch (t) {
+      case "tapsu":
+        return {
+          crown: ["#f3f4f6", "#9ca3af", "#4b5563"],
+          crownGem: "#d1d5db",
+          bg: ["#374151", "#1f2937", "#111827"],
+          border: ["#e5e7eb", "#9ca3af", "#4b5563"],
+          innerStroke: "#4b5563",
+          wingGem: "#f3f4f6",
+        };
+      case "phongtrao":
+        return {
+          crown: ["#86efac", "#22c55e", "#14532d"],
+          crownGem: "#4ade80",
+          bg: ["#064e3b", "#022c22", "#011710"],
+          border: ["#4ade80", "#16a34a", "#14532d"],
+          innerStroke: "#15803d",
+          wingGem: "#00ff99",
+        };
+      case "kythu":
+        return {
+          crown: ["#fff8bf", "#f5c942", "#96560b"],
+          crownGem: "#ff4d4d",
+          bg: ["#4f1446", "#320a2b", "#1a0416"],
+          border: ["#e84cc8", "#a8238f", "#691258"],
+          innerStroke: "#7a1a68",
+          wingGem: "#00f0ff",
+        };
+      case "kyvuong":
+        return {
+          crown: ["#ffffff", "#ffe600", "#ff8800", "#b34700"],
+          crownGem: "#ff1a1a",
+          bg: ["#661800", "#380a00", "#1a0200"],
+          border: ["#fff275", "#ffaa00", "#a33800"],
+          innerStroke: "#992200",
+          wingGem: "#ff3b00",
+        };
+      case "kysi":
+      default:
+        return {
+          crown: ["#fff8bf", "#f5c942", "#96560b"],
+          crownGem: "#ff4d4d",
+          bg: ["#4c1119", "#2c080e", "#150306"],
+          border: ["#ffebb5", "#d8a342", "#7a4d11"],
+          innerStroke: "#6e3c12",
+          wingGem: "#ffd454",
+        };
+    }
+  }, [t]);
+
   return (
     <svg className={styles.rankEmblem} viewBox="0 0 160 62" role="img" aria-label={title}>
       <defs>
-        {/* Vương miện vàng kim sắc nét */}
+        {/* Vương miện sắc nét */}
         <linearGradient id={crownId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#fff8bf" />
-          <stop offset="35%" stopColor="#f5c942" />
-          <stop offset="100%" stopColor="#96560b" />
+          {theme.crown.map((c, i) => (
+            <stop key={i} offset={`${(i / (theme.crown.length - 1)) * 100}%`} stopColor={c} />
+          ))}
         </linearGradient>
-        {/* Nền dải băng: Kỳ Thủ tím hoàng gia, Kỳ Sĩ đỏ ruby */}
+        {/* Nền dải băng */}
         <linearGradient id={bgId} x1="0" y1="0" x2="0" y2="1">
-          {isPurple ? (
-            <>
-              <stop offset="0%" stopColor="#4f1446" />
-              <stop offset="50%" stopColor="#320a2b" />
-              <stop offset="100%" stopColor="#1a0416" />
-            </>
-          ) : (
-            <>
-              <stop offset="0%" stopColor="#4c1119" />
-              <stop offset="50%" stopColor="#2c080e" />
-              <stop offset="100%" stopColor="#150306" />
-            </>
-          )}
+          <stop offset="0%" stopColor={theme.bg[0]} />
+          <stop offset="50%" stopColor={theme.bg[1]} />
+          <stop offset="100%" stopColor={theme.bg[2]} />
         </linearGradient>
-        {/* Viền: Kỳ Thủ viền cánh sen tím neon, Kỳ Sĩ viền vàng đồng */}
+        {/* Viền ngoài */}
         <linearGradient id={borderId} x1="0" y1="0" x2="0" y2="1">
-          {isPurple ? (
-            <>
-              <stop offset="0%" stopColor="#e84cc8" />
-              <stop offset="50%" stopColor="#a8238f" />
-              <stop offset="100%" stopColor="#691258" />
-            </>
-          ) : (
-            <>
-              <stop offset="0%" stopColor="#ffebb5" />
-              <stop offset="50%" stopColor="#d8a342" />
-              <stop offset="100%" stopColor="#7a4d11" />
-            </>
-          )}
+          <stop offset="0%" stopColor={theme.border[0]} />
+          <stop offset="50%" stopColor={theme.border[1]} />
+          <stop offset="100%" stopColor={theme.border[2]} />
         </linearGradient>
       </defs>
 
-      {/* Vương miện vàng 5 chóp uốn lượn sắc sảo (như ảnh Kỳ Thủ / Kỳ Sĩ) */}
+      {/* Vương miện */}
       <g transform="translate(80 14)">
         <path
           d="M -38 10 C -36 2 -26 4 -22 -2 C -18 4 -12 0 -10 -8 C -6 -2 0 -13 0 -13 C 0 -13 6 -2 10 -8 C 12 0 18 4 22 -2 C 26 4 36 2 38 10 C 26 8 16 12 0 12 C -16 12 -26 8 -38 10 Z"
@@ -229,7 +266,7 @@ function RankEmblem({ title }: { title: string }) {
           stroke="#4a2506"
           strokeWidth="1.2"
         />
-        <circle cx="0" cy="-12" r="2.4" fill="#ff4d4d" stroke="#521515" strokeWidth="0.8" />
+        <circle cx="0" cy="-12" r="2.5" fill={theme.crownGem} stroke="#4a1506" strokeWidth="0.8" />
         <circle cx="-10" cy="-7" r="1.8" fill="#fff9bf" stroke="#4a2506" strokeWidth="0.6" />
         <circle cx="10" cy="-7" r="1.8" fill="#fff9bf" stroke="#4a2506" strokeWidth="0.6" />
       </g>
@@ -245,26 +282,26 @@ function RankEmblem({ title }: { title: string }) {
       <polygon
         points="22,36 34,26 126,26 138,36 126,46 34,46"
         fill="none"
-        stroke={isPurple ? "#7a1a68" : "#6e3c12"}
+        stroke={theme.innerStroke}
         strokeWidth="1"
         strokeLinejoin="round"
       />
 
-      {/* Hạt ngọc lục lam (Cyan Sapphire) hai bên cánh của Kỳ Thủ, hoặc kim cương vàng của Kỳ Sĩ */}
+      {/* Hạt ngọc hai bên cánh */}
       <polygon
         points="16,31 21,36 16,41 11,36"
-        fill={isPurple ? "#00f0ff" : "#ffd454"}
+        fill={theme.wingGem}
         stroke="#ffffff"
         strokeWidth="0.8"
       />
       <polygon
         points="144,31 149,36 144,41 139,36"
-        fill={isPurple ? "#00f0ff" : "#ffd454"}
+        fill={theme.wingGem}
         stroke="#ffffff"
         strokeWidth="0.8"
       />
 
-      {/* Chữ danh hiệu (Kỳ Thủ / Kỳ Sĩ / v.v.) */}
+      {/* Chữ danh hiệu (Tập sự / Phong trào / Kỳ thủ / Kỳ sĩ / Kỳ vương) */}
       <text
         x="80"
         y="42"
@@ -341,10 +378,13 @@ function PlayerCard({
   /** Trước ván: đã bấm sẵn sàng chưa (null = không hiện). */
   ready?: boolean | null;
 }) {
-  const stars = Math.min(Math.max(player.stars ?? (isMe ? 1 : 3), 1), 3);
   const perMove = clock?.perMove;
   const low = !!perMove && perMove.left <= 1 / 6;
-  const defaultAvatar = side === "r" ? "/stage/avatar_red.jpg" : "/stage/avatar_black.jpg";
+  // Tự động xác định cấp bậc, số sao và avatar tương ứng theo điểm Elo của Ziga
+  const rankInfo = zigaEloRank(player.points, player.title, player.stars, side);
+  const title = player.title || rankInfo.title;
+  const stars = Math.min(Math.max(player.stars ?? rankInfo.stars, 1), 3);
+  const defaultAvatar = rankInfo.avatarUrl;
   const avatarSrc = player.avatarUrl || defaultAvatar;
 
   // Tỉ lệ thời gian còn lại (0..1) của lượt đi. Nếu là bên đang đi mà chưa có perMove thì mô phỏng 0.65 như ảnh mẫu Ziga
@@ -498,7 +538,7 @@ function PlayerCard({
           {perMove && <span className={styles.avatarSeconds}>{perMove.seconds}</span>}
         </div>
 
-        <RankEmblem title={player.title || (isMe ? "Kỳ Sĩ" : "Kỳ Thủ")} />
+        <RankEmblem title={title} tier={rankInfo.tier} />
         <RankStars stars={stars} />
       </div>
 

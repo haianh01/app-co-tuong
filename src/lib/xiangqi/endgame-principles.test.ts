@@ -419,9 +419,18 @@ describe("endgame-principles: nguyên lý tàn cuộc", () => {
         expect(facts[0]?.summary).toContain("chiếu bí");
       });
 
-      it("Pháo không hề chiếu, chỉ đổi lấy Xe ở cuối biến: không gọi là khuyết Tượng sợ Pháo (ván đại sư)", () => {
+      it("ván đại sư: đỏ chỉ còn một Tượng, Xe đen bình chiếu đôi cùng Pháo rồi Pháo ăn Xe — khuyết Tượng sợ Pháo", () => {
         const t = real("3a2R2/4ak3/4b2P1/9/3c5/4r4/9/9/3K5/6B2 b", 39, 12,
           [[6, 15], [14, 5], [15, 16], [49, 48], [75, 76], [12, 16], [25, 16], [48, 50], [16, 15], [50, 77], [76, 85], [77, 86], [85, 76], [86, 87]], 635, -638);
+        const f = detectWeakPalaceAttack(t.before, t.move, t.after, t.options);
+        expect(f?.principle).toBe("khuyetTuongKyPhao");
+        expect(f?.summary).toContain("chiếu đôi cùng Pháo");
+        expect(f?.summary).toContain("Pháo ăn Xe");
+      });
+
+      it("Pháo không hề chiếu Tướng, chỉ ăn Mã: không gọi là khuyết Tượng sợ Pháo (ván đại sư)", () => {
+        const t = real("3k5/4a2N1/1r3a3/1n6R/p1p6/9/P3P3P/4B4/4A4/2C1KAB2 w", 83, 84,
+          [[38, 47], [35, 29], [3, 4], [84, 82], [47, 46], [82, 28], [4, 3], [29, 30], [19, 21]], 814, -800, 14);
         expect(detectWeakPalaceAttack(t.before, t.move, t.after, t.options)).toBeNull();
       });
     });

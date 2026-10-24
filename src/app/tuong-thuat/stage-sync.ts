@@ -543,3 +543,75 @@ export function liveClocks(clocks: StageClocks, now: number): { me: number; oppo
     perMove: clocks.perMove === null ? null : Math.max(0, clocks.perMove - elapsed),
   };
 }
+
+export type ZigaRankTier = "tapsu" | "phongtrao" | "kythu" | "kysi" | "kyvuong";
+
+export interface ZigaRankInfo {
+  tier: ZigaRankTier;
+  title: string;
+  stars: number;
+  avatarUrl: string;
+}
+
+/**
+ * Tự động xác định cấp bậc, danh hiệu, số sao và ảnh đại diện tương ứng theo mức điểm Elo Ziga.
+ * - < 1200: Tập sự (1-3 sao)
+ * - 1200-1599: Phong trào (1-3 sao)
+ * - 1600-1999: Kỳ thủ (1-3 sao)
+ * - 2000-2399: Kỳ sĩ (1-3 sao)
+ * - >= 2400: Kỳ vương (1-3 sao)
+ */
+export function zigaEloRank(
+  points?: string | number | null,
+  currentTitle?: string | null,
+  currentStars?: number | null,
+  fallbackSide: "r" | "b" = "r"
+): ZigaRankInfo {
+  const p = typeof points === "string" ? parseInt(points.replace(/\D/g, ""), 10) : typeof points === "number" ? points : NaN;
+  const normTitle = (currentTitle || "").trim().toLowerCase();
+
+  // 1. Phân cấp theo điểm Elo cụ thể nếu có
+  if (!isNaN(p) && p > 0) {
+    if (p < 1200) {
+      const stars = currentStars ?? (p < 950 ? 1 : p < 1080 ? 2 : 3);
+      return { tier: "tapsu", title: currentTitle || "Tập sự", stars, avatarUrl: "/stage/avatar_tapsu.jpg" };
+    }
+    if (p < 1600) {
+      const stars = currentStars ?? (p < 1330 ? 1 : p < 1470 ? 2 : 3);
+      return { tier: "phongtrao", title: currentTitle || "Phong trào", stars, avatarUrl: "/stage/avatar_phongtrao.jpg" };
+    }
+    if (p < 2000) {
+      const stars = currentStars ?? (p < 1730 ? 1 : p < 1870 ? 2 : 3);
+      return { tier: "kythu", title: currentTitle || "Kỳ thủ", stars, avatarUrl: "/stage/avatar_black.jpg" };
+    }
+    if (p < 2400) {
+      const stars = currentStars ?? (p < 2130 ? 1 : p < 2270 ? 2 : 3);
+      return { tier: "kysi", title: currentTitle || "Kỳ sĩ", stars, avatarUrl: "/stage/avatar_red.jpg" };
+    }
+    const stars = currentStars ?? (p < 2550 ? 1 : p < 2700 ? 2 : 3);
+    return { tier: "kyvuong", title: currentTitle || "Kỳ vương", stars, avatarUrl: "/stage/avatar_kyvuong.jpg" };
+  }
+
+  // 2. Nếu không có điểm Elo số, xét theo chữ trong title
+  if (normTitle.includes("tập sự") || normTitle.includes("tập")) {
+    return { tier: "tapsu", title: currentTitle || "Tập sự", stars: currentStars ?? 1, avatarUrl: "/stage/avatar_tapsu.jpg" };
+  }
+  if (normTitle.includes("phong trào") || normTitle.includes("phong")) {
+    return { tier: "phongtrao", title: currentTitle || "Phong trào", stars: currentStars ?? 2, avatarUrl: "/stage/avatar_phongtrao.jpg" };
+  }
+  if (normTitle.includes("vương") || normTitle.includes("đại sư") || normTitle.includes("kiện tướng")) {
+    return { tier: "kyvuong", title: currentTitle || "Kỳ vương", stars: currentStars ?? 3, avatarUrl: "/stage/avatar_kyvuong.jpg" };
+  }
+  if (normTitle.includes("sĩ") || normTitle.includes("sỹ")) {
+    return { tier: "kysi", title: currentTitle || "Kỳ sĩ", stars: currentStars ?? 1, avatarUrl: "/stage/avatar_red.jpg" };
+  }
+  if (normTitle.includes("thủ") || normTitle.includes("đối")) {
+    return { tier: "kythu", title: currentTitle || "Kỳ thủ", stars: currentStars ?? 3, avatarUrl: "/stage/avatar_black.jpg" };
+  }
+
+  // 3. Fallback: Đỏ mặc định Kỳ sĩ (Lưu Bị), Đen mặc định Kỳ thủ (Quan Vũ)
+  if (fallbackSide === "r") {
+    return { tier: "kysi", title: currentTitle || "Kỳ sĩ", stars: currentStars ?? 1, avatarUrl: "/stage/avatar_red.jpg" };
+  }
+  return { tier: "kythu", title: currentTitle || "Kỳ thủ", stars: currentStars ?? 3, avatarUrl: "/stage/avatar_black.jpg" };
+}

@@ -19,12 +19,11 @@ import {
 import { detectTheoreticalEndgame, type TheoreticalEndgame } from "./endgame";
 import { exchangeGain } from "./explain";
 import { soundMove, type ZhaoTacticsOptions } from "./middlegame";
-import { classifyMoveOutcome, type MoveOutcome } from "./move-outcome";
+import { engineLine, mateEnd, mateText, moverCaptureAt, narrate, pieceRole, pvAfterMove, tally } from "./engine-line";
 import { moveNotation, PIECE_NAME, SIDE_NAME } from "./notation";
 import { countMajorPieces } from "./phases";
 import { minorValues, screenCount } from "./piece-value";
 import { advance, linkedGuards, palacePressure } from "./strategy";
-import { MATE_SCORE, MATE_THRESHOLD } from "./uci";
 import { ZHAO_ENDGAME_LESSONS, type ZhaoEndgameLessonCard } from "./zhao48-endgame-lessons";
 
 export type EndgamePrinciple =
@@ -128,12 +127,6 @@ function theoreticalOutcome(board: Board, side: Side): { outcome: Outcome; eg: T
   if (!eg || eg.outcome === "unclear") return null;
   if (eg.outcome === "draw") return { outcome: "draw", eg };
   return { outcome: eg.winner === side ? "win" : "loss", eg };
-}
-
-/** PV tính từ thế SAU nước đi. Có nơi truyền PV bắt đầu bằng chính nước vừa đi — bỏ nước đó đi. */
-function pvAfterMove(options: EndgamePrincipleOptions | undefined, move: Move): Move[] {
-  const pv = options?.pv ?? [];
-  return pv[0]?.from === move.from && pv[0]?.to === move.to ? pv.slice(1) : pv;
 }
 
 /** Thế cờ sau khi đổi quân xong: nếu PV bắt đầu bằng nước ăn lại ở ô vừa ăn thì đi nốt nước đó. */
@@ -270,160 +263,6 @@ function fact(
     }
   }
   return f;
-}
-
-// ============================================================================
-// BIẾN ENGINE: đi thử PV trên bàn cờ để kiểm điều kỳ lý nói có thật sự xảy ra
-// ============================================================================
-
-/** Một nửa nước trong biến chính, tính cả chính nước vừa đi (ply 0). */
-interface LinePly {
-  ply: number;
-  side: Side;
-  type: PieceType;
-  move: Move;
-  /** Ô của quân đi trong thế `before` — theo dõi danh tính quân qua biến. */
-  origin: number;
-  victim: PieceType | null;
-  /** Bên đi nước này đang bị chiếu (nước đỡ / tránh chiếu). */
-  evading: boolean;
-  /** Nước này chiếu Tướng bên kia. */
-  check: boolean;
-  notation: string;
-}
-
-interface EngineLine {
-  plies: LinePly[];
-  outcome: MoveOutcome;
-  /** Điểm engine theo bên đi sau nước đi. */
-  scoreForMover: number;
-  moverMates: boolean;
-  /** Số nước bên đi còn phải đi tới khi chiếu bí (0 = chính nước này chiếu bí); null khi không sát. */
-  mateIn: number | null;
-}
-
-const HORIZON = 16;
-/** Mỗi lần chấm một nước, các bộ nhận diện dùng chung một biến đã đi thử (khóa theo object options của lần gọi). */
-const lineCache = new WeakMap<object, { before: Board; move: Move; line: EngineLine | null }>();
-
-/** Biến engine sau nước đi; null khi không có điểm engine hoặc biến quá ngắn để kết luận. */
-function engineLine(before: Board, move: Move, options?: EndgamePrincipleOptions): EngineLine | null {
-  if (!options) return null;
-  const hit = lineCache.get(options);
-  if (hit && hit.before === before && hit.move.from === move.from && hit.move.to === move.to) return hit.line;
-  const line = buildLine(before, move, options);
-  lineCache.set(options, { before, move, line });
-  return line;
-}
-
-function buildLine(before: Board, move: Move, options: EndgamePrincipleOptions): EngineLine | null {
-  const piece = before[move.from];
-  if (!piece || !options.evalAfter) return null;
-  const mover = sideOf(piece);
-  const scoreForMover = -options.evalAfter.score;
-  const moverMates = scoreForMover >= MATE_THRESHOLD;
-  const pv = pvAfterMove(options, move);
-  if (!moverMates && pv.length < 3) return null;
-
-  const origin = new Map<number, number>();
-  for (let i = 0; i < before.length; i++) if (before[i]) origin.set(i, i);
-  const plies: LinePly[] = [];
-  let board = before;
-  let side = mover;
-  for (const [ply, m] of [move, ...pv].slice(0, HORIZON).entries()) {
-    const p = board[m.from];
-    if (!p || sideOf(p) !== side) break; // biến không khớp thế cờ
-    const victim = board[m.to];
-    const next = play(board, m);
-    plies.push({
-      ply, side, type: typeOf(p), move: m, origin: origin.get(m.from) ?? m.from,
-      victim: victim ? typeOf(victim) : null,
-      evading: inCheck(board, side),
-      check: inCheck(next, opponent(side)),
-      notation: moveNotation(board, m),
-    });
-    origin.set(m.to, origin.get(m.from) ?? m.from);
-    origin.delete(m.from);
-    board = next;
-    side = opponent(side);
-  }
-  const outcome = classifyMoveOutcome(before, move, pv, {
-    scoreForMover, moverMates, opponentMates: scoreForMover <= -MATE_THRESHOLD,
-  });
-  const mateIn = moverMates ? Math.max(0, Math.round((MATE_SCORE - scoreForMover) / 2)) : null;
-  return { plies, outcome, scoreForMover, moverMates, mateIn };
-}
-
-/** Nửa nước cuối cần kể của đòn sát: nước chiếu bí nếu biến đủ dài, không thì hết biến. */
-function mateEnd(line: EngineLine): number {
-  const last = line.plies.length - 1;
-  return line.mateIn === null ? last : Math.min(last, 2 * line.mateIn);
-}
-
-/**
- * Kể lại biến tới nửa nước `upTo`: nước ăn quân, chiếu, đỡ chiếu, nước đầu và nước cuối; nước yên lặng ở giữa thay bằng "…".
- * Biến dài thì giữ hai nước đầu và bốn nước cuối để lời bình đọc được.
- */
-function narrate(line: EngineLine, upTo: number): string {
-  const mover = line.plies[0].side;
-  const parts: string[] = [];
-  let skipped = false;
-  for (const e of line.plies.slice(0, upTo + 1)) {
-    if (e.ply !== 0 && e.ply !== upTo && !e.victim && !e.check && !e.evading) {
-      skipped = true;
-      continue;
-    }
-    if (skipped) parts.push("…");
-    skipped = false;
-    const who = e.side === mover ? "" : `${SIDE_NAME[e.side]} `;
-    const name = PIECE_NAME[e.type];
-    const act = e.victim
-      ? `${name} ăn ${PIECE_NAME[e.victim]}`
-      : e.evading && !e.check ? (e.type === "k" ? "Tướng tránh chiếu" : `${name} đỡ chiếu`) : name;
-    parts.push(`${who}${act}${e.check ? " chiếu" : e.victim || e.evading ? "" : " đi"} (${e.notation})`);
-  }
-  const shown = parts.length > 7 ? [...parts.slice(0, 2), "…", ...parts.slice(-4)] : parts;
-  return shown.filter((p, i) => p !== "…" || shown[i - 1] !== "…").join(", ");
-}
-
-/** Kết quả vật chất tới nửa nước `key`, kể cả nước ăn lại ngay trong hai nửa nước sau đó. */
-function tally(line: EngineLine, key: number): { upTo: number; text: string } {
-  let upTo = key;
-  for (let i = key + 1; i <= key + 2 && i < line.plies.length; i++) if (line.plies[i].victim) upTo = i;
-  const mover = line.plies[0].side;
-  const names = (side: Side) => {
-    const ts = line.plies.slice(0, upTo + 1).filter((e) => e.victim && e.side === side).map((e) => e.victim!);
-    return [...new Set(ts)].map((t) => {
-      const k = ts.filter((x) => x === t).length;
-      return k > 1 ? `${k} ${PIECE_NAME[t]}` : PIECE_NAME[t];
-    });
-  };
-  const gains = names(mover);
-  const losses = names(opponent(mover));
-  return { upTo, text: losses.length ? `đổi ${losses.join(", ")} lấy ${gains.join(", ")}` : `thắng ${gains.join(", ")}` };
-}
-
-const mateText = (line: EngineLine) =>
-  line.mateIn === 0 ? "chiếu bí" : `theo biến, chiếu bí sau ${line.mateIn} nước nữa`;
-
-/** Quân vừa đi (theo danh tính) làm được gì trong biến tới nửa nước `upTo`: số lần chiếu và các quân nó ăn. */
-function pieceRole(line: EngineLine, from: number, upTo: number): { checks: number; captures: PieceType[] } {
-  const mover = line.plies[0].side;
-  let checks = 0;
-  const captures: PieceType[] = [];
-  for (const e of line.plies.slice(0, upTo + 1)) {
-    if (e.side !== mover || e.origin !== from) continue;
-    if (e.check) checks++;
-    if (e.victim) captures.push(e.victim);
-  }
-  return { checks, captures };
-}
-
-/** Nửa nước (sau nước đi) bên đi ăn được quân loại `types`, -1 nếu không có. */
-function moverCaptureAt(line: EngineLine, types: string, from = 1): number {
-  const mover = line.plies[0].side;
-  const c = line.outcome.captures.find((x) => x.by === mover && types.includes(x.type) && x.ply >= from);
-  return c ? c.ply : -1;
 }
 
 // ============================================================================
@@ -742,7 +581,7 @@ export function detectMatingAttack(
   const line = engineLine(before, move, options);
   if (!line?.moverMates || !soundMove(options)) return null;
   const end = mateEnd(line);
-  const checkers = new Set(line.plies.slice(0, end + 1).filter((e) => e.side === mover && e.check).map((e) => e.type));
+  const checkers = new Set(line.plies.slice(0, end + 1).filter((e) => e.side === mover).flatMap((e) => e.checkerTypes));
   const only = (types: string) => [...checkers].every((t) => types.includes(t));
   const story = `${narrate(line, end)} — ${mateText(line)}`;
   if (checkers.has("r") && checkers.has("c") && only("rcp")) {

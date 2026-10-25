@@ -3,26 +3,22 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { XiangqiBoard, type BoardArrow } from "@/components/board/XiangqiBoard";
-import {
-  parseFen,
-  play,
-  sideOf,
-  legalMovesFrom,
-  type Board,
-  type Move,
-  type Position,
-} from "@/lib/xiangqi/engine";
+import { legalMovesFrom, sideOf, toFen, type Move } from "@/lib/xiangqi/engine";
 import { uciToMove } from "@/lib/xiangqi/uci";
 import { moveNotation } from "@/lib/xiangqi/notation";
-import { detectAllZhaoTactics } from "@/lib/xiangqi/zhao-principles";
+import { reviewMove, type PositionEval } from "@/lib/xiangqi/analysis";
 import { explainText } from "@/lib/xiangqi/explain";
+import { gameReducer, newGame } from "@/lib/xiangqi/game";
+import type { ZhaoMiddlegameFact } from "@/lib/xiangqi/middlegame";
 import { useEngine } from "@/hooks/useEngine";
 import {
   ZHAO_BENCHMARK_LESSONS,
-  ZHAO_BENCHMARK_MAP,
   type ZhaoBenchmarkItem,
 } from "@/lib/xiangqi/zhao-benchmark-data";
 import styles from "./ZhaoPositionModal.module.css";
+
+/** Engine JS dự phòng (khi server không có Pikafish): tính sâu hơn mức huấn luyện, không nhiễu. */
+const FALLBACK = { depth: 4, timeMs: 1000, noise: 0 } as const;
 
 interface Props {
   isOpen: boolean;
@@ -31,100 +27,98 @@ interface Props {
   onOpenVideo?: (video: { videoId: string; title: string; timecode?: string }) => void;
 }
 
+type Verdict = "invalid" | "pending" | "matched" | "other" | "none";
+
 export function ZhaoPositionModal({
   isOpen,
   initialLesson = 1,
   onClose,
   onOpenVideo,
 }: Props) {
-  const [currentLessonNum, setCurrentLessonNum] = useState<number>(initialLesson);
+  // Vị trí trong danh sách thế (một bài có thể có vài thế từ các ván khác nhau)
+  const [currentIndex, setCurrentIndex] = useState<number>(() =>
+    Math.max(0, ZHAO_BENCHMARK_LESSONS.findIndex((item) => item.lesson === initialLesson)),
+  );
   const [hasPlayedMove, setHasPlayedMove] = useState<boolean>(false);
   const [customMove, setCustomMove] = useState<Move | null>(null);
   const [selectedSquare, setSelectedSquare] = useState<number | null>(null);
-  const [engineScore, setEngineScore] = useState<number | null>(null);
+  // Điểm engine theo FEN (theo bên đến lượt), giữ qua các lần đổi bài / đi thử
+  const [evals, setEvals] = useState<Record<string, PositionEval>>({});
   const think = useEngine();
 
-  // Đồng bộ bài học khi initialLesson thay đổi từ bên ngoài
-  useEffect(() => {
-    if (initialLesson && ZHAO_BENCHMARK_MAP[initialLesson]) {
-      setCurrentLessonNum(initialLesson);
-      setHasPlayedMove(false);
-      setCustomMove(null);
-      setSelectedSquare(null);
-      setEngineScore(null);
-    }
-  }, [initialLesson]);
+  const benchmarkItem: ZhaoBenchmarkItem = ZHAO_BENCHMARK_LESSONS[currentIndex];
+  // Thứ tự của thế này trong các thế cùng bài, vd. "ví dụ 2/3"
+  const sameLesson = ZHAO_BENCHMARK_LESSONS.filter((item) => item.lesson === benchmarkItem.lesson);
+  const exampleNo = sameLesson.indexOf(benchmarkItem) + 1;
 
-  // Đổi bài học thì reset trạng thái bàn cờ
-  const benchmarkItem: ZhaoBenchmarkItem = useMemo(() => {
-    return ZHAO_BENCHMARK_MAP[currentLessonNum] ?? ZHAO_BENCHMARK_LESSONS[0];
-  }, [currentLessonNum]);
+  const startState = useMemo(() => newGame(benchmarkItem.fen), [benchmarkItem.fen]);
+  const initialPos = startState.history[0];
 
-  const initialPos: Position = useMemo(() => {
-    try {
-      return parseFen(benchmarkItem.fen);
-    } catch {
-      return parseFen("4k4/9/9/9/9/9/9/9/9/4K4 w");
-    }
-  }, [benchmarkItem.fen]);
+  const zhaoMove: Move | null = useMemo(() => uciToMove(benchmarkItem.move), [benchmarkItem.move]);
 
-  const zhaoMove: Move | null = useMemo(() => {
-    return uciToMove(benchmarkItem.move);
-  }, [benchmarkItem.move]);
+  const zhaoLegal = !!zhaoMove && legalMovesFrom(initialPos, zhaoMove.from).some((m) => m.to === zhaoMove.to);
 
-  // Nước đang thực thi: hoặc nước của Triệu Hâm Hâm hoặc nước tự đi
+  // Nước đang xét: nước tự thử hoặc nước của Triệu Hâm Hâm
   const activeMove: Move | null = customMove ?? zhaoMove;
 
-  const currentBoard: Board = useMemo(() => {
-    if (!hasPlayedMove || !activeMove) {
-      return initialPos.board;
-    }
-    try {
-      return play(initialPos.board, activeMove);
-    } catch {
-      return initialPos.board;
-    }
-  }, [initialPos.board, hasPlayedMove, activeMove]);
+  // Ván một nước (thế bài học → nước đang xét); gameReducer tự ghi kết quả khi chiếu bí / hết nước
+  const moveState = useMemo(() => {
+    if (!activeMove) return null;
+    const s = gameReducer(startState, { type: "move", move: activeMove });
+    return s.moves.length === 1 ? s : null;
+  }, [startState, activeMove]);
 
-  // Phân tích kỳ lý bằng AI (detectAllZhaoTactics + explainText)
-  const { facts, commentary, isMatched, detectedTacticTitle } = useMemo(() => {
-    if (!activeMove) {
-      return { facts: [], commentary: "", isMatched: false, detectedTacticTitle: "" };
-    }
-    const after = play(initialPos.board, activeMove);
-    const zhaoFacts = detectAllZhaoTactics(initialPos.board, activeMove, after);
-    const text = explainText(zhaoFacts, initialPos.turn, 1, "zhaoXinxin");
-    const matched = zhaoFacts.some(
-      (f) => f.lesson === benchmarkItem.lesson || f.tactic === benchmarkItem.tacticId
-    );
-    const firstFactTitle = zhaoFacts[0]?.lessonTitle ?? zhaoFacts[0]?.tactic;
+  const currentBoard = hasPlayedMove && moveState ? moveState.history[1].board : initialPos.board;
 
-    return {
-      facts: zhaoFacts,
-      commentary: text,
-      isMatched: matched,
-      detectedTacticTitle: firstFactTitle,
-    };
-  }, [initialPos, activeMove, benchmarkItem]);
+  const fenBefore = useMemo(() => toFen(initialPos), [initialPos]);
+  const fenAfter = useMemo(() => (moveState ? toFen(moveState.history[1]) : null), [moveState]);
+  const terminal = !!moveState?.result;
 
-  // Chạy engine đánh giá điểm số
+  // Cần chấm: thế trước nước đi và thế sau nước đi (trừ khi nước đi kết thúc ván)
+  const pendingFen = !isOpen
+    ? null
+    : !evals[fenBefore]
+    ? fenBefore
+    : fenAfter && !terminal && !evals[fenAfter]
+    ? fenAfter
+    : null;
+
   useEffect(() => {
+    if (!pendingFen) return;
     let cancelled = false;
-    setEngineScore(null);
-    if (!isOpen) return;
-
-    think(benchmarkItem.fen, 3, undefined, "analysis")
+    think(pendingFen, 3, FALLBACK, "analysis")
       .then((res) => {
-        if (!cancelled && res.score !== undefined) {
-          setEngineScore(res.score);
-        }
+        if (!cancelled) setEvals((c) => ({ ...c, [pendingFen]: { score: res.score, best: res.move, pv: res.pvMoves } }));
       })
       .catch(() => {});
-
     return () => {
       cancelled = true;
     };
-  }, [benchmarkItem.fen, isOpen, think]);
+  }, [pendingFen, think]);
+
+  // Kỳ lý chỉ được gắn khi biến engine xác nhận — cùng đường với màn phân tích ván (reviewMove)
+  const { verdict, zhaoFacts, commentary, scoreAfter } = useMemo(() => {
+    const beforeEval = evals[fenBefore] ?? null;
+    const afterEval = fenAfter ? evals[fenAfter] ?? null : null;
+    if (!moveState) {
+      return { verdict: "invalid" as Verdict, zhaoFacts: [] as ZhaoMiddlegameFact[], commentary: "", scoreAfter: null };
+    }
+    if (!beforeEval || (!afterEval && !terminal)) {
+      return { verdict: "pending" as Verdict, zhaoFacts: [] as ZhaoMiddlegameFact[], commentary: "", scoreAfter: null };
+    }
+    const { review } = reviewMove(moveState.moves[0], 0, moveState, beforeEval, afterEval, undefined, [], []);
+    const facts = review.facts.filter((f): f is ZhaoMiddlegameFact => f.kind === "zhaoMiddlegame");
+    const matched = facts.some((f) => f.lesson === benchmarkItem.lesson || f.tactic === benchmarkItem.tacticId);
+    return {
+      verdict: (matched ? "matched" : facts.length > 0 ? "other" : "none") as Verdict,
+      zhaoFacts: facts,
+      commentary: facts.length > 0 ? explainText(facts, initialPos.turn, 1, "zhaoXinxin") : "",
+      // Điểm sau nước đi theo bên vừa đi
+      scoreAfter: afterEval ? -afterEval.score : null,
+    };
+  }, [evals, fenBefore, fenAfter, moveState, terminal, benchmarkItem, initialPos.turn]);
+
+  const scoreBefore = evals[fenBefore]?.score ?? null;
 
   if (!isOpen) return null;
 
@@ -173,33 +167,37 @@ export function ZhaoPositionModal({
     });
   }
 
-  // Chuyển bài học
-  const currentIndex = ZHAO_BENCHMARK_LESSONS.findIndex(
-    (item) => item.lesson === currentLessonNum
-  );
-  const handlePrev = () => {
-    if (currentIndex > 0) {
-      setCurrentLessonNum(ZHAO_BENCHMARK_LESSONS[currentIndex - 1].lesson);
-      handleResetBoard();
-    }
-  };
-  const handleNext = () => {
-    if (currentIndex < ZHAO_BENCHMARK_LESSONS.length - 1) {
-      setCurrentLessonNum(ZHAO_BENCHMARK_LESSONS[currentIndex + 1].lesson);
-      handleResetBoard();
-    }
+  // Chuyển thế cờ
+  const goTo = (i: number) => {
+    if (i < 0 || i >= ZHAO_BENCHMARK_LESSONS.length) return;
+    setCurrentIndex(i);
+    handleResetBoard();
   };
 
-  const formattedScore =
-    engineScore !== null
-      ? `${engineScore > 0 ? "+" : ""}${engineScore} cp (${
-          Math.abs(engineScore) > 300
-            ? "Ưu thế lớn"
-            : Math.abs(engineScore) > 100
-            ? "Ưu thế nhẹ"
-            : "Cân bằng"
-        })`
-      : "Đang tính…";
+  const fmtScore = (v: number) => {
+    const label = Math.abs(v) > 300 ? "ưu thế lớn" : Math.abs(v) > 100 ? "ưu thế nhẹ" : "cân bằng";
+    return `${v > 0 ? "+" : ""}${v} (${label})`;
+  };
+  const scoreText = !moveState
+    ? "—"
+    : terminal
+    ? moveState?.result?.reason === "checkmate"
+      ? "Chiếu bí — kết thúc ván"
+      : "Kết thúc ván"
+    : scoreAfter !== null
+    ? fmtScore(scoreAfter)
+    : "Đang tính…";
+
+  const verdictText =
+    verdict === "invalid"
+      ? `Nước ${benchmarkItem.moveNotation} không hợp lệ trong thế cờ này — dữ liệu cần sửa`
+      : verdict === "pending"
+      ? "Đang chờ engine chấm thế cờ…"
+      : verdict === "matched"
+      ? `Engine xác nhận kỳ lý của Bài ${benchmarkItem.lesson}`
+      : verdict === "other"
+      ? `AI gắn kỳ lý khác, không phải Bài ${benchmarkItem.lesson}`
+      : "AI không gắn kỳ lý nào cho nước này (biến engine không xác nhận)";
 
   return (
     <div className={styles.overlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -210,15 +208,12 @@ export function ZhaoPositionModal({
             <span className={styles.modalBadge}>🧪 ĐỐI CHIẾU AI &amp; TRIỆU HÂM HÂM</span>
             <select
               className={styles.lessonSelect}
-              value={currentLessonNum}
-              onChange={(e) => {
-                setCurrentLessonNum(Number(e.target.value));
-                handleResetBoard();
-              }}
-              aria-label="Chọn bài giảng Triệu Hâm Hâm"
+              value={currentIndex}
+              onChange={(e) => goTo(Number(e.target.value))}
+              aria-label="Chọn thế cờ đối chiếu"
             >
-              {ZHAO_BENCHMARK_LESSONS.map((item) => (
-                <option key={item.lesson} value={item.lesson}>
+              {ZHAO_BENCHMARK_LESSONS.map((item, i) => (
+                <option key={`${item.lesson}-${item.game.id}-${item.game.ply}`} value={i}>
                   Bài {item.lesson}: {item.title} ({item.moveNotation})
                 </option>
               ))}
@@ -229,9 +224,9 @@ export function ZhaoPositionModal({
             <button
               type="button"
               className={styles.navBtn}
-              onClick={handlePrev}
+              onClick={() => goTo(currentIndex - 1)}
               disabled={currentIndex <= 0}
-              title="Bài trước (◀)"
+              title="Thế trước"
             >
               ◀ Trước
             </button>
@@ -241,9 +236,9 @@ export function ZhaoPositionModal({
             <button
               type="button"
               className={styles.navBtn}
-              onClick={handleNext}
+              onClick={() => goTo(currentIndex + 1)}
               disabled={currentIndex >= ZHAO_BENCHMARK_LESSONS.length - 1}
-              title="Bài tiếp theo (▶)"
+              title="Thế tiếp theo"
             >
               Tiếp ▶
             </button>
@@ -280,13 +275,13 @@ export function ZhaoPositionModal({
                 type="button"
                 className={styles.btnPlayMove}
                 onClick={handlePlayZhaoMove}
-                disabled={hasPlayedMove && !customMove}
+                disabled={!zhaoLegal || (hasPlayedMove && !customMove)}
               >
                 <span>▶️</span>
                 <span>
                   {hasPlayedMove && !customMove
                     ? `Đã đi: ${benchmarkItem.moveNotation}`
-                    : `Đi nước Triệu Hâm Hâm (${benchmarkItem.moveNotation})`}
+                    : `Đi nước trong ván (${benchmarkItem.moveNotation})`}
                 </span>
               </button>
 
@@ -319,7 +314,7 @@ export function ZhaoPositionModal({
                   <span>Triệu Hâm Hâm Giảng Giải</span>
                 </span>
                 <span className={styles.keyMoveBadge}>
-                  Nước cờ: {benchmarkItem.moveNotation}
+                  Nước trong ván: {benchmarkItem.moveNotation}
                 </span>
               </div>
 
@@ -330,9 +325,19 @@ export function ZhaoPositionModal({
                 <p className={styles.principleText}>{benchmarkItem.principle}</p>
               </div>
 
-              <blockquote className={styles.masterQuote}>
-                &ldquo;{benchmarkItem.description}&rdquo;
-              </blockquote>
+              {benchmarkItem.quote && (
+                <blockquote className={styles.masterQuote}>
+                  &ldquo;{benchmarkItem.quote.text}&rdquo; <small>[{benchmarkItem.quote.at}]</small>
+                </blockquote>
+              )}
+
+              <p className={styles.sourceNote}>
+                Thế cờ trong ván {benchmarkItem.game.red} – {benchmarkItem.game.black}
+                {benchmarkItem.game.tournament ? `, ${benchmarkItem.game.tournament}` : ""}, nửa nước{" "}
+                {benchmarkItem.game.ply}
+                {sameLesson.length > 1 ? ` (ví dụ ${exampleNo}/${sameLesson.length} của bài)` : ""}. Thế này không có
+                trong video; video chỉ để nghe lời giảng về kỳ lý.
+              </p>
 
               {benchmarkItem.video && onOpenVideo && (
                 <button
@@ -342,10 +347,11 @@ export function ZhaoPositionModal({
                     onOpenVideo({
                       videoId: benchmarkItem.video,
                       title: `Bài ${benchmarkItem.lesson}: ${benchmarkItem.title}`,
+                      timecode: benchmarkItem.quote?.at,
                     })
                   }
                 >
-                  ▶️ Xem đoạn video bài giảng trên YouTube
+                  ▶️ Xem video bài giảng{benchmarkItem.quote ? ` (từ ${benchmarkItem.quote.at})` : ""}
                 </button>
               )}
             </div>
@@ -367,42 +373,36 @@ export function ZhaoPositionModal({
               {/* Trạng thái so sánh */}
               <div
                 className={`${styles.matchVerdict} ${
-                  isMatched ? styles.matchSuccess : styles.matchWarning
+                  verdict === "matched" ? styles.matchSuccess : styles.matchWarning
                 }`}
               >
-                <span>{isMatched ? "✅" : "💡"}</span>
-                <span>
-                  {isMatched
-                    ? `TRÙNG KHỚP 100% VỚI BÀI GIẢNG TRIỆU HÂM HÂM!`
-                    : customMove
-                    ? "AI đánh giá nước đi thử nghiệm của bạn"
-                    : "AI nhận diện thế trận theo kỳ lý phối hợp"}
-                </span>
+                <span>{verdict === "matched" ? "✅" : verdict === "pending" ? "⏳" : "💡"}</span>
+                <span>{verdictText}</span>
               </div>
 
               {/* Huy hiệu kỳ lý nhận diện */}
-              <div className={styles.aiTacticBadge}>
-                <span>📖</span>
-                <span>
-                  Kỳ lý nhận diện:{" "}
-                  {detectedTacticTitle
-                    ? `Bài ${benchmarkItem.lesson} • ${detectedTacticTitle}`
-                    : `Bài ${benchmarkItem.lesson}: ${benchmarkItem.title}`}
-                </span>
-              </div>
+              {zhaoFacts.map((f) => (
+                <div key={f.tactic} className={styles.aiTacticBadge}>
+                  <span>📖</span>
+                  <span>
+                    Kỳ lý nhận diện: {f.lesson ? `Bài ${f.lesson} • ` : ""}
+                    {f.lessonTitle ?? f.tactic}
+                  </span>
+                </div>
+              ))}
 
               {/* Lời bình luận phân tích */}
-              <p className={styles.aiCommentary}>
-                {commentary ||
-                  (facts.length > 0
-                    ? facts[0].summary
-                    : "[Triệu Hâm Hâm - Công sát]: Nước đi khai thông lộ tấn công, ép đối phương vào thế bị động phòng ngự.")}
-              </p>
+              {commentary && <p className={styles.aiCommentary}>{commentary}</p>}
 
               {/* Điểm số từ Engine Pikafish */}
               <div className={styles.engineEvalRow}>
-                <span>Đánh giá từ Engine Pikafish:</span>
-                <span className={styles.scoreVal}>{formattedScore}</span>
+                <span title="Pikafish trên server; nếu server không có engine thì dùng AI JavaScript trong trình duyệt">
+                  Điểm engine (theo bên đi):
+                </span>
+                <span className={styles.scoreVal}>
+                  {scoreBefore !== null ? `${fmtScore(scoreBefore)} → ` : ""}
+                  {scoreText}
+                </span>
               </div>
             </div>
 

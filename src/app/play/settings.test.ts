@@ -39,6 +39,42 @@ describe("parseSettings", () => {
   });
 });
 
+describe("parseSettings — thế cờ từ bài giảng (?fen=&lesson=)", () => {
+  // Thế bài 4 (Oa tâm mã): Đen đi trước
+  const BLACK_TO_MOVE = "3aka3/9/2n5C/9/4P4/9/9/9/9/4K4 b - - 0 1";
+
+  it("không ghi side thì cầm bên đến lượt trong FEN", () => {
+    const s = parseSettings({ fen: BLACK_TO_MOVE, lesson: "4" });
+    expect(s).toMatchObject({ fen: BLACK_TO_MOVE, lesson: 4, side: "b" });
+  });
+
+  it("side ghi rõ trên URL thắng lượt đi trong FEN", () => {
+    expect(parseSettings({ fen: BLACK_TO_MOVE, side: "r" }).side).toBe("r");
+  });
+
+  it.each([
+    ["sai số hàng", "4k4/9/9/4K4 w"],
+    ["ký tự lạ", "4k4/9/9/9/9/9/9/9/9/4X4 w"],
+    ["thiếu Tướng Đen", "9/9/9/9/9/9/9/9/9/4K4 w"],
+    ["bên đến lượt đã bị chiếu bí", "3aka2C/4n4/9/9/9/9/9/9/9/4K4 b"],
+    ["chuỗi rác", "<script>"],
+  ])("FEN %s → bỏ qua, về thế khai cuộc", (_, fen) => {
+    const s = parseSettings({ fen, side: "b" });
+    expect(s.fen).toBeUndefined();
+    expect(s.side).toBe("b");
+  });
+
+  it("lesson không phải số thì bỏ qua", () => {
+    expect(parseSettings({ lesson: "abc" }).lesson).toBeUndefined();
+  });
+
+  it("settingsHref giữ fen và lesson khi đọc lại", () => {
+    const s: PlaySettings = { level: 4, side: "b", minutes: 0, fen: BLACK_TO_MOVE, lesson: 4 };
+    const params = Object.fromEntries(new URL(settingsHref(s), "http://x").searchParams);
+    expect(parseSettings(params)).toEqual(s);
+  });
+});
+
 describe("settingsHref", () => {
   it("tạo đường dẫn /play với đủ tham số", () => {
     expect(settingsHref({ level: 5, side: "b", minutes: 0 })).toBe("/play?level=5&side=b&time=0");

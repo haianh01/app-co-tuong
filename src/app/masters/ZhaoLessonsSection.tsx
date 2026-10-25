@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ZHAO_LESSONS, type ZhaoLessonCard } from "@/lib/xiangqi/zhao48-lessons";
 import { ZHAO_ENDGAME_LESSONS, type ZhaoEndgameLessonCard } from "@/lib/xiangqi/zhao48-endgame-lessons";
-import { ZHAO_BENCHMARK_MAP } from "@/lib/xiangqi/zhao-benchmark-data";
+import { ZHAO_BENCHMARK_LESSONS, ZHAO_BENCHMARK_MAP } from "@/lib/xiangqi/zhao-benchmark-data";
 import { ZhaoPositionModal } from "./ZhaoPositionModal";
 import styles from "./masters.module.css";
 
@@ -133,16 +133,17 @@ export function ZhaoLessonsSection() {
         <div className={styles.benchmarkHeroContent}>
           <span className={styles.benchmarkHeroTag}>🧪 PHÒNG THÍ NGHIỆM ĐỐI CHIẾU AI</span>
           <h3 className={styles.benchmarkHeroHeading}>
-            Đối Chiếu AI Với 20 Thế Cờ Mẫu Của Triệu Hâm Hâm
+            Đối Chiếu AI Với Kỳ Lý Triệu Hâm Hâm Trên Ván Đại Sư
           </h3>
           <p className={styles.benchmarkHeroDesc}>
-            Xem trực tiếp thế cờ trên bàn cờ Tượng Kỳ, thực hiện nước cờ then chốt và đối chiếu xem AI nhận diện nguyên lý có trùng khớp với bài giảng của Triệu Hâm Hâm không.
+            {ZHAO_BENCHMARK_LESSONS.length} thế cờ từ ván đại sư thật, phủ {Object.keys(ZHAO_BENCHMARK_MAP).length} bài
+            trung cuộc: đi nước trong ván hoặc tự đi thử, xem AI (có engine xác nhận) có nhận ra kỳ lý của bài không.
           </p>
         </div>
         <button
           type="button"
           className={styles.btnLaunchBenchmark}
-          onClick={() => setActiveBenchmarkLesson(1)}
+          onClick={() => setActiveBenchmarkLesson(ZHAO_BENCHMARK_LESSONS[0].lesson)}
         >
           ⚡ Mở Bàn Cờ Kiểm Tra Ngay →
         </button>
@@ -284,7 +285,8 @@ export function ZhaoLessonsSection() {
                 {/* Các nút hành động: Xem video, So sánh AI & Luyện tập */}
                 <div className={styles.zhaoCardActions}>
                   {(() => {
-                    const benchmarkItem = ZHAO_BENCHMARK_MAP[item.lesson];
+                    // Thế đối chiếu chỉ có cho bài trung cuộc (số bài tàn cuộc trùng số nhưng là bài khác)
+                    const benchmarkItem = tab === "middlegame" ? ZHAO_BENCHMARK_MAP[item.lesson] : undefined;
                     return (
                       <>
                         {benchmarkItem && (
@@ -392,12 +394,16 @@ export function ZhaoLessonsSection() {
       )}
 
       {/* Modal Kiểm tra & Đối chiếu AI */}
-      <ZhaoPositionModal
-        isOpen={activeBenchmarkLesson !== null}
-        initialLesson={activeBenchmarkLesson ?? 1}
-        onClose={() => setActiveBenchmarkLesson(null)}
-        onOpenVideo={setActiveVideo}
-      />
+      {/* key theo bài: mở bài khác thì modal khởi tạo lại từ đầu */}
+      {activeBenchmarkLesson !== null && (
+        <ZhaoPositionModal
+          key={activeBenchmarkLesson}
+          isOpen
+          initialLesson={activeBenchmarkLesson}
+          onClose={() => setActiveBenchmarkLesson(null)}
+          onOpenVideo={setActiveVideo}
+        />
+      )}
     </div>
   );
 }

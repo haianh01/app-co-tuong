@@ -7,7 +7,7 @@ import { XiangqiBoard } from "@/components/board/XiangqiBoard";
 import { ResultOverlay } from "@/components/game/GamePanels";
 import { useSession } from "@/components/session/SessionProvider";
 import { Move, applyMove, findKing, inCheck, legalMovesFrom, outcome, parseFen, sideOf } from "@/lib/xiangqi/engine";
-import { moveWins, toughestReply } from "@/lib/xiangqi/mate";
+import { lineMoveOk, moveWins, toughestReply } from "@/lib/xiangqi/mate";
 import { FREE_HINT_CHAPTER, PUZZLES, type Puzzle } from "@/lib/xiangqi/puzzles";
 import { playSound } from "@/lib/sound";
 import styles from "./puzzle.module.css";
@@ -179,7 +179,7 @@ function PuzzleBoard({ puzzle, index, locked, member, hintOwned, onHintBought, o
       return;
     }
     const move = { from: selected, to: i };
-    const good = moveWins(pos, move, redMovesLeft);
+    const good = puzzle.line ? lineMoveOk(pos, puzzle.line, line.length, move) : moveWins(pos, move, redMovesLeft);
     const { next, nextIds, over } = play(move, pos, ids);
     const played = [...line, move];
     setLine(played);
@@ -197,10 +197,10 @@ function PuzzleBoard({ puzzle, index, locked, member, hintOwned, onHintBought, o
       void finish(played, attempts, attempts === 1 && !hint ? 3 : attempts <= 3 ? 2 : 1);
       return;
     }
-    // Đúng nhưng chưa xong: máy cầm Đen đỡ bằng nước cứng nhất.
+    // Đúng nhưng chưa xong: máy cầm Đen đỡ bằng nước cứng nhất (thế dài: theo biến chính đã kiểm chứng).
     setStatus("reply");
     timer.current = setTimeout(() => {
-      const reply = toughestReply(next, redMovesLeft - 1);
+      const reply = puzzle.line ? puzzle.line[played.length] : toughestReply(next, redMovesLeft - 1);
       if (!reply) return;
       play(reply, next, nextIds);
       setLine([...played, reply]);
@@ -229,7 +229,9 @@ function PuzzleBoard({ puzzle, index, locked, member, hintOwned, onHintBought, o
 
   const message = locked ? "Chương này dành cho thành viên VIP."
     : status === "solved" ? `Chính xác! Ví dụ lời giải: ${puzzle.solutionText}.`
-      : status === "wrong" ? (puzzle.depth === 1 ? "Chưa chiếu bí. Thử lại nhé!" : "Nước này để Đen thoát được. Thử lại nhé!")
+      : status === "wrong" ? (puzzle.depth === 1 ? "Chưa chiếu bí. Thử lại nhé!"
+        : puzzle.line ? `Nước này không chiếu bí kịp trong ${redMovesLeft} nước. Thử lại nhé!`
+          : "Nước này để Đen thoát được. Thử lại nhé!")
         : status === "reply" ? "Đúng hướng! Đen đang đỡ…"
           : hint ? `Gợi ý: ${puzzle.hint}`
             : notice ?? (line.length ? "Đen đã đỡ. Tiếp tục ép sát!" : "Đến lượt Đỏ. Chọn quân để bắt đầu.");
@@ -268,6 +270,7 @@ function PuzzleBoard({ puzzle, index, locked, member, hintOwned, onHintBought, o
           <span className={styles.kicker}>{puzzle.chapter.toUpperCase()} · THẾ {index + 1} / {PUZZLES.length}</span>
           <h1 className={styles.title}>{puzzle.title}</h1>
           <p className="muted">{puzzle.goal}</p>
+          {puzzle.source && <p className="muted">Xuất xứ: {puzzle.source}</p>}
           <div className={styles.message} data-status={status} role="status">{message}</div>
           <span className="muted">Số lần thử: <strong>{tries}</strong></span>
         </div>

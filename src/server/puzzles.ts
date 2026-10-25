@@ -2,13 +2,14 @@
 
 import { and, eq, sql } from "drizzle-orm";
 import { parseFen, type Move } from "@/lib/xiangqi/engine";
-import { verifySolution } from "@/lib/xiangqi/mate";
+import { verifyLineSolution, verifySolution } from "@/lib/xiangqi/mate";
 import { FREE_HINT_CHAPTER, findPuzzle } from "@/lib/xiangqi/puzzles";
 import type { Database } from "./db";
 import { coinTransactions, puzzleProgress, users } from "./db/schema";
 import { addCoinsTx, CoinError } from "./economy";
 
-export const PUZZLE_REWARD = { 1: 20, 2: 40 } as const;
+/** Thưởng xu lần giải đầu: 20 xu cho mỗi nước của bên giải. */
+export const puzzleReward = (depth: number) => 20 * depth;
 export const HINT_COST = 10;
 
 export const starsFor = (attempts: number, hinted: boolean) => (attempts <= 1 && !hinted ? 3 : attempts <= 3 ? 2 : 1);
@@ -40,7 +41,9 @@ export async function submitPuzzle(
   const puzzle = findPuzzle(puzzleId);
   if (!puzzle) return { ok: false, error: "Thế cờ không tồn tại." };
   if (puzzle.vip && !(await isVip(db, userId, now))) return { ok: false, error: "Chương này dành cho thành viên VIP." };
-  if (!verifySolution(parseFen(puzzle.fen), moves, puzzle.depth)) return { ok: false, error: "Lời giải không đúng." };
+  const start = parseFen(puzzle.fen);
+  const valid = puzzle.line ? verifyLineSolution(start, moves, puzzle.line) : verifySolution(start, moves, puzzle.depth);
+  if (!valid) return { ok: false, error: "Lời giải không đúng." };
 
   const hinted = puzzle.chapter !== FREE_HINT_CHAPTER && (await hintBought(db, userId, puzzleId));
   const stars = starsFor(Math.max(1, Math.trunc(attempts) || 1), hinted);
@@ -55,7 +58,7 @@ export async function submitPuzzle(
       })
       .returning({ firstSolve: sql<boolean>`(xmax = 0)` });
     const firstSolve = !!inserted[0]?.firstSolve;
-    const reward = firstSolve ? PUZZLE_REWARD[puzzle.depth] : 0;
+    const reward = firstSolve ? puzzleReward(puzzle.depth) : 0;
     if (reward) await addCoinsTx(tx, userId, reward, "puzzle", puzzleId);
     return { ok: true as const, stars, reward, firstSolve };
   });

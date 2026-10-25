@@ -51,23 +51,28 @@ const HORIZON = 16;
 const lineCache = new WeakMap<object, { before: Board; move: Move; line: EngineLine | null }>();
 
 /** Biến engine sau nước đi; null khi không có điểm engine hoặc biến quá ngắn để kết luận. */
-export function engineLine(before: Board, move: Move, options?: ZhaoTacticsOptions): EngineLine | null {
+export function engineLine(before: Board, move: Move, options?: ZhaoTacticsOptions, allowShortOpponentMate = false): EngineLine | null {
   if (!options) return null;
-  const hit = lineCache.get(options);
-  if (hit && hit.before === before && hit.move.from === move.from && hit.move.to === move.to) return hit.line;
-  const line = buildLine(before, move, options);
-  lineCache.set(options, { before, move, line });
+  if (!allowShortOpponentMate) {
+    const hit = lineCache.get(options);
+    if (hit && hit.before === before && hit.move.from === move.from && hit.move.to === move.to) return hit.line;
+  }
+  const line = buildLine(before, move, options, allowShortOpponentMate);
+  if (!allowShortOpponentMate) {
+    lineCache.set(options, { before, move, line });
+  }
   return line;
 }
 
-function buildLine(before: Board, move: Move, options: ZhaoTacticsOptions): EngineLine | null {
+function buildLine(before: Board, move: Move, options: ZhaoTacticsOptions, allowShortOpponentMate = false): EngineLine | null {
   const piece = before[move.from];
   if (!piece || !options.evalAfter) return null;
   const mover = sideOf(piece);
   const scoreForMover = -options.evalAfter.score;
   const moverMates = scoreForMover >= MATE_THRESHOLD;
+  const opponentMates = scoreForMover <= -MATE_THRESHOLD;
   const pv = pvAfterMove(options, move);
-  if (!moverMates && pv.length < 3) return null;
+  if (!moverMates && !(allowShortOpponentMate && opponentMates) && pv.length < 3) return null;
 
   const origin = new Map<number, number>();
   for (let i = 0; i < before.length; i++) if (before[i]) origin.set(i, i);

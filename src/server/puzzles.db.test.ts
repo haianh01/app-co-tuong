@@ -7,7 +7,7 @@ import { insertUser, resetDb } from "@/test/db";
 import type { Database } from "./db";
 import { coinTransactions, puzzleProgress, users } from "./db/schema";
 import { missionProgress } from "./economy";
-import { HINT_COST, PUZZLE_REWARD, buyHint, puzzleState, submitPuzzle } from "./puzzles";
+import { HINT_COST, puzzleReward, buyHint, puzzleState, submitPuzzle } from "./puzzles";
 
 let db: Database;
 const balance = async (id: string) => (await db.select({ c: users.coins }).from(users).where(eq(users.id, id)))[0].c;
@@ -15,6 +15,7 @@ const balance = async (id: string) => (await db.select({ c: users.coins }).from(
 const ONE = PUZZLES.find((p) => p.depth === 1 && p.chapter !== FREE_HINT_CHAPTER)!;
 const CLASSIC = PUZZLES.find((p) => p.chapter === FREE_HINT_CHAPTER)!;
 const TWO = PUZZLES.find((p) => p.depth === 2)!;
+const DEEP = PUZZLES.find((p) => !!p.line)!;
 
 /** Lời giải đầy đủ cho thế 2 nước, Đen đỡ cứng nhất. */
 function fullLine(fen: string, first: Move): Move[] {
@@ -32,12 +33,12 @@ describe("nộp lời giải", () => {
   it("giải đúng lần đầu: lưu tiến độ 3 sao, thưởng xu; giải lại không thưởng thêm", async () => {
     const u = await insertUser(db);
     const first = await submitPuzzle(db, u.id, ONE.id, [ONE.solution], 1);
-    expect(first).toEqual({ ok: true, stars: 3, reward: PUZZLE_REWARD[1], firstSolve: true });
-    expect(await balance(u.id)).toBe(PUZZLE_REWARD[1]);
+    expect(first).toEqual({ ok: true, stars: 3, reward: puzzleReward(1), firstSolve: true });
+    expect(await balance(u.id)).toBe(puzzleReward(1));
 
     const again = await submitPuzzle(db, u.id, ONE.id, [ONE.solution], 1);
     expect(again).toMatchObject({ ok: true, reward: 0, firstSolve: false });
-    expect(await balance(u.id)).toBe(PUZZLE_REWARD[1]);
+    expect(await balance(u.id)).toBe(puzzleReward(1));
   });
 
   it("gửi nước không chiếu bí (chỉnh sửa request) bị từ chối, không lưu gì", async () => {
@@ -69,7 +70,7 @@ describe("nộp lời giải", () => {
     const vip = await insertUser(db, { vipUntil: new Date(Date.now() + 86_400_000) });
     const line = fullLine(TWO.fen, TWO.solution);
     expect(await submitPuzzle(db, normal.id, TWO.id, line, 1)).toMatchObject({ ok: false, error: expect.stringMatching(/VIP/) });
-    expect(await submitPuzzle(db, vip.id, TWO.id, line, 1)).toMatchObject({ ok: true, reward: PUZZLE_REWARD[2] });
+    expect(await submitPuzzle(db, vip.id, TWO.id, line, 1)).toMatchObject({ ok: true, reward: puzzleReward(2) });
   });
 
   it("VIP hết hạn thì không còn giải được chương VIP", async () => {
@@ -80,6 +81,16 @@ describe("nộp lời giải", () => {
   it("thế 2 nước: chỉ gửi nước đầu (chưa chiếu bí) bị từ chối", async () => {
     const vip = await insertUser(db, { vipUntil: new Date(Date.now() + 86_400_000) });
     expect(await submitPuzzle(db, vip.id, TWO.id, [TWO.solution], 1)).toMatchObject({ ok: false });
+  });
+
+  it("thế dài: nộp đủ biến chính được thưởng theo số nước; thiếu nước cuối hoặc Đen đi lệch biến bị từ chối", async () => {
+    const u = await insertUser(db, { vipUntil: new Date(Date.now() + 86_400_000) });
+    const line = DEEP.line!;
+    expect(await submitPuzzle(db, u.id, DEEP.id, line.slice(0, -2), 1)).toMatchObject({ ok: false });
+    const black = legalMoves(applyMove(parseFen(DEEP.fen), line[0])).find((m) => m.from !== line[1].from || m.to !== line[1].to);
+    if (black) expect(await submitPuzzle(db, u.id, DEEP.id, [line[0], black, ...line.slice(2)], 1)).toMatchObject({ ok: false });
+    expect(await submitPuzzle(db, u.id, DEEP.id, line, 1)).toEqual({ ok: true, stars: 3, reward: puzzleReward(DEEP.depth), firstSolve: true });
+    expect(puzzleReward(DEEP.depth)).toBeGreaterThan(puzzleReward(2));
   });
 
   it("giải thế cờ được tính cho nhiệm vụ 'Giải 1 thế cờ' hôm nay", async () => {

@@ -16,6 +16,7 @@ import { Move, findKing, inCheck, legalMovesFrom, opponent, sideOf, toFen } from
 import { GameResult, currentPosition, describeResult, forbiddenMoves, gameReducer, newGame, pieceIds, timeoutResult } from "@/lib/xiangqi/game";
 import { LiveCoach } from "./LiveCoach";
 import { PlaySettings, TIME_OPTIONS, settingsHref } from "./settings";
+import { ZHAO_BENCHMARK_MAP } from "@/lib/xiangqi/zhao-benchmark-data";
 import styles from "./play.module.css";
 
 const LEVELS = Object.entries(AI_LEVELS).map(([k, v]) => ({ level: Number(k) as AiLevel, label: v.label }));
@@ -82,7 +83,7 @@ export function PlayClient({ initial }: { initial: PlaySettings }) {
 function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; onNewGame: () => void; setup: ReactNode }) {
   const { level, side: player, minutes } = settings;
   const ai = opponent(player);
-  const [state, dispatch] = useReducer(gameReducer, undefined, () => newGame());
+  const [state, dispatch] = useReducer(gameReducer, undefined, () => newGame(settings.fen));
   const [selection, setSelection] = useState<{ ply: number; square: number } | null>(null);
   const [hint, setHint] = useState<{ ply: number; move: Move } | null>(null);
   // Hết ván: nửa nước đang xem lại khi bấm vào nước bị AI chấm (null = thế cuối).
@@ -242,6 +243,26 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
           captured={capturedBy(ai)}
         />
         <div className={`card ${styles.status}`} role="status">
+          {settings.lesson && ZHAO_BENCHMARK_MAP[settings.lesson] && (
+            <div
+              style={{
+                background: "rgba(217, 164, 65, 0.15)",
+                border: "1px solid rgba(217, 164, 65, 0.4)",
+                borderRadius: "6px",
+                padding: "6px 10px",
+                marginBottom: "8px",
+                fontSize: "12px",
+                textAlign: "left",
+              }}
+            >
+              <div style={{ color: "var(--accent, #d9a441)", fontWeight: 700 }}>
+                📖 Bài #{settings.lesson}: {ZHAO_BENCHMARK_MAP[settings.lesson].title}
+              </div>
+              <div style={{ color: "var(--muted)", fontSize: "11px", marginTop: "2px" }}>
+                Nước mẫu: {ZHAO_BENCHMARK_MAP[settings.lesson].moveNotation} • Triệu Hâm Hâm
+              </div>
+            </div>
+          )}
           <strong>{status}</strong>
           {checkSquare !== null && !result && <span className={styles.checkSeal}>將軍</span>}
           {!result && <span className="muted">Bấm vào quân của bạn rồi bấm điểm xanh để đi.</span>}

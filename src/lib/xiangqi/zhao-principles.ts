@@ -10,7 +10,7 @@ import { ZHAO_LESSONS } from "./zhao48-lessons";
 import {
   type Board, type Move, type Piece, type PieceType, type Side,
   attackersOf, colOf, findKing, hasAnyLegalMove, inCheck, initialPosition, isDefended, legalMoves, legalMovesFrom, opponent, play,
-  pseudoMoves, rowOf, sideOf, typeOf, crossedRiver, PIECE_VALUES,
+  pseudoMoves, rowOf, sideOf, sq, typeOf, crossedRiver, PIECE_VALUES,
 } from "./engine";
 import { exchangeGain, hangingPieces } from "./explain";
 import { extractFeatures, type PieceTag } from "./features";
@@ -20,7 +20,7 @@ import {
   type ZhaoMiddlegameFact, type ZhaoTactics, type ZhaoTacticsOptions,
 } from "./middlegame";
 import { moveNotation, PIECE_NAME } from "./notation";
-import { decisiveBlow, engineLine, narrate, pieceRole, tally } from "./engine-line";
+import { decisiveBlow, engineLine, mateEnd, mateText, narrate, pieceRole, tally, type EngineLine } from "./engine-line";
 import { classifyMoveOutcome } from "./move-outcome";
 import { MATE_SCORE, MATE_THRESHOLD } from "./uci";
 import { advance, attackPressure } from "./strategy";
@@ -158,6 +158,28 @@ function mutuallyDefend(board: Board, sq1: number, sq2: number, side: Side): boo
   return attackersOf(probe2, sq2, side).includes(sq1);
 }
 
+/** Kết quả kiểm từng tầng của một kỳ lý: qua hết thì kèm cơ chế và lời bình; trượt thì ghi tầng trượt và lý do. */
+export type PrincipleCheck =
+  | { ok: true; mechanism: string; summary: string; /** Ô ban đầu của các quân làm nên hình đã ra tay trong biến. */ acted?: number[] }
+  | { ok: false; layer: 1 | 2 | 3 | 4; reason: string };
+
+/**
+ * Kỳ lý vây bắt quân: biến engine phải bắt được đúng quân đối phương đứng ở ô `target` (theo danh tính, trong 10 nửa nước).
+ * Trả về lời kể biến tới nước bắt (kể cả nước ăn lại ngay sau), null khi biến không bắt được chính con đó.
+ */
+export function captureStoryFromLine(line: EngineLine, target: number): string | null {
+  const won = line.outcome.captures.find((c) => c.by === line.plies[0].side && c.origin === target && c.ply <= 10);
+  if (!won) return null;
+  const t = tally(line, won.ply);
+  return `${narrate(line, t.upTo)} — ${t.text}`;
+}
+
+export function captureStory(before: Board, move: Move, options: ZhaoTacticsOptions | undefined, target: number): string | null {
+  const line = engineLine(before, move, options);
+  if (!line) return null;
+  return captureStoryFromLine(line, target);
+}
+
 
 // ============================================================================
 // 1. NINH THẤT NHẤT TỬ, BẤT THẤT NHẤT TIÊN
@@ -253,28 +275,126 @@ export function detectPoisonedCapture(
 }
 
 // ============================================================================
-// 3. TRANH NƯỚC ĐỐI CÔNG
+// 3. TRANH NƯỚC ĐỐI CÔNG (Binh Quý Thần Tốc - Triệu Hâm Hâm Bài 8)
 // ============================================================================
 
-/** Đối phương đang dọa sát (nếu được đi tiếp sẽ chiếu bí), bên đi không chống mà chiếu trước để giành nước. */
-export function detectMatingRace(
+/**
+ * Binh quý thần tốc / Tranh nước đối công (Triệu Hâm Hâm Bài 8), kiểm 4 tầng:
+ * 1. Hình: Đối phương đang dọa sát (hasMateInOne), bên đi không chống mà chiếu trước để giành nước.
+ * 2. Mục đích: Nước đi không phải ăn quân lớn đơn thuần mà không tạo ra sát cục.
+ * 3. Cơ chế: Biến engine phải cho thấy bên đi sát trước (moverMates), hoặc bẻ gãy đòn dọa sát của đối phương.
+ * 4. Kết quả: Nước đi không hớ so với nước tốt nhất (soundMove), engine chấm bên đi thắng (+200 trở lên hoặc sát).
+ */
+export function checkMatingRace(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
-): ZhaoMiddlegameFact | null {
+): PrincipleCheck | null {
   const piece = before[move.from];
   if (!piece) return null;
   const mover = sideOf(piece);
   const opp = opponent(mover);
-  if (inCheck(before, mover) || !inCheck(after, opp)) return null;
-  if (!soundMove(options)) return null;
-  if (attackPressure(before, mover) < 1) return null; // không có quân nào áp cung thì không thể có đòn dọa sát
-  if (!hasMateInOne(before, opp)) return null;
-  const pv = pvAfterMove(options, move);
-  const checks = analyzeForcingPlies(after, mover, pv).checks + 1;
-  return fact(
-    before, move, "tranhNuoc",
-    `Tranh nước đối công: đối phương đã dọa sát, nhưng ${checks >= 2 ? `chiếu liên tục ${checks} nước` : "chiếu trước"} giành nước — trong thế đối công, nhanh hơn một nước là thắng.`,
-    "Chiếu trước giành nước",
-  );
+
+  // Đang bị chiếu thì bắt buộc phải đỡ chiếu, không thể gọi là chủ động tranh nước đối công
+  if (inCheck(before, mover)) return null;
+
+  // Tình huống phải có áp lực cung hoặc có đe dọa sát để là ứng viên tranh nước
+  const threatenedMate = hasMateInOne(before, opp);
+  const checks = inCheck(after, opp);
+
+  if (!threatenedMate && attackPressure(before, mover) === 0 && !checks) {
+    return null;
+  }
+
+  // Tầng 1: Hình
+  // 1. Đối phương phải có đòn dọa sát
+  if (!threatenedMate) {
+    return {
+      ok: false,
+      layer: 1,
+      reason: "Đối phương không có đòn dọa sát — không phải thế cờ tranh nước sinh tử",
+    };
+  }
+
+  // 2. Nước đi phải là nước chiếu Tướng giành nước
+  if (!checks) {
+    return {
+      ok: false,
+      layer: 1,
+      reason: "Bị dọa sát nhưng nước đi không chiếu Tướng giành nước",
+    };
+  }
+
+  // Tầng 2: Mục đích
+  const victim = before[move.to];
+  const scoreForMover = options?.evalAfter ? -options.evalAfter.score : 0;
+  const moverMates = scoreForMover >= MATE_THRESHOLD;
+
+  if (victim && isMajor(victim) && !moverMates) {
+    return {
+      ok: false,
+      layer: 2,
+      reason: `Nước này ăn ${PIECE_NAME[typeOf(victim)]} — mục đích là ăn quân chứ không phải đòn tranh tiên đoạt sát`,
+    };
+  }
+
+  // Tầng 3: Cơ chế
+  if (!options?.evalAfter) {
+    return { ok: false, layer: 3, reason: "Không có biến engine để kiểm" };
+  }
+  const line = engineLine(before, move, options);
+  if (!line) {
+    return { ok: false, layer: 3, reason: "Không có biến engine đủ dài để kiểm" };
+  }
+
+  const mates = line.moverMates || line.outcome.kind === "mate";
+  const settlesMaterial = line.outcome.materialSettled >= 300;
+
+  if (!mates && !settlesMaterial) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: "Biến engine không cho thấy bên đi sát trước hoặc bẻ gãy đòn dọa sát của đối phương",
+    };
+  }
+
+  // Tầng 4: Kết quả
+  if (!soundMove(options)) {
+    return {
+      ok: false,
+      layer: 4,
+      reason: `Nước đi hớ ${options.loss ?? "?"} điểm so với nước tốt nhất`,
+    };
+  }
+
+  if (!mates && line.scoreForMover < 200) {
+    return {
+      ok: false,
+      layer: 4,
+      reason: `Engine chỉ chấm bên đi +${line.scoreForMover}`,
+    };
+  }
+
+  let lineNarrative = "";
+  if (mates) {
+    lineNarrative = `${narrate(line, mateEnd(line))} — ${mateText(line)}`;
+  } else {
+    const blow = decisiveBlow(line);
+    lineNarrative = blow
+      ? `${narrate(line, blow.end)} — ${blow.text}`
+      : `${narrate(line, Math.min(line.plies.length - 1, 4))} — hơn quân (+${Math.round(line.outcome.materialSettled / 100)}đ)`;
+  }
+
+  const summary = `Binh quý thần tốc: Đối phương đang dọa sát, nhưng ${nameOf(piece)} chiếu trước giành nước (${moveNotation(before, move)}); theo biến: ${lineNarrative}. "Trong thế đối công, nhanh hơn một nước là thắng".`;
+
+  return { ok: true, mechanism: "chiếu trước giành nước", summary, acted: [move.from] };
+}
+
+/** Binh quý thần tốc (Tranh nước đối công): chỉ gắn khi qua cả bốn tầng của checkMatingRace. */
+export function detectMatingRace(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const r = checkMatingRace(before, move, after, options);
+  if (!r?.ok) return null;
+  return fact(before, move, "tranhNuoc", r.summary, "Chiếu trước giành nước");
 }
 
 // ============================================================================
@@ -358,37 +478,164 @@ export function detectDecoy(
 }
 
 // ============================================================================
-// 6. CHẶN ĐƯỜNG (cắt liên lạc)
+// 6. CHẶN ĐƯỜNG (cắt liên lạc - Triệu Hâm Hâm Bài 6)
 // ============================================================================
 
-/** Chen quân vào giữa, cắt căn của một quân đối phương khiến nó thành quân treo bị dọa ăn. */
-export function detectInterference(
+/**
+ * Chặn đường (Rút Đao Chém Nước - Triệu Hâm Hâm Bài 6), kiểm 4 tầng:
+ * 1. Hình: Quân chen vào tuyến giao liên (hàng/cột hoặc che chắn) cắt căn của quân đối phương,
+ *    khiến quân đó mất căn và bị dọa ăn có lời (exchangeGain > 0).
+ * 2. Mục đích: Nước chen không phải ăn quân; không phải chạy quân đang bị dọa bắt.
+ * 3. Cơ chế: Biến engine phải bắt được đúng quân bị cắt căn (captureStory) trong 10 nửa nước,
+ *    hoặc dẫn tới chiếu bí.
+ * 4. Kết quả: Nước đi không hớ so với nước tốt nhất (soundMove), engine chấm bên đi có lợi thế vật chất hoặc chiếu bí.
+ */
+export function checkInterference(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
-): ZhaoMiddlegameFact | null {
+): PrincipleCheck | null {
   const piece = before[move.from];
-  if (!piece || before[move.to] || !soundMove(options)) return null;
+  if (!piece) return null;
   const mover = sideOf(piece);
   const opp = opponent(mover);
+  const victim = before[move.to];
+  if (victim) {
+    return {
+      ok: false,
+      layer: 2,
+      reason: `Nước này ăn ${PIECE_NAME[typeOf(victim)]} — mục đích là ăn quân chứ không phải chen vào cắt liên lạc`,
+    };
+  }
+
+  const toR = rowOf(move.to);
+  const toC = colOf(move.to);
+
   // Bàn cờ chỉ có quân rời ô cũ (chưa đặt xuống ô mới): để tách việc "chen vào" khỏi việc "rời ngòi".
   const vacated = before.slice();
   vacated[move.from] = null;
+
+  // Kiểm tra ứng viên chặn đường:
+  // 1. Chen vào giữa 2 quân đối phương trên cùng hàng hoặc cột
+  // 2. Chen kề sát quân đối phương (chặn chân Mã / mắt Tượng)
+  // 3. Làm mất căn của quân đối phương
+  let candidateInterference = false;
+  const oppPieces = pieces(before, opp, "krncabp");
+  for (let a = 0; a < oppPieces.length; a++) {
+    for (let b = a + 1; b < oppPieces.length; b++) {
+      if (between(oppPieces[a], oppPieces[b], move.to)) {
+        candidateInterference = true;
+        break;
+      }
+    }
+    if (candidateInterference) break;
+  }
+
+  if (!candidateInterference) {
+    for (const sqOpp of oppPieces) {
+      if (Math.abs(rowOf(sqOpp) - toR) <= 1 && Math.abs(colOf(sqOpp) - toC) <= 1) {
+        if ("nb".includes(typeOf(before[sqOpp]!))) {
+          candidateInterference = true;
+          break;
+        }
+      }
+    }
+  }
+
+  // Tìm các quân đối phương bị cắt căn do nước đi này
+  const cutTargets: { sq: number; piece: Piece; gain: number }[] = [];
   for (let i = 0; i < after.length; i++) {
     const p = after[i];
     if (!p || sideOf(p) !== opp || typeOf(p) === "k" || before[i] !== p) continue;
-    // Căn bị cắt chỉ có thể nằm trên hàng/cột qua ô vừa đặt quân (Xe, Pháo) hoặc sát nó (chân Mã, mắt Tượng).
-    const near = Math.abs(rowOf(i) - rowOf(move.to)) <= 1 && Math.abs(colOf(i) - colOf(move.to)) <= 1;
-    if (!near && rowOf(i) !== rowOf(move.to) && colOf(i) !== colOf(move.to)) continue;
-    if (attackersOf(after, i, mover).length === 0) continue;
-    if (!isDefended(before, i, opp) || !isDefended(vacated, i, opp)) continue;
-    if (isDefended(after, i, opp)) continue;
-    if ((exchangeGain(after, i, mover) ?? 0) <= 0) continue;
-    return fact(
-      before, move, "chanDuong",
-      `Chặn đường: ${nameOf(piece)} chen vào cắt liên lạc, ${nameOf(p)} đối phương mất căn và bị dọa ăn.`,
-      `Cắt căn ${nameOf(p)}`,
-    );
+    const near = Math.abs(rowOf(i) - toR) <= 1 && Math.abs(colOf(i) - toC) <= 1;
+    if (!near && rowOf(i) !== toR && colOf(i) !== toC) continue;
+
+    const wasDefended = isDefended(before, i, opp) && isDefended(vacated, i, opp);
+    const nowDefended = isDefended(after, i, opp);
+    if (wasDefended && !nowDefended) {
+      candidateInterference = true;
+      const isAttacked = attackersOf(after, i, mover).length > 0;
+      const gain = exchangeGain(after, i, mover) ?? 0;
+      if (isAttacked && gain > 0) {
+        cutTargets.push({ sq: i, piece: p, gain });
+      }
+    }
   }
-  return null;
+
+  if (!candidateInterference) return null;
+
+  // Tầng 2: Mục đích — không phải chạy quân đang bị dọa
+
+  const threatened = (exchangeGain(before, move.from, opp) ?? 0) > 0;
+  if (threatened) {
+    return {
+      ok: false,
+      layer: 2,
+      reason: `${PIECE_NAME[typeOf(piece)]} đang bị dọa ăn có lời — nước này chủ yếu là chạy quân`,
+    };
+  }
+
+  // Tầng 1: Hình — phải có quân đối phương bị cắt căn và bị dọa ăn có lời
+  if (cutTargets.length === 0) {
+    return {
+      ok: false,
+      layer: 1,
+      reason: "Chen vào tuyến nhưng quân đối phương không mất căn hoặc không bị dọa ăn có lời",
+    };
+  }
+
+  cutTargets.sort((a, b) => valueOf(b.piece) - valueOf(a.piece));
+  const target = cutTargets[0];
+
+  // Tầng 3: Cơ chế
+  if (!options?.evalAfter) {
+    return { ok: false, layer: 3, reason: "Không có biến engine để kiểm" };
+  }
+  const line = engineLine(before, move, options);
+  if (!line) {
+    return { ok: false, layer: 3, reason: "Không có biến engine đủ dài để kiểm" };
+  }
+
+  const moverMates = line.moverMates;
+  const story = captureStoryFromLine(line, target.sq);
+
+  if (!story && !moverMates) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: `Biến không bắt được ${PIECE_NAME[typeOf(target.piece)]} bị cắt căn, cũng không dẫn tới chiếu bí`,
+    };
+  }
+
+  // Tầng 4: Kết quả
+  if (!soundMove(options)) {
+    return {
+      ok: false,
+      layer: 4,
+      reason: `Nước đi hớ ${options.loss ?? "?"} điểm so với nước tốt nhất`,
+    };
+  }
+
+  const materialGain = line.outcome.kind === "winsMaterial" || line.outcome.materialSettled >= 150;
+  if (!moverMates && !materialGain && line.scoreForMover < 150) {
+    return {
+      ok: false,
+      layer: 4,
+      reason: `Engine không cho thấy ưu thế vật chất (chỉ +${line.scoreForMover})`,
+    };
+  }
+
+  const lineNarrative = story ?? `${narrate(line, mateEnd(line))} — ${mateText(line)}`;
+  const summary = `Chặn đường: ${nameOf(piece)} chen vào cắt liên lạc (${moveNotation(before, move)}), ${nameOf(target.piece)} đối phương mất căn; theo biến: ${lineNarrative}.`;
+
+  return { ok: true, mechanism: "cắt liên lạc đoạt quân", summary, acted: [move.from] };
+}
+
+/** Chặn đường: chỉ gắn khi qua cả bốn tầng của checkInterference. */
+export function detectInterference(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const r = checkInterference(before, move, after, options);
+  if (!r?.ok) return null;
+  return fact(before, move, "chanDuong", r.summary, "Chặn đường cắt căn");
 }
 
 // ============================================================================
@@ -602,31 +849,110 @@ export function detectProphylaxis(
 // 12. BIẾT DỪNG CÔNG, CHUYỂN HÓA TÀN CUỘC
 // ============================================================================
 
-/** Đang hơn vật chất, không còn đòn ép, chủ động đổi ngang quân lớn để về tàn cuộc hơn quân. */
-export function detectEndgameConversion(
+/**
+ * Kiểm 4 tầng cho Bài 5 (Hơn quân cần giản hóa / Chuyển hóa tàn cuộc):
+ * 1. Hình: Đổi quân lớn (Xe, Pháo, Mã) ngang giá trị. Trước nước đi bên đi đang hơn vật chất (balance >= 100).
+ * 2. Mục đích: Điểm trước nước đi ưu thế rõ rệt (evalBefore.score >= 100), chủ động đổi quân để giản hóa.
+ * 3. Cơ chế: Biến engine chứng minh đối phương ăn lại đổi quân; sau khi đổi số quân chủ lực còn lại <= 6 (về tàn cuộc), không còn đòn ép cuồng bạo.
+ * 4. Kết quả: Nước đi soundMove, điểm engine sau khi đổi vẫn giữ vững ưu thế (scoreForMover >= 50).
+ */
+export function checkEndgameConversion(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
-): ZhaoMiddlegameFact | null {
+): PrincipleCheck | null {
   const piece = before[move.from];
   const captured = before[move.to];
   if (!isMajor(piece) || !isMajor(captured) || sideOf(piece!) === sideOf(captured!)) return null;
-  if (Math.abs(valueOf(piece!) - valueOf(captured!)) > 100 || !soundMove(options)) return null;
+  if (Math.abs(valueOf(piece!) - valueOf(captured!)) > 100) return null;
+
   const mover = sideOf(piece!);
   const balance = materialBalance(before, mover);
-  if (balance < 100) return null;
-  if (options?.evalBefore && options.evalBefore.score < 100) return null;
+
+  // Tầng 1: Hình — trước nước đi phải đang hơn vật chất
+  if (balance < 100) {
+    return {
+      ok: false,
+      layer: 1,
+      reason: `Bên đi không hơn vật chất trước nước đi (${balance} điểm) — không phải thế cờ hơn quân cần giản hóa`,
+    };
+  }
+
+  // Tầng 2: Mục đích — điểm engine trước nước đi phải có ưu thế
+  if (options?.evalBefore && options.evalBefore.score < 100) {
+    return {
+      ok: false,
+      layer: 2,
+      reason: `Điểm engine trước nước đi chưa đủ ưu thế (${options.evalBefore.score}) — không phải thời điểm giản hóa`,
+    };
+  }
+
+  // Tầng 3: Cơ chế
+  if (!options?.evalAfter) {
+    return { ok: false, layer: 3, reason: "Không có biến engine để kiểm" };
+  }
+  const line = engineLine(before, move, options);
+  if (!line) {
+    return { ok: false, layer: 3, reason: "Không có biến engine đủ dài để kiểm" };
+  }
+
   const pv = pvAfterMove(options, move);
   const recapture = pv[0];
-  if (!recapture || recapture.to !== move.to) return null;
+  if (!recapture || recapture.to !== move.to) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: "Biến engine không cho thấy đối phương ăn lại đổi quân",
+    };
+  }
+
   const b2 = play(after, recapture);
-  if (analyzeForcingPlies(b2, mover, pv.slice(1)).forcingPlies > 0) return null; // còn đòn ép thì đây vẫn là tấn công
+  if (analyzeForcingPlies(b2, mover, pv.slice(1)).forcingPlies > 0) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: "Thế cờ vẫn còn đòn ép liên tục — đây vẫn là giai đoạn tấn công chứ chưa phải chuyển tàn",
+    };
+  }
+
   const majorsLeft = b2.filter((p) => isMajor(p)).length;
-  if (majorsLeft > 6) return null;
+  if (majorsLeft > 6) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: `Sau khi đổi quân vẫn còn ${majorsLeft} quân chủ lực — chưa chuyển hóa về tàn cuộc`,
+    };
+  }
+
+  // Tầng 4: Kết quả
+  if (!soundMove(options)) {
+    return {
+      ok: false,
+      layer: 4,
+      reason: `Nước đi hớ ${options.loss ?? "?"} điểm so với nước tốt nhất`,
+    };
+  }
+
+  if (line.scoreForMover < 50) {
+    return {
+      ok: false,
+      layer: 4,
+      reason: `Engine chấm điểm sau khi đổi không giữ được ưu thế (${line.scoreForMover})`,
+    };
+  }
+
+  const endPly = Math.min(line.plies.length - 1, 2);
   const edge = balance >= 350 ? "hơn quân" : `hơn ${Math.round(balance / 100)} Tốt`;
-  return fact(
-    before, move, "chuyenHoaTanCuoc",
-    `Biết dừng đúng lúc: đang ${edge} mà thế công không còn đòn ép, đổi ${nameOf(piece!)} lấy ${nameOf(captured!)} đưa về tàn cuộc — thắng bằng kỹ thuật thay vì cố công.`,
-    "Đổi quân về tàn cuộc",
-  );
+  const summary = `Hơn quân cần giản hóa: đang ${edge}, chủ động đổi ${nameOf(piece!)} lấy ${nameOf(captured!)} (${moveNotation(before, move)}) để giản hóa cục diện; theo biến: ${narrate(line, endPly)} — ${tally(line, endPly).text}. Triệu Hâm Hâm: khi đang hơn quân, đổi quân giản hóa sẽ triệt tiêu ưu thế vị trí của đối phương và đưa ván cờ về thế tàn cuộc tất thắng.`;
+
+  return { ok: true, mechanism: "chủ động đổi quân lớn giản hóa về tàn cuộc", summary, acted: [move.from] };
+}
+
+/** Chuyển hóa tàn cuộc: chỉ gắn khi qua cả bốn tầng của checkEndgameConversion. */
+export function detectEndgameConversion(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const r = checkEndgameConversion(before, move, after, options);
+  if (!r?.ok) return null;
+  return fact(before, move, "chuyenHoaTanCuoc", r.summary, "Chuyển hóa tàn cuộc");
 }
 
 // ============================================================================
@@ -634,60 +960,145 @@ export function detectEndgameConversion(
 // ============================================================================
 
 /**
- * Pháo chiếu khi Tướng đối phương bị chính quân phòng thủ (Sĩ/Tượng/Mã) chèn kẹt
- * không thể di chuyển, tạo thành thế bí tuyệt sát hoặc thắng thế áp đảo.
+ * Muộn cung sát (Khuyết Tượng sợ Pháo - Triệu Hâm Hâm Bài 2), kiểm 4 tầng:
+ * 1. Hình: Pháo di chuyển chiếu Tướng hoặc hướng vào cung đối phương (hàng đáy, trung lộ, lộ sườn).
+ * 2. Mục đích: Pháo không phải tự ăn quân lớn (trừ khi dẫn tới chiếu bí), không phải chạy Pháo bị dọa.
+ * 3. Cơ chế: Biến engine phải dẫn tới sát; nước chiếu bí do Pháo; ở thế cuối Tướng đối phương bị chính quân nhà chặn ô thoát.
+ * 4. Kết quả: Nước đi không hớ so với nước tốt nhất.
  */
-export function detectSmotheredCannonMate(
+export function checkSmotheredCannonMate(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
-): ZhaoMiddlegameFact | null {
+): PrincipleCheck | null {
   const piece = before[move.from];
   if (!piece || typeOf(piece) !== "c") return null;
   const mover = sideOf(piece);
   const opp = opponent(mover);
-  if (!soundMove(options)) return null;
+  const oppKingBefore = findKing(before, opp);
+  if (oppKingBefore === -1) return null;
 
-  // Nước đi phải tạo nước chiếu
-  if (!inCheck(after, opp)) return null;
+  // Tầng 1: Hình — Pháo chiếu Tướng hoặc hướng vào cung đối phương
+  const checks = inCheck(after, opp);
+  const toR = rowOf(move.to);
+  const toC = colOf(move.to);
+  const enemyBottom = mover === "r" ? 0 : 9;
+  const enemyPalaceRows = mover === "r" ? [0, 1, 2] : [7, 8, 9];
+  const entersPalaceZone = enemyPalaceRows.includes(toR) || toR === enemyBottom || toC === 4 || toC === 3 || toC === 5;
+  if (!checks && !entersPalaceZone) {
+    return { ok: false, layer: 1, reason: "Pháo không chiếu Tướng và không hướng vào cung đối phương" };
+  }
 
-  const kingSq = findKing(after, opp);
-  if (kingSq === -1) return null;
+  // Tầng 3 (kiểm sớm dữ liệu engine để phục vụ tầng 2)
+  if (!options?.evalAfter) {
+    return { ok: false, layer: 3, reason: "Không có biến engine để kiểm" };
+  }
+  const line = engineLine(before, move, options);
+  const immediateMate = checks && !hasAnyLegalMove({ board: after, turn: opp });
+  const moverMates = line?.moverMates || immediateMate;
 
-  const kr = rowOf(kingSq);
-  const kc = colOf(kingSq);
+  // Tầng 2: Mục đích
+  const victim = before[move.to];
+  if (victim && isMajor(victim) && !moverMates) {
+    return { ok: false, layer: 2, reason: `Nước này ăn ${PIECE_NAME[typeOf(victim)]} — mục đích là ăn quân` };
+  }
+  const threatened = (exchangeGain(before, move.from, opp) ?? 0) > 0;
+  if (threatened && !moverMates) {
+    return { ok: false, layer: 2, reason: "Pháo đang bị dọa ăn có lời — nước này chủ yếu là chạy Pháo" };
+  }
 
-  // Ô kề hợp lệ trong cung quanh Tướng
-  const kingMoves = [
+  // Tầng 3: Cơ chế
+  if (!moverMates) {
+    return { ok: false, layer: 3, reason: "Biến không dẫn tới chiếu bí" };
+  }
+
+  // Xác định thế cờ chiếu bí và nước chiếu bí
+  let mateBoard = after;
+  let matePlyIsCannon = false;
+
+  if (immediateMate) {
+    mateBoard = after;
+    const kingSq = findKing(after, opp);
+    const checkers = kingSq >= 0 ? attackersOf(after, kingSq, mover) : [];
+    matePlyIsCannon = checkers.includes(move.to);
+  } else if (line) {
+    const end = mateEnd(line);
+    let board = before;
+    let cannonPos = move.from;
+    for (const [ply, p] of line.plies.entries()) {
+      if (p.move.from === cannonPos) {
+        cannonPos = p.move.to;
+      }
+      board = play(board, p.move);
+      if (ply <= end && p.side === mover && p.check) {
+        mateBoard = board;
+        const kingSq = findKing(board, opp);
+        const checkers = kingSq >= 0 ? attackersOf(board, kingSq, mover) : [];
+        matePlyIsCannon = checkers.includes(cannonPos);
+      }
+    }
+  }
+
+  if (!matePlyIsCannon) {
+    return { ok: false, layer: 3, reason: "Biến chiếu bí bằng quân khác, không phải đòn Muộn cung của Pháo" };
+  }
+
+  // Kiểm tra thế cờ có thật sự là thế chiếu bí không
+  if (hasAnyLegalMove({ board: mateBoard, turn: opp })) {
+    return { ok: false, layer: 3, reason: "Biến engine kết thúc khi đối phương vẫn còn nước chống đỡ, chưa phải thế bí thật" };
+  }
+
+  // Kiểm tra thế cuối: Tướng đối phương bị chính quân nhà chèn kẹt
+  const oppKing = findKing(mateBoard, opp);
+  if (oppKing === -1) return { ok: false, layer: 3, reason: "Không tìm thấy Tướng đối phương" };
+  const kr = rowOf(oppKing);
+  const kc = colOf(oppKing);
+  const palaceMoves = [
     { r: kr - 1, c: kc },
     { r: kr + 1, c: kc },
     { r: kr, c: kc - 1 },
     { r: kr, c: kc + 1 },
   ].filter((p) => p.c >= 3 && p.c <= 5 && (opp === "b" ? p.r >= 0 && p.r <= 2 : p.r >= 7 && p.r <= 9));
 
-  // Kiểm tra số ô quanh Tướng bị chính quân của opp bịt kín
-  const blockedByOwnPiece = kingMoves.filter((p) => {
-    const occupant = after[p.r * 9 + p.c];
+  const blockedByOwn = palaceMoves.filter((p) => {
+    const occupant = mateBoard[p.r * 9 + p.c];
     return occupant && sideOf(occupant) === opp;
-  }).length;
+  });
 
-  const isCheckmated = !hasAnyLegalMove({ board: after, turn: opp });
-  const allBlockedByOwn = kingMoves.length > 0 && blockedByOwnPiece === kingMoves.length;
+  const minBlocked = palaceMoves.length >= 3 ? 2 : 1;
+  const isSmothered = blockedByOwn.length >= minBlocked || (palaceMoves.length > 0 && blockedByOwn.length === palaceMoves.length);
+  if (!isSmothered || blockedByOwn.length === 0) {
+    return { ok: false, layer: 3, reason: "Tướng đối phương không bị chính quân nhà chèn kẹt trong cung — không phải muộn cung sát" };
+  }
 
-  // Điều kiện Muộn Cung Sát:
-  // 1. Thật sự chiếu bí (isCheckmated), VÀ các ô thoát của Tướng bị cản trở bởi chính quân phòng thủ
-  //    (ít nhất 2 quân mình bịt xung quanh đối với Tướng ở trung lộ, hoặc 1 quân nếu ở góc cung).
-  // 2. HOẶC Tướng hoàn toàn không còn ô thoát nào do 100% ô kề trong cung bị chính quân mình bịt kín (allBlockedByOwn).
-  const minBlockedForMate = kingMoves.length >= 3 ? 2 : 1;
-  const qualifies = isCheckmated && (blockedByOwnPiece >= minBlockedForMate || allBlockedByOwn);
+  // Tầng 4: Kết quả
+  if (!soundMove(options)) {
+    return { ok: false, layer: 4, reason: `Nước đi hớ ${options?.loss ?? "?"} điểm so với nước tốt nhất` };
+  }
 
-  if (!qualifies) return null;
+  const blockerTypes = blockedByOwn.map((p) => typeOf(mateBoard[p.r * 9 + p.c]!));
+  blockerTypes.sort((a, b) => "abnrcp".indexOf(a) - "abnrcp".indexOf(b));
+  const uniqueBlockers = [...new Set(blockerTypes)].map((t) => {
+    const count = blockerTypes.filter((x) => x === t).length;
+    return count > 1 ? `Song ${PIECE_NAME[t]}` : PIECE_NAME[t];
+  });
+  const blockerText = uniqueBlockers.join(", ");
 
-  return fact(
-    before,
-    move,
-    "muonCungSat",
-    "Muộn cung sát: Pháo cắm chiếu tận dụng Tướng bị Sĩ/Tượng chèn kẹt tuyệt sát — đòn sát pháp một quân thành cục kinh điển của Pháo khi đối phương khuyết Tượng.",
-    "Muộn cung sát"
-  );
+  let summary = "";
+  if (immediateMate || !line || line.mateIn === 0) {
+    summary = `Muộn cung sát: Pháo chiếu tận dụng Tướng bị ${blockerText} chèn kẹt (${moveNotation(before, move)}) — chiếu bí ngay.`;
+  } else {
+    summary = `Muộn cung sát: Pháo tận dụng Tướng bị ${blockerText} chèn kẹt (${moveNotation(before, move)}); theo biến: ${narrate(line, mateEnd(line))} — ${mateText(line)}.`;
+  }
+
+  return { ok: true, mechanism: "muộn cung sát", summary, acted: [move.from] };
+}
+
+/** Muộn cung sát: chỉ gắn khi qua cả bốn tầng của checkSmotheredCannonMate. */
+export function detectSmotheredCannonMate(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const r = checkSmotheredCannonMate(before, move, after, options);
+  if (!r?.ok) return null;
+  return fact(before, move, "muonCungSat", r.summary, "Muộn cung sát");
 }
 
 // ============================================================================
@@ -750,41 +1161,136 @@ export function detectNgoaTaoKnight(
 // ============================================================================
 
 /**
- * Mã nhập hoa tim (ô giữa cung điện):
- * Đỏ tại hàng 8 cột 4 (sq 76), Đen tại hàng 1 cột 4 (sq 13).
- * Nước đi này chèn kẹt Tướng, cắt đứt liên lạc Song Sĩ — thế cờ đại kỵ trong trung cuộc.
+ * Oa Tâm Mã (Mã Xấu Nhất - Triệu Hâm Hâm Bài 4), kiểm 4 tầng (lời phê bình):
+ * 1. Hình: Mã nhảy vào hoa tim trung cung nhà mình (Đỏ ô 76 / hàng 8 cột 4; Đen ô 13 / hàng 1 cột 4).
+ * 2. Mục đích: Phê bình khi Mã tự chèn kẹt cung; không phải nước ăn quân lớn đối phương xâm nhập hoa tim.
+ * 3. Cơ chế: Biến engine cho thấy bên đi bị phạt (bị chiếu bí hoặc mất quân lớn), và Mã hoa tim là lý do
+ *    (chặn ô thoát của Tướng, làm ngòi cho Pháo đối phương chiếu, hoặc chính Mã bị bắt chết).
+ * 4. Kết quả: Nước đi là sai lầm rõ rệt (hớ từ 100 điểm trở lên so với nước tốt nhất, hoặc bị chiếu bí).
  */
-export function detectOaTamKnight(
+export function checkOaTamKnight(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
-): ZhaoMiddlegameFact | null {
+): PrincipleCheck | null {
   const piece = before[move.from];
   if (!piece || typeOf(piece) !== "n") return null;
   const mover = sideOf(piece);
+  const opp = opponent(mover);
   const tr = rowOf(move.to);
   const tc = colOf(move.to);
 
-  // Vị trí Oa Tâm (hoa tim cung nhà):
-  const isOaTam = (mover === "r" && tr === 8 && tc === 4) || (mover === "b" && tr === 1 && tc === 4);
-  if (!isOaTam) return null;
+  // Vị trí hoa tim trung cung (Đỏ: hàng 8 cột 4, Đen: hàng 1 cột 4)
+  const oaTamSq = mover === "r" ? sq(8, 4) : sq(1, 4);
+  const palaceRows = mover === "r" ? [7, 8, 9] : [0, 1, 2];
+  const entersPalace = palaceRows.includes(tr) && tc >= 3 && tc <= 5;
 
-  return fact(
-    before,
-    move,
-    "oaTamMa",
-    "Oa Tâm Mã: Mã thoái về hoa tim trung cung chèn kẹt Tướng và cắt đứt liên lạc Song Sĩ — vị trí xấu nhất của Mã theo Triệu Hâm Hâm.",
-    "Oa Tâm Mã",
-    "critique"
+  // Tầng 1: Hình — Mã phải nhảy vào đúng ô hoa tim trung cung
+  if (entersPalace && move.to !== oaTamSq) {
+    return { ok: false, layer: 1, reason: "Mã vào cung nhưng không phải ô hoa tim trung cung" };
+  }
+  if (move.to !== oaTamSq) return null;
+
+  // Tầng 2: Mục đích — không phải ăn quân lớn đối phương xâm nhập hoa tim
+  const victim = before[move.to];
+  if (victim && isMajor(victim)) {
+    return { ok: false, layer: 2, reason: `Nước này ăn ${PIECE_NAME[typeOf(victim)]} — mục đích là ăn quân bảo vệ cung` };
+  }
+
+  // Tầng 3 (kiểm sớm dữ liệu engine)
+  if (!options?.evalAfter) {
+    return { ok: false, layer: 3, reason: "Không có biến engine để kiểm" };
+  }
+  const line = engineLine(before, move, options, true);
+  if (!line) {
+    return { ok: false, layer: 3, reason: "Không có biến engine đủ dài để kiểm" };
+  }
+
+  // Tầng 4: Kết quả (lời chê chỉ gắn khi nước đi là sai lầm rõ rệt)
+  const loss = options.loss ?? 0;
+  const opponentMates = line.scoreForMover <= -MATE_THRESHOLD;
+  const losesMaterial = line.outcome.kind === "losesMaterial" || line.outcome.materialSettled <= -200;
+
+  if (loss < 100 && !opponentMates && line.scoreForMover > -200) {
+    return { ok: false, layer: 4, reason: `Nước đi không phải sai lầm (chỉ hớ ${loss} điểm so với nước tốt nhất)` };
+  }
+
+  // Tầng 3: Cơ chế
+  // Bên đi phải bị phạt trong biến: hoặc bị chiếu bí, hoặc bị mất quân
+  if (!opponentMates && !losesMaterial) {
+    return { ok: false, layer: 3, reason: "Biến engine không cho thấy bên đi bị phạt: không bị sát, không mất quân" };
+  }
+
+  // Mã hoa tim là lý do:
+  // 1. Tướng bên đi bị chiếu hoặc bị sát trong cung, và ô hoa tim cản đường thoát của Tướng
+  const myKing = findKing(after, mover);
+  const kingAdjacent = myKing !== -1 && (
+    (rowOf(myKing) === rowOf(oaTamSq) && Math.abs(colOf(myKing) - colOf(oaTamSq)) === 1) ||
+    (colOf(myKing) === colOf(oaTamSq) && Math.abs(rowOf(myKing) - rowOf(oaTamSq)) === 1)
   );
+
+  const checksOnMover = line.plies.filter((p) => p.side === opp && p.check);
+  const suffersCheck = checksOnMover.length > 0 || opponentMates;
+
+  // 2. Đối phương dùng Pháo chiếu lấy đúng Mã hoa tim làm ngòi
+  let cannonUsesKnightAsScreen = false;
+  let boardSim = before;
+  for (const p of line.plies) {
+    boardSim = play(boardSim, p.move);
+    if (p.side === opp && p.check && p.checkerTypes.includes("c")) {
+      const kingSq = findKing(boardSim, mover);
+      if (kingSq >= 0) {
+        const cannonAttackers = attackersOf(boardSim, kingSq, opp).filter(
+          (sq) => typeOf(boardSim[sq]!) === "c",
+        );
+        if (cannonAttackers.some((csq) => between(csq, kingSq, oaTamSq))) {
+          cannonUsesKnightAsScreen = true;
+          break;
+        }
+      }
+    }
+  }
+
+  // 3. Chính con Mã hoa tim bị bắt trong biến
+  const knightCaptured = line.outcome.captures.some((c) => c.origin === move.from && c.by === opp);
+
+  const knightCausedHarm = (suffersCheck && kingAdjacent) || cannonUsesKnightAsScreen || knightCaptured;
+  if (!knightCausedHarm) {
+    return { ok: false, layer: 3, reason: "Biến thua không xuất phát từ việc Mã ở hoa tim: Tướng không bị cản, Mã không bị bắt" };
+  }
+
+  // Xác định điểm cuối đòn phạt để kể lại biến
+  let endPly = Math.min(line.plies.length - 1, 6);
+  let punishmentText = "";
+  if (opponentMates) {
+    punishmentText = "bị đối phương công sát chiếu bí";
+  } else {
+    const lostPieces = line.outcome.captures.filter((c) => c.by === opp && c.ply <= endPly);
+    const lostNames = [...new Set(lostPieces.map((c) => PIECE_NAME[c.type]))].join(", ");
+    punishmentText = lostNames.length > 0 ? `mất ${lostNames}` : "thế cờ rơi vào bế tắc nguy hiểm";
+  }
+
+  const reasonExplanation = knightCaptured
+    ? "Mã nhập tâm trở thành mục tiêu bị vây bắt"
+    : suffersCheck && kingAdjacent
+    ? "Mã bịt kín đường thoát của Tướng"
+    : "cung Tướng bị khóa chặt mất liên lạc";
+
+  const summary = `Oa Tâm Mã: Mã thoái về hoa tim trung cung (${moveNotation(before, move)}) chèn kẹt Tướng và cản Song Sĩ (${reasonExplanation}); theo biến: ${narrate(line, endPly)} — ${punishmentText}. "Mã nhập oa tâm, bất tử dã thương".`;
+
+  return { ok: true, mechanism: "Oa Tâm Mã tự chèn kẹt", summary, acted: [move.from] };
+}
+
+/** Oa Tâm Mã: chỉ gắn khi qua cả bốn tầng của checkOaTamKnight (lời phê bình). */
+export function detectOaTamKnight(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const r = checkOaTamKnight(before, move, after, options);
+  if (!r?.ok) return null;
+  return fact(before, move, "oaTamMa", r.summary, "Oa Tâm Mã", "critique");
 }
 
 // ============================================================================
 // 16. PHÁO TRẦM ĐÁY (Nghệ Thuật Phá Trận & Kiềm Chế - Triệu Hâm Hâm Bài 13 & 14)
 // ============================================================================
-
-/** Kết quả kiểm từng tầng của một kỳ lý: qua hết thì kèm cơ chế và lời bình; trượt thì ghi tầng trượt và lý do. */
-export type PrincipleCheck =
-  | { ok: true; mechanism: string; summary: string; /** Ô ban đầu của các quân làm nên hình đã ra tay trong biến. */ acted?: number[] }
-  | { ok: false; layer: 1 | 2 | 3 | 4; reason: string };
 
 /** Các ô trong cung của phe `side`. */
 function palaceSquares(side: Side): number[] {
@@ -822,19 +1328,6 @@ export function checkAttackLine(
   if (!soundMove(options)) return { ok: false, layer: 4, reason: `Nước đi hớ ${options?.loss ?? "?"} điểm so với nước tốt nhất` };
   if (!line.moverMates && line.scoreForMover < 200) return { ok: false, layer: 4, reason: `Engine chỉ chấm bên đi +${line.scoreForMover}` };
   return { ok: true, mechanism, summary: `${narrate(line, end)} — ${result}`, acted };
-}
-
-/**
- * Kỳ lý vây bắt quân: biến engine phải bắt được đúng quân đối phương đứng ở ô `target` (theo danh tính, trong 10 nửa nước).
- * Trả về lời kể biến tới nước bắt (kể cả nước ăn lại ngay sau), null khi biến không bắt được chính con đó.
- */
-function captureStory(before: Board, move: Move, options: ZhaoTacticsOptions | undefined, target: number): string | null {
-  const line = engineLine(before, move, options);
-  if (!line) return null;
-  const won = line.outcome.captures.find((c) => c.by === line.plies[0].side && c.origin === target && c.ply <= 10);
-  if (!won) return null;
-  const t = tally(line, won.ply);
-  return `${narrate(line, t.upTo)} — ${t.text}`;
 }
 
 /** Loại quân (trong thế trước nước đi) của các quân đã ra tay theo `checkAttackLine`. */
@@ -1170,13 +1663,16 @@ export function detectMayUiTrungLo(
 // ============================================================================
 
 /**
- * Nhất Mã hoán Lưỡng Tượng (Triệu Hâm Hâm Bài 10):
- * Cổ ngữ có câu "Nhất Mã hoán Lưỡng Tượng, kỵ sĩ tất anh hùng".
- * Chủ động dùng Mã ăn Tượng đối phương để xé toạc tấm khiên phòng ngự trung tâm.
+ * Nhất Mã hoán Lưỡng Tượng (Triệu Hâm Hâm Bài 10), kiểm 4 tầng:
+ * 1. Hình: Mã nhảy qua sông ăn Tượng đối phương, và trước nước đi đối phương có đủ 2 Tượng.
+ * 2. Mục đích: Chủ động phế Mã hoán Tượng, không phải chạy Mã đang bị dọa bắt.
+ * 3. Cơ chế: Biến engine phải cho thấy chính con Mã này bị bắt (origin === move.from),
+ *    và bên đi ăn đủ cả 2 Tượng trong biến (countCaptured >= 2).
+ * 4. Kết quả: Nước đi không hớ so với nước tốt nhất (soundMove), engine không chấm bên đi thua thế.
  */
-export function detectNhatMaHoanLuongTuong(
+export function checkNhatMaHoanLuongTuong(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
-): ZhaoMiddlegameFact | null {
+): PrincipleCheck | null {
   const piece = before[move.from];
   if (!piece || typeOf(piece) !== "n") return null;
   const target = before[move.to];
@@ -1184,25 +1680,93 @@ export function detectNhatMaHoanLuongTuong(
   const mover = sideOf(piece);
   const opp = opponent(mover);
   if (sideOf(target) !== opp) return null;
-  if (!soundMove(options)) return null;
 
   // Mã phải nhảy sang đất đối phương ăn Tượng
   if (!crossedRiver(rowOf(move.to), mover)) return null;
 
-  // Sau khi ăn, đối phương chỉ còn tối đa 1 Tượng
-  let oppElephants = 0;
-  for (const p of after) {
-    if (p && sideOf(p) === opp && typeOf(p) === "b") oppElephants++;
+  // Tầng 1: Hình — trước nước đi đối phương phải có đủ 2 Tượng
+  const oppElephantsBefore = pieces(before, opp, "b").length;
+  if (oppElephantsBefore < 2) {
+    return {
+      ok: false,
+      layer: 1,
+      reason: `Đối phương chỉ có ${oppElephantsBefore} Tượng trước nước đi — không phải thế cờ hoán Song Tượng`,
+    };
   }
-  if (oppElephants > 1) return null;
 
-  return fact(
-    before,
-    move,
-    "nhatMaHoanLuongTuong",
-    "Nhất Mã hoán Lưỡng Tượng: Dùng Mã đổi lấy Tượng đối phương để xé toạc tấm khiên phòng ngự trung tâm, mở đường cho Pháo đầu và Song Xe thâm nhập.",
-    "Nhất Mã hoán Lưỡng Tượng",
+  // Tầng 2: Mục đích — không phải chạy Mã đang bị dọa bắt
+  const threatened = (exchangeGain(before, move.from, opp) ?? 0) > 0;
+  if (threatened) {
+    return {
+      ok: false,
+      layer: 2,
+      reason: "Mã đang bị dọa bắt — nước này là nhảy vớt vát ăn Tượng chứ không phải chủ động phế Mã hoán Tượng",
+    };
+  }
+
+  // Tầng 3: Cơ chế
+  if (!options?.evalAfter) {
+    return { ok: false, layer: 3, reason: "Không có biến engine để kiểm" };
+  }
+  const line = engineLine(before, move, options);
+  if (!line) {
+    return { ok: false, layer: 3, reason: "Không có biến engine đủ dài để kiểm" };
+  }
+
+  // 1. Đúng con Mã vừa đi phải bị mất trong biến
+  const knightLost = line.outcome.captures.find(
+    (c) => c.by === opp && c.type === "n" && c.origin === move.from,
   );
+  if (!knightLost) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: "Biến engine không cho thấy chính con Mã này bị đổi (Mã không bị bắt)",
+    };
+  }
+
+  // 2. Bên đi phải ăn đủ cả 2 Tượng trong biến
+  const elephantsWon = line.outcome.captures.filter(
+    (c) => c.by === mover && c.type === "b",
+  );
+  if (elephantsWon.length < 2) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: `Biến engine chỉ ăn được ${elephantsWon.length}/2 Tượng — không đủ đòn hoán Song Tượng`,
+    };
+  }
+
+  // Tầng 4: Kết quả
+  if (!soundMove(options)) {
+    return {
+      ok: false,
+      layer: 4,
+      reason: `Nước đi hớ ${options.loss ?? "?"} điểm so với nước tốt nhất`,
+    };
+  }
+
+  if (line.scoreForMover < -150) {
+    return {
+      ok: false,
+      layer: 4,
+      reason: `Engine chấm bên đi bị lép (${line.scoreForMover}) — phế Mã không thành công`,
+    };
+  }
+
+  const endPly = Math.max(knightLost.ply, ...elephantsWon.map((e) => e.ply));
+  const summary = `Nhất Mã hoán Lưỡng Tượng: Mã ăn Tượng (${moveNotation(before, move)}) phế quân xé toạc đôi Tượng đối phương; theo biến: ${narrate(line, endPly)} — ${tally(line, endPly).text}. "Nhất Mã hoán Song Tượng, kỵ sĩ tất anh hùng".`;
+
+  return { ok: true, mechanism: "phế Mã đoạt Song Tượng", summary, acted: [move.from] };
+}
+
+/** Nhất Mã hoán Lưỡng Tượng: chỉ gắn khi qua cả bốn tầng của checkNhatMaHoanLuongTuong. */
+export function detectNhatMaHoanLuongTuong(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const r = checkNhatMaHoanLuongTuong(before, move, after, options);
+  if (!r?.ok) return null;
+  return fact(before, move, "nhatMaHoanLuongTuong", r.summary, "Nhất Mã hoán Lưỡng Tượng");
 }
 
 // ============================================================================
@@ -1210,12 +1774,15 @@ export function detectNhatMaHoanLuongTuong(
 // ============================================================================
 
 /**
- * Chiến thuật đoạt trung binh (Triệu Hâm Hâm Bài 11):
- * Dùng quân tiêu diệt Tốt giữa (Tốt 5) của đối phương — triệt hạ trái tim của hệ thống phòng ngự.
+ * Chiến thuật đoạt trung binh (Triệu Hâm Hâm Bài 11), kiểm 4 tầng:
+ * 1. Hình: Dùng quân (Mã, Pháo, Xe, Tốt) ăn Tốt giữa (cột 4) của đối phương ở phần sân đối phương hoặc tuyến hà.
+ * 2. Mục đích: Chủ động đoạt trung binh giành ưu thế trung lộ, không phải chạy quân đang bị dọa bắt.
+ * 3. Cơ chế: Biến engine phải là ăn sạch (cleanCapture / winsMaterial), giữ được Tốt và không bị lỗ vật chất.
+ * 4. Kết quả: Nước đi không hớ so với nước tốt nhất (soundMove), engine chấm bên đi ưu thế (score >= 50).
  */
-export function detectDoatTrungBinh(
+export function checkDoatTrungBinh(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
-): ZhaoMiddlegameFact | null {
+): PrincipleCheck | null {
   const piece = before[move.from];
   if (!piece) return null;
   const target = before[move.to];
@@ -1223,7 +1790,6 @@ export function detectDoatTrungBinh(
   const mover = sideOf(piece);
   const opp = opponent(mover);
   if (sideOf(target) !== opp) return null;
-  if (!soundMove(options)) return null;
 
   // Mục tiêu phải là Tốt giữa (cột 4) của đối phương
   if (colOf(move.to) !== 4) return null;
@@ -1236,14 +1802,65 @@ export function detectDoatTrungBinh(
   const isInOppTerritory = mover === "r" ? tr <= 4 : tr >= 5;
   if (!isInOppTerritory) return null;
 
-  // Ăn sạch hay không do biến engine quyết định (zhao-outcome: phải là ăn sạch); lời bình nói đúng việc đã làm
-  return fact(
-    before,
-    move,
-    "doatTrungBinh",
-    `Đoạt trung binh: ${nameOf(piece)} ăn Tốt giữa (${moveNotation(before, move)}) — trung lộ đối phương mất Tốt chặn, Tượng giữa thiếu che.`,
-    "Chiến thuật đoạt trung binh",
-  );
+  // Tầng 2: Mục đích — không phải chạy quân đang bị dọa bắt
+  const threatened = (exchangeGain(before, move.from, opp) ?? 0) > 0;
+  if (threatened) {
+    return {
+      ok: false,
+      layer: 2,
+      reason: "Quân đang bị dọa bắt — nước này chủ yếu là chạy quân chứ không phải chủ động đoạt trung binh",
+    };
+  }
+
+  // Tầng 3: Cơ chế
+  if (!options?.evalAfter) {
+    return { ok: false, layer: 3, reason: "Không có biến engine để kiểm" };
+  }
+  const line = engineLine(before, move, options);
+  if (!line) {
+    return { ok: false, layer: 3, reason: "Không có biến engine đủ dài để kiểm" };
+  }
+
+  // Phải giữ được ưu thế vật chất (ăn sạch hoặc thắng quân), không bị đối phương ăn lại lỗ điểm
+  const keepsPawn = line.outcome.kind === "cleanCapture" || line.outcome.kind === "winsMaterial" || line.outcome.materialSettled >= 100;
+  if (!keepsPawn || line.outcome.materialSettled <= 0) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: "Biến engine đối phương ăn lại được quân — đoạt trung binh không giữ được vật chất",
+    };
+  }
+
+  // Tầng 4: Kết quả
+  if (!soundMove(options)) {
+    return {
+      ok: false,
+      layer: 4,
+      reason: `Nước đi hớ ${options.loss ?? "?"} điểm so với nước tốt nhất`,
+    };
+  }
+
+  if (line.scoreForMover < 50) {
+    return {
+      ok: false,
+      layer: 4,
+      reason: `Engine chỉ chấm bên đi +${line.scoreForMover} — chưa đủ ưu thế từ đoạt trung binh`,
+    };
+  }
+
+  const endPly = Math.min(line.plies.length - 1, 4);
+  const summary = `Đoạt trung binh: ${nameOf(piece)} ăn Tốt giữa (${moveNotation(before, move)}) — trung lộ đối phương mất Tốt chặn, Tượng giữa thiếu che; theo biến: ${narrate(line, endPly)} — ${tally(line, endPly).text}.`;
+
+  return { ok: true, mechanism: "đoạt trung binh tích lũy ưu thế", summary, acted: [move.from] };
+}
+
+/** Chiến thuật đoạt trung binh: chỉ gắn khi qua cả bốn tầng của checkDoatTrungBinh. */
+export function detectDoatTrungBinh(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const r = checkDoatTrungBinh(before, move, after, options);
+  if (!r?.ok) return null;
+  return fact(before, move, "doatTrungBinh", r.summary, "Chiến thuật đoạt trung binh");
 }
 
 // ============================================================================
@@ -1339,7 +1956,9 @@ export function detectKhongTamPhao(
 export function detectThienDiaPhao(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
 ): ZhaoMiddlegameFact | null {
-  const mover = sideOf(after[move.to] ?? before[move.from]!);
+  const p = after[move.to] ?? before[move.from];
+  if (!p) return null;
+  const mover = sideOf(p);
   const opp = opponent(mover);
   if (!soundMove(options)) return null;
 
@@ -2623,47 +3242,130 @@ export function detectTamXaThangTamNgan(
 // ============================================================================
 
 /**
- * Một Xe đổi hai (Triệu Hâm Hâm Bài 40):
- * Thực hiện cuộc trao đổi chiến lược một Xe đổi hai quân nhẹ,
- * phát huy ưu thế đông quân và độ linh hoạt toàn diện.
+ * Kiểm 4 tầng cho Bài 40 (Một Xe đổi hai):
+ * 1. Hình: Quân đi là Xe (r). Đối phương còn ít nhất 2 quân nhẹ (Mã, Pháo) trước nước đi.
+ * 2. Mục đích: Đổi Xe lấy 2 quân nhẹ đối phương. Không phải Xe bị dọa bắt phải chạy trốn vô vọng.
+ * 3. Cơ chế: Biến engine chứng minh chính quân Xe này bị mất (origin === move.from), và bên đi ăn được đúng 2 quân nhẹ của đối phương, không bị mất thêm quân chủ lực nào khác.
+ * 4. Kết quả: Nước đi soundMove, điểm engine không bị lép nặng (scoreForMover >= -150).
  */
+export function checkMotXeDoiHai(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): PrincipleCheck | null {
+  const piece = before[move.from];
+  if (!piece || typeOf(piece) !== "r") return null;
+  const mover = sideOf(piece);
+  const opp = opponent(mover);
+
+  // Tầng 1: Hình — đối phương phải có ít nhất 2 quân nhẹ trước nước đi
+  const oppMinorsBefore = pieces(before, opp, "nc").length;
+  if (oppMinorsBefore < 2) {
+    return {
+      ok: false,
+      layer: 1,
+      reason: `Đối phương chỉ có ${oppMinorsBefore} quân nhẹ trước nước đi — không đủ điều kiện đổi Một Xe lấy hai`,
+    };
+  }
+
+  // Tầng 2: Mục đích — không phải Xe bị dọa bắt phải chạy trốn vô vọng
+  const threatened = (exchangeGain(before, move.from, opp) ?? 0) > 0;
+  const target = before[move.to];
+  if (threatened && (!target || (typeOf(target) !== "n" && typeOf(target) !== "c"))) {
+    return {
+      ok: false,
+      layer: 2,
+      reason: "Xe đang bị dọa bắt và nước đi không ăn quân nhẹ — không phải chủ động đổi Xe lấy hai quân nhẹ",
+    };
+  }
+
+  // Tầng 3: Cơ chế
+  if (!options?.evalAfter) {
+    return { ok: false, layer: 3, reason: "Không có biến engine để kiểm" };
+  }
+  const line = engineLine(before, move, options);
+  if (!line) {
+    return { ok: false, layer: 3, reason: "Không có biến engine đủ dài để kiểm" };
+  }
+
+  // 1. Đúng con Xe vừa đi phải bị mất trong biến
+  const rookLost = line.outcome.captures.find(
+    (c) => c.by === opp && c.type === "r" && c.origin === move.from,
+  );
+  if (!rookLost) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: "Biến engine không cho thấy chính con Xe này bị đổi (Xe không bị bắt)",
+    };
+  }
+
+  // 2. Bên đi ăn được các quân nhẹ đối phương
+  const minorsWon = line.outcome.captures.filter(
+    (c) => c.by === mover && (c.type === "n" || c.type === "c") && c.ply <= 10,
+  );
+  if (minorsWon.length < 2) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: `Biến engine chỉ ăn được ${minorsWon.length}/2 quân nhẹ đối phương — không đủ cuộc đổi Một Xe lấy hai`,
+    };
+  }
+
+  // Nếu ăn >= 3 quân nhẹ/quân lớn thì nhường cho Bài 41 (Một Xe đổi ba)
+  const piecesWonExcludingPawns = line.outcome.captures.filter(
+    (c) => c.by === mover && (c.type === "n" || c.type === "c" || c.type === "r") && c.ply <= 10,
+  );
+  if (piecesWonExcludingPawns.length >= 3) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: `Biến engine ăn được ${piecesWonExcludingPawns.length} quân lớn/nhẹ — thuộc về Một Xe đổi ba (Bài 41)`,
+    };
+  }
+
+  const endPly = Math.max(rookLost.ply, minorsWon[0].ply, minorsWon[1].ply);
+
+  // 3. Bên đi không bị mất thêm quân chủ lực (Xe, Mã, Pháo) ngoài con Xe này
+  const otherMajorLosses = line.outcome.captures.filter(
+    (c) => c.by === opp && (c.type === "r" || c.type === "n" || c.type === "c") && c.origin !== move.from && c.ply <= endPly,
+  );
+  if (otherMajorLosses.length > 0) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: "Bên đi bị mất thêm quân chủ lực khác trong cuộc đổi — không phải một Xe đổi hai",
+    };
+  }
+
+  // Tầng 4: Kết quả
+  if (!soundMove(options)) {
+    return {
+      ok: false,
+      layer: 4,
+      reason: `Nước đi hớ ${options.loss ?? "?"} điểm so với nước tốt nhất`,
+    };
+  }
+
+  if (line.scoreForMover < -150) {
+    return {
+      ok: false,
+      layer: 4,
+      reason: `Engine chấm bên đi bị lép (${line.scoreForMover}) — cuộc đổi Xe không đem lại thế trận tốt`,
+    };
+  }
+
+  const targetName = target ? ` ăn ${PIECE_NAME[typeOf(target)]}` : "";
+  const summary = `Một Xe đổi hai: Xe${targetName} (${moveNotation(before, move)}) chủ động đổi Xe lấy hai quân nhẹ đối phương; theo biến: ${narrate(line, endPly)} — ${tally(line, endPly).text}. Triệu Hâm Hâm: bên ít Xe nhưng đông quân chủ lực hơn có thế công linh hoạt và dễ kiểm soát toàn cục.`;
+
+  return { ok: true, mechanism: "chủ động đổi Xe lấy 2 quân nhẹ", summary, acted: [move.from] };
+}
+
+/** Một Xe đổi hai: chỉ gắn khi qua cả bốn tầng của checkMotXeDoiHai. */
 export function detectMotXeDoiHai(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
 ): ZhaoMiddlegameFact | null {
-  const piece = before[move.from];
-  if (!piece) return null;
-  const mover = sideOf(piece);
-  if (!soundMove(options)) return null;
-
-  const captured = before[move.to];
-  if (!captured) return null;
-
-  // Trường hợp A: Quân nhẹ ta ăn Xe đối phương (hoặc Xe ta ăn quân nhẹ và bị phản hồi)
-  const isMinorTakesRook = (typeOf(piece) === "n" || typeOf(piece) === "c") && typeOf(captured) === "r";
-  const isRookTakesMinor = typeOf(piece) === "r" && (typeOf(captured) === "n" || typeOf(captured) === "c");
-
-  if (!isMinorTakesRook && !isRookTakesMinor) return null;
-
-  // Kiểm tra chênh lệch số lượng Xe giữa hai bên
-  let moverRooks = 0;
-  let oppRooks = 0;
-  for (const p of after) {
-    if (!p) continue;
-    if (typeOf(p) === "r") {
-      if (sideOf(p) === mover) moverRooks++;
-      else oppRooks++;
-    }
-  }
-
-  if (Math.abs(moverRooks - oppRooks) !== 1) return null;
-
-  return fact(
-    before,
-    move,
-    "motXeDoiHai",
-    "Một Xe đổi hai: Thực hiện cuộc trao đổi chiến lược một Xe đổi hai quân nhẹ, phát huy ưu thế đông quân và độ linh hoạt toàn diện.",
-    "Một Xe đổi hai",
-  );
+  const r = checkMotXeDoiHai(before, move, after, options);
+  if (!r?.ok) return null;
+  return fact(before, move, "motXeDoiHai", r.summary, "Một Xe đổi hai");
 }
 
 // ============================================================================
@@ -2671,52 +3373,128 @@ export function detectMotXeDoiHai(
 // ============================================================================
 
 /**
- * Một Xe đổi ba (Triệu Hâm Hâm Bài 41):
- * Hy sinh một Xe đổi lấy ba quân đối phương,
- * tích lũy ưu thế vật chất áp đảo để nghiền nát đối thủ.
+ * Kiểm 4 tầng cho Bài 41 (Một Xe đổi ba):
+ * 1. Hình: Quân đi là Xe (r). Đối phương còn ít nhất 3 quân ngoài Tướng trước nước đi.
+ * 2. Mục đích: Hy sinh Xe đổi lấy 3 quân đối phương. Không phải Xe bị dọa bắt phải chạy trốn vô vọng.
+ * 3. Cơ chế: Biến engine chứng minh chính quân Xe này bị mất (origin === move.from), và bên đi ăn được ít nhất 3 quân đối phương (trong đó có ít nhất 2 quân nhẹ hoặc 1 Xe), không bị mất thêm quân chủ lực nào khác.
+ * 4. Kết quả: Nước đi soundMove, điểm engine không bị lép (scoreForMover >= -100).
  */
+export function checkMotXeDoiBa(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): PrincipleCheck | null {
+  const piece = before[move.from];
+  if (!piece || typeOf(piece) !== "r") return null;
+  const mover = sideOf(piece);
+  const opp = opponent(mover);
+
+  // Tầng 1: Hình — đối phương phải có ít nhất 3 quân ngoài Tướng
+  const oppPiecesBefore = pieces(before, opp, "rncabp").length;
+  if (oppPiecesBefore < 3) {
+    return {
+      ok: false,
+      layer: 1,
+      reason: `Đối phương chỉ có ${oppPiecesBefore} quân ngoài Tướng — không đủ điều kiện đổi Một Xe lấy ba`,
+    };
+  }
+
+  // Tầng 2: Mục đích — không phải Xe bị dọa bắt phải chạy trốn vô vọng
+  const threatened = (exchangeGain(before, move.from, opp) ?? 0) > 0;
+  const target = before[move.to];
+  if (threatened && !target) {
+    return {
+      ok: false,
+      layer: 2,
+      reason: "Xe đang bị dọa bắt và nước đi không ăn quân — không phải chủ động phế Xe đổi ba quân",
+    };
+  }
+
+  // Tầng 3: Cơ chế
+  if (!options?.evalAfter) {
+    return { ok: false, layer: 3, reason: "Không có biến engine để kiểm" };
+  }
+  const line = engineLine(before, move, options);
+  if (!line) {
+    return { ok: false, layer: 3, reason: "Không có biến engine đủ dài để kiểm" };
+  }
+
+  // 1. Đúng con Xe vừa đi phải bị mất trong biến
+  const rookLost = line.outcome.captures.find(
+    (c) => c.by === opp && c.type === "r" && c.origin === move.from,
+  );
+  if (!rookLost) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: "Biến engine không cho thấy chính con Xe này bị đổi (Xe không bị bắt)",
+    };
+  }
+
+  // 2. Bên đi ăn được ít nhất 3 quân đối phương
+  const piecesWon = line.outcome.captures.filter(
+    (c) => c.by === mover && c.ply <= 10,
+  );
+  if (piecesWon.length < 3) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: `Biến engine chỉ ăn được ${piecesWon.length}/3 quân đối phương — không đủ cuộc đổi Một Xe lấy ba`,
+    };
+  }
+
+  // Trong các quân ăn được phải có ít nhất 2 quân nhẹ (Mã, Pháo)
+  const minorsWon = piecesWon.filter((c) => c.type === "n" || c.type === "c");
+  if (minorsWon.length < 2) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: "Một Xe đổi ba đòi hỏi ít nhất 2 quân nhẹ (Mã, Pháo) trong số 3 quân đổi được",
+    };
+  }
+
+  const endPly = Math.max(rookLost.ply, piecesWon[0].ply, piecesWon[1].ply, piecesWon[2].ply);
+
+  // 3. Bên đi không bị mất thêm quân chủ lực khác (Xe, Mã, Pháo) ngoài con Xe này
+  const otherMajorLosses = line.outcome.captures.filter(
+    (c) => c.by === opp && (c.type === "r" || c.type === "n" || c.type === "c") && c.origin !== move.from && c.ply <= endPly,
+  );
+  if (otherMajorLosses.length > 0) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: "Bên đi bị mất thêm quân chủ lực khác trong cuộc đổi — không phải một Xe đổi ba",
+    };
+  }
+
+  // Tầng 4: Kết quả
+  if (!soundMove(options)) {
+    return {
+      ok: false,
+      layer: 4,
+      reason: `Nước đi hớ ${options.loss ?? "?"} điểm so với nước tốt nhất`,
+    };
+  }
+
+  if (line.scoreForMover < -100) {
+    return {
+      ok: false,
+      layer: 4,
+      reason: `Engine chấm bên đi bị lép (${line.scoreForMover}) — đổi một Xe lấy ba phải có ưu thế vật chất rõ rệt`,
+    };
+  }
+
+  const targetName = target ? ` ăn ${PIECE_NAME[typeOf(target)]}` : "";
+  const summary = `Một Xe đổi ba: Xe${targetName} (${moveNotation(before, move)}) hy sinh đổi lấy ba quân đối phương; theo biến: ${narrate(line, endPly)} — ${tally(line, endPly).text}. Triệu Hâm Hâm: một Xe đổi ba tuyệt đối có lợi, tạo ưu thế quân số áp đảo để nghiền nát đối thủ.`;
+
+  return { ok: true, mechanism: "hy sinh Xe đổi lấy 3 quân", summary, acted: [move.from] };
+}
+
+/** Một Xe đổi ba: chỉ gắn khi qua cả bốn tầng của checkMotXeDoiBa. */
 export function detectMotXeDoiBa(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
 ): ZhaoMiddlegameFact | null {
-  const piece = before[move.from];
-  if (!piece) return null;
-  const mover = sideOf(piece);
-  if (!soundMove(options)) return null;
-
-  const captured = before[move.to];
-  if (!captured) return null;
-
-  // Một bên không còn Xe nhưng hơn hẳn về số lượng quân nhẹ (ít nhất 3 quân nhẹ hơn)
-  let moverMinors = 0;
-  let oppMinors = 0;
-  let moverRooks = 0;
-  let oppRooks = 0;
-
-  for (const p of after) {
-    if (!p) continue;
-    const t = typeOf(p);
-    if (t === "r") {
-      if (sideOf(p) === mover) moverRooks++;
-      else oppRooks++;
-    } else if (t === "n" || t === "c") {
-      if (sideOf(p) === mover) moverMinors++;
-      else oppMinors++;
-    }
-  }
-
-  // Tình huống 1 Xe đổi 3 quân nhẹ
-  const isOneRookForThree = (moverRooks === 0 && oppRooks >= 1 && moverMinors - oppMinors >= 2) ||
-                           (oppRooks === 0 && moverRooks >= 1 && oppMinors - moverMinors >= 2);
-
-  if (!isOneRookForThree) return null;
-
-  return fact(
-    before,
-    move,
-    "motXeDoiBa",
-    "Một Xe đổi ba: Hy sinh một Xe đổi lấy ba quân đối phương, tích lũy ưu thế vật chất áp đảo để nghiền nát đối thủ.",
-    "Một Xe đổi ba",
-  );
+  const r = checkMotXeDoiBa(before, move, after, options);
+  if (!r?.ok) return null;
+  return fact(before, move, "motXeDoiBa", r.summary, "Một Xe đổi ba");
 }
 
 // ============================================================================
@@ -2917,47 +3695,121 @@ export function detectTieuBinhLapDaiCong(
 // ============================================================================
 
 /**
- * Phế Tốt phản công (Triệu Hâm Hâm Bài 46):
- * Chủ động phế bỏ tiểu tốt để tranh đoạt nước tiên, mở thông lộ xuất quân cho Xe Mã Pháo
- * và tập trung hỏa lực chuyển bại thành thắng phản kích sấm sét.
+ * Kiểm 4 tầng cho Bài 46 (Phế Tốt phản công):
+ * 1. Hình: Quân đi là Tốt (p). Trước nước đi bên đi còn ít nhất 1 quân chủ lực (Xe, Mã, Pháo).
+ * 2. Mục đích: Đưa Tốt vào ô bị đối phương dọa ăn (hoặc phế Tốt). Không phải Tốt an toàn không ai bắt.
+ * 3. Cơ chế: Biến engine chứng minh chính con Tốt vừa đi bị đối phương ăn (c.origin === move.from), sau đó các quân khác phát động phản kích có đòn quyết định (decisiveBlow).
+ * 4. Kết quả: Nước đi soundMove, điểm engine không bị lép (scoreForMover >= -150).
  */
+export function checkPheTotPhanCong(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): PrincipleCheck | null {
+  const piece = before[move.from];
+  if (!piece || typeOf(piece) !== "p") return null;
+  const mover = sideOf(piece);
+  const opp = opponent(mover);
+
+  // Tầng 1: Hình — bên đi phải còn ít nhất 1 quân chủ lực để phản công
+  const majorPieces = pieces(before, mover, "rnc").length;
+  if (majorPieces === 0) {
+    return {
+      ok: false,
+      layer: 1,
+      reason: "Bên đi không còn quân chủ lực (Xe, Mã, Pháo) nào để phản công sau khi phế Tốt",
+    };
+  }
+
+  // Tầng 2: Mục đích — Tốt phải bị đối phương có thể ăn ở ô đích (phế Tốt)
+  // Loại trừ nước ăn Tốt đối phương (đổi Tốt thông thường)
+  const victim = before[move.to];
+  if (victim && typeOf(victim) === "p") {
+    return {
+      ok: false,
+      layer: 2,
+      reason: "Nước này ăn Tốt đối phương — thuộc về đổi Tốt hoặc mưu Binh, không phải chủ động phế Tốt",
+    };
+  }
+
+  const oppAttackers = attackersOf(after, move.to, opp);
+  if (oppAttackers.length === 0) {
+    return {
+      ok: false,
+      layer: 2,
+      reason: "Tốt không bị quân đối phương đe dọa ăn — không phải nước phế Tốt",
+    };
+  }
+
+  // Loại trừ hai Tốt đối mặt đổi nhau thông thường có quân bảo vệ
+  const defended = isDefended(after, move.to, mover);
+  const onlyPawnsAttack = oppAttackers.every((sq) => typeOf(after[sq]!) === "p");
+  if (onlyPawnsAttack && defended) {
+    return {
+      ok: false,
+      layer: 2,
+      reason: "Hai bên mời đổi Tốt thông thường có căn bảo vệ — không phải phế Tốt tranh tiên phản công",
+    };
+  }
+
+  // Tầng 3: Cơ chế
+  if (!options?.evalAfter) {
+    return { ok: false, layer: 3, reason: "Không có biến engine để kiểm" };
+  }
+  const line = engineLine(before, move, options);
+  if (!line) {
+    return { ok: false, layer: 3, reason: "Không có biến engine đủ dài để kiểm" };
+  }
+
+  // 1. Đúng con Tốt vừa đi phải bị mất trong biến
+  const pawnLost = line.outcome.captures.find(
+    (c) => c.by === opp && c.type === "p" && c.origin === move.from,
+  );
+  if (!pawnLost) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: "Biến engine không cho thấy con Tốt này bị ăn (phế Tốt nhưng đối phương không ăn)",
+    };
+  }
+
+  // 2. Sau khi Tốt bị ăn, bên đi phản công có kết quả quyết định
+  const blow = decisiveBlow(line, pawnLost.ply + 1);
+  if (!blow) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: "Sau khi phế Tốt, bên đi không có đòn phản công quyết định (không chiếu bí hay thắng quân lớn)",
+    };
+  }
+
+  // Tầng 4: Kết quả
+  if (!soundMove(options)) {
+    return {
+      ok: false,
+      layer: 4,
+      reason: `Nước đi hớ ${options.loss ?? "?"} điểm so với nước tốt nhất`,
+    };
+  }
+
+  if (line.scoreForMover < -150) {
+    return {
+      ok: false,
+      layer: 4,
+      reason: `Engine chấm bên đi bị lép (${line.scoreForMover}) — phế Tốt không đem lại thế trận tốt`,
+    };
+  }
+
+  const summary = `Phế Tốt phản công: Tốt (${moveNotation(before, move)}) chủ động phế bỏ mở đường phản kích; theo biến: ${narrate(line, blow.end)} — ${blow.text}. Triệu Hâm Hâm: phế Tốt tranh thế, giải phóng lộ quân cho chủ lực phát động phản kích sấm sét.`;
+
+  return { ok: true, mechanism: "chủ động phế Tốt mở đường phản công", summary, acted: [move.from] };
+}
+
+/** Phế Tốt phản công: chỉ gắn khi qua cả bốn tầng của checkPheTotPhanCong. */
 export function detectPheTotPhanCong(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
 ): ZhaoMiddlegameFact | null {
-  const piece = before[move.from];
-  if (!piece) return null;
-  const mover = sideOf(piece);
-  const opp = opponent(mover);
-  if (!soundMove(options)) return null;
-
-  if (typeOf(piece) !== "p") return null;
-
-  const oppAttackers = attackersOf(after, move.to, opp);
-  if (oppAttackers.length === 0) return null;
-  // Tốt đối phương ăn lại được thì chỉ là đổi Tốt (khai cuộc thường lệ), chưa phải phế Tốt mở đường.
-  if (oppAttackers.some((sq) => typeOf(after[sq]!) === "p")) return null;
-
-  const moverDefenders = attackersOf(after, move.to, mover);
-  if (moverDefenders.length >= oppAttackers.length && before[move.to]) return null;
-
-  const col = colOf(move.from);
-  let opensMajor = false;
-  for (const pSq of pieces(after, mover, "rnc")) {
-    if (colOf(pSq) === col) {
-      opensMajor = true;
-      break;
-    }
-  }
-
-  if (!opensMajor && !inCheck(after, opp)) return null;
-
-  return fact(
-    before,
-    move,
-    "pheTotPhanCong",
-    "Phế Tốt phản công: Quyết đoán phế bỏ tiểu tốt để khai thông lộ quân, tranh tiên đoạt thế phát động phản kích sấm sét.",
-    "Phế Tốt phản công",
-  );
+  const r = checkPheTotPhanCong(before, move, after, options);
+  if (!r?.ok) return null;
+  return fact(before, move, "pheTotPhanCong", r.summary, "Phế Tốt phản công");
 }
 
 // ============================================================================
@@ -2965,39 +3817,109 @@ export function detectPheTotPhanCong(
 // ============================================================================
 
 /**
- * Chiến thuật mưu Binh (Triệu Hâm Hâm Bài 47):
- * Hàn Tín điểm binh - càng nhiều càng tốt: Ăn Tốt đối phương một cách sạch sẽ,
- * không tốn phí binh lực (binh bất huyết nhẫn), tích lũy ưu thế vật chất chuẩn bị chuyển hóa tàn cuộc tất thắng.
+ * Kiểm 4 tầng cho Bài 47 (Chiến thuật mưu Binh):
+ * 1. Hình: Nước đi ăn Tốt đối phương chưa qua sông, không phải Trung binh (Trung binh thuộc Bài 11).
+ * 2. Mục đích: "Binh bất huyết nhẫn" — ăn sạch, quân ăn không bị bắt lại chịu thiệt.
+ * 3. Cơ chế: Biến engine chứng minh quân ăn không bị đối phương bắt lại ngay, bên đi giữ vững ưu thế vật chất (cleanCapture).
+ * 4. Kết quả: Nước đi soundMove, engine không chấm bên đi thua thế (scoreForMover >= -50).
  */
-export function detectChienThuatMuuBinh(
+export function checkChienThuatMuuBinh(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
-): ZhaoMiddlegameFact | null {
+): PrincipleCheck | null {
   const piece = before[move.from];
   if (!piece) return null;
   const mover = sideOf(piece);
   const opp = opponent(mover);
-  if (!soundMove(options)) return null;
 
   const target = before[move.to];
   if (!target || typeOf(target) !== "p" || sideOf(target) !== opp) return null;
 
-  if (colOf(move.to) === 4) return null;
+  // Tầng 1: Hình — không phải Trung binh và Tốt chưa qua sông
+  if (colOf(move.to) === 4) {
+    return {
+      ok: false,
+      layer: 1,
+      reason: "Ăn Trung binh thuộc Chiến thuật đoạt Trung binh (Bài 11), không phải mưu Binh",
+    };
+  }
 
-  // "Binh bất huyết nhẫn": ăn sạch — quân ăn không bị bắt lại, và là Tốt vỏ bọc chưa qua sông của đối phương.
-  if (attackersOf(after, move.to, opp).length > 0) return null;
-  if (crossedRiver(rowOf(move.to), opp)) return null;
+  if (crossedRiver(rowOf(move.to), opp)) {
+    return {
+      ok: false,
+      layer: 1,
+      reason: "Tốt đã qua sông — đây là nước phòng thủ diệt Tốt thâm nhập, không phải mưu Binh đoạt vỏ bọc",
+    };
+  }
 
-  const moverPawns = pieces(after, mover, "p").length;
-  const oppPawns = pieces(after, opp, "p").length;
-  if (moverPawns < oppPawns) return null;
+  // Tầng 2: Mục đích — ăn sạch không bị đối phương bắt lại chịu thiệt
+  const threatened = (exchangeGain(after, move.to, opp) ?? 0) > 0;
+  if (threatened) {
+    return {
+      ok: false,
+      layer: 2,
+      reason: "Quân ăn Tốt bị đối phương bắt lại chịu thiệt — không phải ăn sạch binh bất huyết nhẫn",
+    };
+  }
 
-  return fact(
-    before,
-    move,
-    "chienThuatMuuBinh",
-    `Mưu Binh: ${nameOf(piece)} ăn Tốt (${moveNotation(before, move)}) mà không bị bắt lại — binh bất huyết nhẫn, thêm một Tốt là tích lũy ưu thế vật chất cho tàn cuộc.`,
-    "Chiến thuật mưu Binh",
+  // Tầng 3: Cơ chế
+  if (!options?.evalAfter) {
+    return { ok: false, layer: 3, reason: "Không có biến engine để kiểm" };
+  }
+  const line = engineLine(before, move, options);
+  if (!line) {
+    return { ok: false, layer: 3, reason: "Không có biến engine đủ dài để kiểm" };
+  }
+
+  // Quân ăn Tốt không bị ăn mất trong biến ở nước 1
+  const pieceLost = line.outcome.captures.find(
+    (c) => c.by === opp && c.ply === 1 && c.origin === move.from,
   );
+  if (pieceLost) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: "Biến engine cho thấy quân ăn Tốt bị đối phương ăn lại ngay — không phải clean capture",
+    };
+  }
+
+  if (line.outcome.materialAfterReply < 0) {
+    return {
+      ok: false,
+      layer: 3,
+      reason: "Biến engine không giữ được ưu thế vật chất sau khi ăn Tốt",
+    };
+  }
+
+  // Tầng 4: Kết quả
+  if (!soundMove(options)) {
+    return {
+      ok: false,
+      layer: 4,
+      reason: `Nước đi hớ ${options.loss ?? "?"} điểm so với nước tốt nhất`,
+    };
+  }
+
+  if (line.scoreForMover < -50) {
+    return {
+      ok: false,
+      layer: 4,
+      reason: `Engine chấm bên đi bị lép (${line.scoreForMover}) — ăn Tốt không đem lại ưu thế`,
+    };
+  }
+
+  const endPly = Math.min(line.plies.length - 1, 3);
+  const summary = `Chiến thuật mưu Binh: ${nameOf(piece)} ăn Tốt (${moveNotation(before, move)}) sạch sẽ không mất căn; theo biến: ${narrate(line, endPly)} — ${tally(line, endPly).text}. Triệu Hâm Hâm: mưu đoạt Tốt sạch sẽ không đổ máu (binh bất huyết nhẫn), xé toang vỏ bọc của địch để tích lũy ưu thế chuyển hóa tàn cuộc.`;
+
+  return { ok: true, mechanism: "ăn Tốt sạch sẽ không mất căn", summary, acted: [move.from] };
+}
+
+/** Chiến thuật mưu Binh: chỉ gắn khi qua cả bốn tầng của checkChienThuatMuuBinh. */
+export function detectChienThuatMuuBinh(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const r = checkChienThuatMuuBinh(before, move, after, options);
+  if (!r?.ok) return null;
+  return fact(before, move, "chienThuatMuuBinh", r.summary, "Chiến thuật mưu Binh");
 }
 
 // ============================================================================

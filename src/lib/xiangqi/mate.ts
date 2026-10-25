@@ -69,3 +69,29 @@ export function verifySolution(start: Position, moves: Move[], n: number): boole
   }
   return won(pos);
 }
+
+const same = (a: Move, b: Move) => a.from === b.from && a.to === b.to;
+
+/**
+ * Thế có biến chính (`line`): nước thứ `ply` của bên giải là đúng khi trùng biến chính, hoặc chiếu bí ngay
+ * (ở nước cuối thường có vài cách chiếu bí). Lời giải là duy nhất ở các nước trước nên không cần vét cạn.
+ */
+export function lineMoveOk(pos: Position, line: Move[], ply: number, m: Move): boolean {
+  const expected = line[ply];
+  if (expected && same(expected, m)) return true;
+  return legalMoves(pos).some((x) => same(x, m)) && won(applyMove(pos, m));
+}
+
+/** Kiểm tra lời giải gửi lên cho thế có biến chính: Đen phải đi đúng biến, ván kết thúc bằng thắng. */
+export function verifyLineSolution(start: Position, moves: Move[], line: Move[]): boolean {
+  if (moves.length === 0 || moves.length > line.length || moves.length % 2 === 0) return false;
+  let pos = start;
+  for (let i = 0; i < moves.length; i++) {
+    const m = moves[i];
+    if (!legalMoves(pos).some((x) => same(x, m))) return false;
+    if (i % 2 === 0 ? !lineMoveOk(pos, line, i, m) : !same(m, line[i])) return false;
+    pos = applyMove(pos, m);
+    if (won(pos)) return i === moves.length - 1;
+  }
+  return false;
+}

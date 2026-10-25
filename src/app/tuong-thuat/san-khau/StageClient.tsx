@@ -10,7 +10,7 @@ import { PIECE_CHAR } from "@/lib/xiangqi/notation";
 import { applyMove, inCheck, initialPosition, outcome, type Board, type PieceType, type Side } from "@/lib/xiangqi/engine";
 import { MatchCommentaryDrawer } from "./MatchCommentaryDrawer";
 import { playStageVoiceEvent, unlockAudio } from "@/lib/stage-voice";
-import { DEFAULT_STAGE_VOICE_LINES, formatEvalScore, liveClocks, zigaEloRank, type BigMoment, type StageClocks, type StageMoveItem, type StagePlayer, type StageState, type ZigaRankTier } from "../stage-sync";
+import { DEFAULT_STAGE_VOICE_LINES, formatEvalScore, liveClocks, zigaEloRank, type BigMoment, type StageClocks, type StageCommentaryDetail, type StageMoveItem, type StagePlayer, type StageState, type StageZhaoLesson, type ZigaRankTier } from "../stage-sync";
 import styles from "./stage.module.css";
 
 /** Thẻ tóm tắt cho người mới vào: chỉ hiện khi người dùng bấm hoặc nhận tin recap từ trang điều khiển. */
@@ -149,10 +149,33 @@ export interface ClockView {
 }
 
 const CRITICAL_TOTAL_MS = 30_000;
-// Vòng đếm giờ nước đi bao quanh logo người chơi (logo 146px, vòng 168px)
-const RING_SIZE = 168;
-const RING_R = 74;
+// Vòng đếm giờ nước đi bao quanh logo người chơi (logo 160px, vòng 184px)
+const RING_SIZE = 184;
+const RING_R = 82;
 const RING_C = 2 * Math.PI * RING_R;
+
+// Cành nguyệt quế bên trái vòng (bên phải lật gương): cuống cung tròn từ dưới vòng lên ngang tâm,
+// mỗi đốt mọc một cặp lá chĩa ra ngoài và vào trong.
+const LAUREL_R = RING_R + 13;
+const LEAF_PATH = "M 0 0 Q 7 -7.5 19 0 Q 7 7.5 0 0 Z";
+const LAUREL_ANGLES = [110, 122, 134, 146, 158, 170, 182];
+const laurelPoint = (deg: number) => {
+  const a = (deg * Math.PI) / 180;
+  return { x: RING_SIZE / 2 + LAUREL_R * Math.cos(a), y: RING_SIZE / 2 + LAUREL_R * Math.sin(a) };
+};
+const LAUREL_STEM = (() => {
+  const p0 = laurelPoint(104);
+  const p1 = laurelPoint(188);
+  return `M ${p0.x.toFixed(1)} ${p0.y.toFixed(1)} A ${LAUREL_R} ${LAUREL_R} 0 0 1 ${p1.x.toFixed(1)} ${p1.y.toFixed(1)}`;
+})();
+const LAUREL_LEAVES = LAUREL_ANGLES.flatMap((deg) => {
+  const p = laurelPoint(deg);
+  // Hướng tiếp tuyến khi đi ngược lên theo cuống là deg + 90
+  return [
+    { x: p.x, y: p.y, rot: deg + 90 + 34 },
+    { x: p.x, y: p.y, rot: deg + 90 - 34 },
+  ];
+});
 
 /** Giờ hiển thị của một bên lúc `now` (sân khấu tự đếm lùi giữa hai lần trang điều khiển gửi). */
 function clockView(clocks: StageClocks | null, who: "me" | "opponent", now: number): ClockView | null {
@@ -168,196 +191,154 @@ function clockView(clocks: StageClocks | null, who: "me" | "opponent", now: numb
 
 const pieceChar = (side: Side, t: PieceType) => PIECE_CHAR[side === "r" ? t.toUpperCase() : t];
 
-// Huy hiệu danh hiệu chuẩn Ziga theo 5 bậc: Tập sự, Phong trào, Kỳ thủ, Kỳ sĩ, Kỳ vương
-function RankEmblem({ title, tier }: { title: string; tier?: ZigaRankTier }) {
+// Huy hiệu danh hiệu chuẩn Ziga theo 5 bậc (Tập sự, Phong trào, Kỳ thủ, Kỳ sĩ, Kỳ vương):
+// dải băng cong viền vàng có đuôi gấp, 3 ngôi sao cắt múi nằm đè lên mép dưới.
+function rankTierOf(title: string): ZigaRankTier {
+  const s = title.toLowerCase();
+  if (s.includes("vương") || s.includes("kiện tướng")) return "kyvuong";
+  if (s.includes("sĩ") || s.includes("sỹ")) return "kysi";
+  if (s.includes("thủ") || s.includes("đối")) return "kythu";
+  if (s.includes("phong")) return "phongtrao";
+  if (s.includes("tập")) return "tapsu";
+  return "kysi";
+}
+
+// Nền dải băng (sáng → đậm, có vệt bóng ở giữa), đuôi, viền chữ
+const RIBBON_THEME: Record<ZigaRankTier, { band: string[]; tail: string[]; ink: string; trim: string[] }> = {
+  tapsu: { band: ["#c9d3dc", "#8794a3", "#5f6b79", "#38424d"], tail: ["#6b7684", "#2c343d"], ink: "#1b2128", trim: ["#ffffff", "#c8ced6", "#7c8692"] },
+  phongtrao: { band: ["#7fe38c", "#33ad4c", "#1e8237", "#0c4a1d"], tail: ["#22803a", "#093816"], ink: "#062a10", trim: ["#fff6c4", "#f2c24a", "#9a5f10"] },
+  kythu: { band: ["#ee7ade", "#bb33ab", "#901f85", "#4f0a49"], tail: ["#8e1d82", "#3d0638"], ink: "#33042e", trim: ["#fff6c4", "#f2c24a", "#9a5f10"] },
+  kysi: { band: ["#ff7a73", "#d42a33", "#a8141f", "#5a0610"], tail: ["#a3121d", "#45040b"], ink: "#3a0309", trim: ["#fff6c4", "#f2c24a", "#9a5f10"] },
+  kyvuong: { band: ["#ffd36b", "#f28a1c", "#c95410", "#6e2205"], tail: ["#c44f0e", "#561a03"], ink: "#4a1503", trim: ["#ffffff", "#ffe066", "#b86e00"] },
+};
+
+// Ngôi sao 5 cánh chia 10 múi sáng/tối xen kẽ để nổi khối như sao Ziga
+function starFacets(r: number) {
+  const ri = r * 0.5;
+  const pt = (k: number, rad: number) => {
+    const a = -Math.PI / 2 + (k * Math.PI) / 5;
+    return `${(rad * Math.cos(a)).toFixed(2)},${(rad * Math.sin(a)).toFixed(2)}`;
+  };
+  const outline: string[] = [];
+  const facets: { points: string; light: boolean }[] = [];
+  for (let k = 0; k < 10; k++) {
+    outline.push(pt(k, k % 2 ? ri : r));
+    const tip = k % 2 === 0;
+    // Mỗi cánh: nửa trái sáng, nửa phải tối (k chẵn là đỉnh nhọn)
+    facets.push({ points: `0,0 ${pt(k, tip ? r : ri)} ${pt(k + 1, tip ? ri : r)}`, light: tip });
+  }
+  return { outline: outline.join(" "), facets };
+}
+
+const BAND_PATH = "M 40 28 Q 120 56 200 28 L 200 56 Q 120 84 40 56 Z";
+const TEXT_PATH = "M 30 47 Q 120 79 210 47";
+
+function RankBadge({ title, tier, stars }: { title: string; tier?: ZigaRankTier; stars: number }) {
   const id = useId();
-  const t: ZigaRankTier = tier || (
-    title.toLowerCase().includes("vương") || title.toLowerCase().includes("kiện tướng") ? "kyvuong" :
-    title.toLowerCase().includes("sĩ") || title.toLowerCase().includes("sỹ") ? "kysi" :
-    title.toLowerCase().includes("thủ") || title.toLowerCase().includes("đối") ? "kythu" :
-    title.toLowerCase().includes("phong") ? "phongtrao" :
-    title.toLowerCase().includes("tập") ? "tapsu" : "kysi"
-  );
+  const t = tier || rankTierOf(title);
+  const theme = RIBBON_THEME[t];
+  const on = Math.max(0, Math.min(3, stars));
+  const g = (name: string) => `${id}-${name}`;
+  // Chữ to nhất có thể; tên dài (Phong trào) thì ép vừa thân băng thay vì thu nhỏ cỡ chữ
+  const fontSize = title.length > 8 ? 25 : 27;
+  const fit = title.length > 8 ? { textLength: 148, lengthAdjust: "spacingAndGlyphs" as const } : {};
 
-  const crownId = `${id}-crown`;
-  const bgId = `${id}-bg`;
-  const borderId = `${id}-border`;
-
-  // Cấu hình bảng màu sắc nét cho từng bậc danh hiệu Ziga
-  const theme = useMemo(() => {
-    switch (t) {
-      case "tapsu":
-        return {
-          crown: ["#f3f4f6", "#9ca3af", "#4b5563"],
-          crownGem: "#d1d5db",
-          bg: ["#374151", "#1f2937", "#111827"],
-          border: ["#e5e7eb", "#9ca3af", "#4b5563"],
-          innerStroke: "#4b5563",
-          wingGem: "#f3f4f6",
-        };
-      case "phongtrao":
-        return {
-          crown: ["#86efac", "#22c55e", "#14532d"],
-          crownGem: "#4ade80",
-          bg: ["#064e3b", "#022c22", "#011710"],
-          border: ["#4ade80", "#16a34a", "#14532d"],
-          innerStroke: "#15803d",
-          wingGem: "#00ff99",
-        };
-      case "kythu":
-        return {
-          crown: ["#fff8bf", "#f5c942", "#96560b"],
-          crownGem: "#ff4d4d",
-          bg: ["#4f1446", "#320a2b", "#1a0416"],
-          border: ["#e84cc8", "#a8238f", "#691258"],
-          innerStroke: "#7a1a68",
-          wingGem: "#00f0ff",
-        };
-      case "kyvuong":
-        return {
-          crown: ["#ffffff", "#ffe600", "#ff8800", "#b34700"],
-          crownGem: "#ff1a1a",
-          bg: ["#661800", "#380a00", "#1a0200"],
-          border: ["#fff275", "#ffaa00", "#a33800"],
-          innerStroke: "#992200",
-          wingGem: "#ff3b00",
-        };
-      case "kysi":
-      default:
-        return {
-          crown: ["#fff8bf", "#f5c942", "#96560b"],
-          crownGem: "#ff4d4d",
-          bg: ["#4c1119", "#2c080e", "#150306"],
-          border: ["#ffebb5", "#d8a342", "#7a4d11"],
-          innerStroke: "#6e3c12",
-          wingGem: "#ffd454",
-        };
-    }
-  }, [t]);
+  // Sao bám theo đường cong mép dưới dải băng, sao giữa to nhất
+  const starSlots = [
+    { x: 86, y: 79, r: 15, lit: on >= 2 },
+    { x: 154, y: 79, r: 15, lit: on >= 3 },
+    { x: 120, y: 84, r: 18, lit: on >= 1 },
+  ];
 
   return (
-    <svg className={styles.rankEmblem} viewBox="0 0 160 62" role="img" aria-label={title}>
-      <defs>
-        {/* Vương miện sắc nét */}
-        <linearGradient id={crownId} x1="0" y1="0" x2="0" y2="1">
-          {theme.crown.map((c, i) => (
-            <stop key={i} offset={`${(i / (theme.crown.length - 1)) * 100}%`} stopColor={c} />
-          ))}
-        </linearGradient>
-        {/* Nền dải băng */}
-        <linearGradient id={bgId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={theme.bg[0]} />
-          <stop offset="50%" stopColor={theme.bg[1]} />
-          <stop offset="100%" stopColor={theme.bg[2]} />
-        </linearGradient>
-        {/* Viền ngoài */}
-        <linearGradient id={borderId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={theme.border[0]} />
-          <stop offset="50%" stopColor={theme.border[1]} />
-          <stop offset="100%" stopColor={theme.border[2]} />
-        </linearGradient>
-      </defs>
+    <div className={styles.rankBadge}>
+      <svg className={styles.rankEmblem} viewBox="0 0 240 104" role="img" aria-label={title}>
+        <defs>
+          <linearGradient id={g("band")} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={theme.band[0]} />
+            <stop offset="42%" stopColor={theme.band[1]} />
+            <stop offset="55%" stopColor={theme.band[2]} />
+            <stop offset="100%" stopColor={theme.band[3]} />
+          </linearGradient>
+          <linearGradient id={g("tail")} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={theme.tail[0]} />
+            <stop offset="100%" stopColor={theme.tail[1]} />
+          </linearGradient>
+          <linearGradient id={g("trim")} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={theme.trim[0]} />
+            <stop offset="45%" stopColor={theme.trim[1]} />
+            <stop offset="100%" stopColor={theme.trim[2]} />
+          </linearGradient>
+          <linearGradient id={g("text")} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#ffffff" />
+            <stop offset="60%" stopColor="#ffffff" />
+            <stop offset="100%" stopColor="#ffe9b0" />
+          </linearGradient>
+          <path id={g("arc")} d={TEXT_PATH} />
+        </defs>
 
-      {/* Vương miện */}
-      <g transform="translate(80 14)">
-        <path
-          d="M -38 10 C -36 2 -26 4 -22 -2 C -18 4 -12 0 -10 -8 C -6 -2 0 -13 0 -13 C 0 -13 6 -2 10 -8 C 12 0 18 4 22 -2 C 26 4 36 2 38 10 C 26 8 16 12 0 12 C -16 12 -26 8 -38 10 Z"
-          fill={`url(#${crownId})`}
-          stroke="#4a2506"
-          strokeWidth="1.2"
-        />
-        <circle cx="0" cy="-12" r="2.5" fill={theme.crownGem} stroke="#4a1506" strokeWidth="0.8" />
-        <circle cx="-10" cy="-7" r="1.8" fill="#fff9bf" stroke="#4a2506" strokeWidth="0.6" />
-        <circle cx="10" cy="-7" r="1.8" fill="#fff9bf" stroke="#4a2506" strokeWidth="0.6" />
-      </g>
+        {/* Đuôi dải băng xẻ chữ V ở hai đầu, nằm sau thân */}
+        {[1, -1].map((dir) => (
+          <g key={dir} transform={dir === 1 ? undefined : "translate(240 0) scale(-1 1)"}>
+            <path
+              d="M 52 38 L 10 34 L 24 50 L 10 66 L 52 66 Z"
+              fill={`url(#${g("tail")})`}
+              stroke={`url(#${g("trim")})`}
+              strokeWidth="2.4"
+              strokeLinejoin="round"
+            />
+            {/* Nếp gấp nối thân với đuôi */}
+            <path d="M 40 56 L 52 66 L 52 54 Z" fill={theme.ink} opacity="0.85" />
+          </g>
+        ))}
 
-      {/* Dải băng lục giác nhọn hai đầu (Facet Crest) */}
-      <polygon
-        points="16,36 32,22 128,22 144,36 128,50 32,50"
-        fill={`url(#${bgId})`}
-        stroke={`url(#${borderId})`}
-        strokeWidth="2.8"
-        strokeLinejoin="round"
-      />
-      <polygon
-        points="22,36 34,26 126,26 138,36 126,46 34,46"
-        fill="none"
-        stroke={theme.innerStroke}
-        strokeWidth="1"
-        strokeLinejoin="round"
-      />
+        {/* Thân dải băng cong */}
+        <path d={BAND_PATH} fill={`url(#${g("band")})`} stroke={`url(#${g("trim")})`} strokeWidth="3" strokeLinejoin="round" />
+        {/* Viền chỉ sáng phía trong, tạo cảm giác dập nổi */}
+        <path d="M 44 32.5 Q 120 60 196 32.5" fill="none" stroke="#ffffff" strokeOpacity="0.45" strokeWidth="1.2" />
+        <path d="M 44 52 Q 120 79.5 196 52" fill="none" stroke={theme.ink} strokeOpacity="0.5" strokeWidth="1.2" />
 
-      {/* Hạt ngọc hai bên cánh */}
-      <polygon
-        points="16,31 21,36 16,41 11,36"
-        fill={theme.wingGem}
-        stroke="#ffffff"
-        strokeWidth="0.8"
-      />
-      <polygon
-        points="144,31 149,36 144,41 139,36"
-        fill={theme.wingGem}
-        stroke="#ffffff"
-        strokeWidth="0.8"
-      />
+        <text
+          className={styles.rankText}
+          fill={`url(#${g("text")})`}
+          stroke={theme.ink}
+          strokeWidth="4.5"
+          strokeLinejoin="round"
+          paintOrder="stroke"
+          style={{ fontSize }}
+        >
+          <textPath href={`#${g("arc")}`} startOffset="50%" textAnchor="middle" {...fit}>
+            {title}
+          </textPath>
+        </text>
+      </svg>
 
-      {/* Chữ danh hiệu (Tập sự / Phong trào / Kỳ thủ / Kỳ sĩ / Kỳ vương) */}
-      <text
-        x="80"
-        y="42"
-        textAnchor="middle"
-        className={styles.rankText}
-        fill="#fff4d0"
-        stroke="#240c1a"
-        strokeWidth="2.4"
-        paintOrder="stroke"
-        style={{ fontSize: "19px", fontWeight: "900", letterSpacing: "1px" }}
-      >
-        {title}
-      </text>
-    </svg>
+      <RankStars slots={starSlots} on={on} />
+    </div>
   );
 }
 
-// 3 Ngôi sao 5 cánh đặt trực tiếp dưới huy hiệu danh hiệu như trong ảnh mẫu
-const STAR_POLY = "0,-8.5 2.6,-2.8 8.4,-2.2 4,-0.8 5.2,5.2 0,2 -5.2,5.2 -4,-0.8 -8.4,-2.2 -2.6,-2.8";
-
-function RankStars({ stars }: { stars: number }) {
-  const id = useId();
-  const on = Math.max(0, Math.min(3, stars));
-  const litGrad = `${id}-litStar`;
-  const unlitGrad = `${id}-unlitStar`;
-
+function RankStars({ slots, on }: { slots: { x: number; y: number; r: number; lit: boolean }[]; on: number }) {
   return (
-    <svg className={styles.stars} viewBox="0 0 100 26" role="img" aria-label={`${on} sao`}>
-      <defs>
-        <linearGradient id={litGrad} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#fff9c4" />
-          <stop offset="40%" stopColor="#ffc107" />
-          <stop offset="100%" stopColor="#d87400" />
-        </linearGradient>
-        <linearGradient id={unlitGrad} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#483321" />
-          <stop offset="60%" stopColor="#2c1d12" />
-          <stop offset="100%" stopColor="#150d08" />
-        </linearGradient>
-      </defs>
-
-      {[
-        { x: 28, y: 13, lit: on >= 2 },
-        { x: 50, y: 11, lit: on >= 1 },
-        { x: 72, y: 13, lit: on >= 3 },
-      ].map((s, i) => (
-        <g key={i} transform={`translate(${s.x} ${s.y}) scale(1.15)`}>
-          <polygon
-            points={STAR_POLY}
-            fill={s.lit ? `url(#${litGrad})` : `url(#${unlitGrad})`}
-            stroke={s.lit ? "#663b06" : "#140c06"}
-            strokeWidth="1.2"
-            strokeLinejoin="round"
-          />
-        </g>
-      ))}
+    <svg className={styles.stars} viewBox="0 0 240 104" role="img" aria-label={`${on} sao`}>
+      {slots.map((s, i) => {
+        const { outline, facets } = starFacets(s.r);
+        return (
+          <g key={i} transform={`translate(${s.x} ${s.y})`}>
+            {/* Viền đậm bao ngoài */}
+            <polygon points={outline} fill="none" stroke="#3b1a02" strokeWidth="5" strokeLinejoin="round" />
+            {facets.map((f, j) => (
+              <polygon
+                key={j}
+                points={f.points}
+                fill={s.lit ? (f.light ? "#fff1a3" : "#f5a90f") : f.light ? "#8c847c" : "#5a524b"}
+              />
+            ))}
+            <polygon points={outline} fill="none" stroke={s.lit ? "#a85a00" : "#3a332d"} strokeWidth="1.2" strokeLinejoin="round" />
+            {s.lit && <circle cx={-s.r * 0.22} cy={-s.r * 0.42} r={s.r * 0.12} fill="#ffffff" opacity="0.9" />}
+          </g>
+        );
+      })}
     </svg>
   );
 }
@@ -443,51 +424,61 @@ function PlayerCard({
               <filter id={`sparkGlow-${side}`} x="-50%" y="-50%" width="200%" height="200%">
                 <feGaussianBlur stdDeviation="3.5" />
               </filter>
+              {/* Kim loại vàng nhiều dải sáng tối để vòng có độ bóng */}
               <linearGradient id={`goldRingTrack-${side}`} x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0%" stopColor="#ffd878" />
-                <stop offset="25%" stopColor="#d49537" />
-                <stop offset="50%" stopColor="#7a4a1a" />
-                <stop offset="75%" stopColor="#3d210b" />
-                <stop offset="100%" stopColor="#ffd878" />
+                <stop offset="0%" stopColor="#fff7c9" />
+                <stop offset="18%" stopColor="#f7cd4f" />
+                <stop offset="40%" stopColor="#b9771a" />
+                <stop offset="55%" stopColor="#ffe68c" />
+                <stop offset="75%" stopColor="#a5650f" />
+                <stop offset="100%" stopColor="#ffe9a3" />
+              </linearGradient>
+              <linearGradient id={`laurel-${side}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#fff0a6" />
+                <stop offset="55%" stopColor="#efb534" />
+                <stop offset="100%" stopColor="#9a5d0c" />
               </linearGradient>
             </defs>
 
-            {/* Vòng đế kim loại đồng viền 3D (Ziga authentic) */}
+            {/* Cành nguyệt quế vàng ôm hai bên vòng */}
+            {[false, true].map((mirror) => (
+              <g key={String(mirror)} transform={mirror ? `translate(${RING_SIZE} 0) scale(-1 1)` : undefined}>
+                <path d={LAUREL_STEM} fill="none" stroke="#7a4a10" strokeWidth="2" strokeLinecap="round" />
+                {LAUREL_LEAVES.map((l, i) => (
+                  <path
+                    key={i}
+                    d={LEAF_PATH}
+                    transform={`translate(${l.x} ${l.y}) rotate(${l.rot})`}
+                    fill={`url(#laurel-${side})`}
+                    stroke="#5a3008"
+                    strokeWidth="0.9"
+                  />
+                ))}
+              </g>
+            ))}
+
+            {/* Vành vàng kim dập nổi: mép tối ngoài, dải vàng bóng, chỉ sáng và mép tối trong */}
+            <circle cx={cx} cy={cy} r={RING_R + 7} stroke="#3a1d05" strokeWidth="3" fill="none" />
             <circle
               className={styles.ringTrack}
               cx={cx}
               cy={cy}
               r={RING_R}
               stroke={`url(#goldRingTrack-${side})`}
-              strokeWidth="10"
+              strokeWidth="12"
               fill="none"
             />
-            {/* Viền nổi ngoài */}
-            <circle
-              cx={cx}
-              cy={cy}
-              r={RING_R + 5.5}
-              stroke="#2e1606"
-              strokeWidth="1.5"
-              fill="none"
-            />
-            {/* Viền nổi trong */}
-            <circle
-              cx={cx}
-              cy={cy}
-              r={RING_R - 5.5}
-              stroke="#1b0d04"
-              strokeWidth="1.5"
-              fill="none"
-            />
+            <circle cx={cx} cy={cy} r={RING_R + 5.4} stroke="#fff4c2" strokeOpacity="0.75" strokeWidth="0.9" fill="none" />
+            <circle cx={cx} cy={cy} r={RING_R - 5.2} stroke="#fff0a8" strokeOpacity="0.8" strokeWidth="1" fill="none" />
+            <circle cx={cx} cy={cy} r={RING_R - 6.6} stroke="#3a1d05" strokeWidth="1.8" fill="none" />
 
             {/* Lớp phủ màu xanh trong lòng avatar cho khu vực thời gian còn lại (chuẩn Ziga) */}
             {isCounting && (
               progressLeft >= 0.98 ? (
-                <circle cx={cx} cy={cy} r={RING_R - 5.5} fill="rgba(0, 230, 38, 0.16)" />
+                <circle cx={cx} cy={cy} r={RING_R - 6} fill="rgba(0, 230, 38, 0.16)" />
               ) : (
                 <path
-                  d={`M ${cx} ${cy} L ${flareX} ${flareY} A ${RING_R - 5.5} ${RING_R - 5.5} 0 ${largeArc} 1 ${topX} ${cy - (RING_R - 5.5)} Z`}
+                  d={`M ${cx} ${cy} L ${flareX} ${flareY} A ${RING_R - 6} ${RING_R - 6} 0 ${largeArc} 1 ${topX} ${cy - (RING_R - 6)} Z`}
                   fill="rgba(0, 230, 38, 0.16)"
                 />
               )
@@ -502,7 +493,7 @@ function PlayerCard({
                   cy={cy}
                   r={RING_R}
                   stroke={strokeColor}
-                  strokeWidth="10"
+                  strokeWidth="11"
                   fill="none"
                   filter={`url(#ringGlow-${side})`}
                 />
@@ -511,7 +502,7 @@ function PlayerCard({
                   className={styles.ringFill}
                   d={`M ${flareX} ${flareY} A ${RING_R} ${RING_R} 0 ${largeArc} 1 ${topX} ${topY}`}
                   stroke={strokeColor}
-                  strokeWidth="10"
+                  strokeWidth="11"
                   strokeLinecap="round"
                   fill="none"
                   filter={`url(#ringGlow-${side})`}
@@ -538,8 +529,7 @@ function PlayerCard({
           {perMove && <span className={styles.avatarSeconds}>{perMove.seconds}</span>}
         </div>
 
-        <RankEmblem title={title} tier={rankInfo.tier} />
-        <RankStars stars={stars} />
+        <RankBadge title={title} tier={rankInfo.tier} stars={stars} />
       </div>
 
       <div className={styles.zigaMetaGroup}>
@@ -1177,6 +1167,37 @@ export function StageClient() {
   );
 }
 
+const MOVE_TAG_LABEL: Record<NonNullable<StageMoveItem["tag"]>, string> = {
+  brilliant: "!! Xuất sắc",
+  good: "! Nước tốt",
+  inaccuracy: "?! Thiếu chính xác",
+  mistake: "? Sai lầm",
+  blunder: "?? Sai nghiêm trọng",
+};
+
+/**
+ * Lời bình của nước `ply`: lời bình chi tiết (activeCommentary) chỉ thuộc nước mới nhất, nên khi lùi xem
+ * nước cũ thì lấy lời bình ngắn, điểm và bài học Triệu Hâm Hâm đã lưu trong danh sách nước.
+ */
+export function moveAnalysis(moves: StageMoveItem[], detail: StageCommentaryDetail | null, ply: number) {
+  const move = moves.find((m) => m.ply === ply);
+  const d = detail && detail.ply === ply ? detail : null;
+  const summary = d?.summary || move?.commentary || "";
+  const assessment = d?.assessment || (move?.evalCp != null ? formatEvalScore(move.evalCp) : "");
+  const intent = d?.intent || "";
+  const betterMove = d?.betterMove || "";
+  const zhao: StageZhaoLesson | null = move?.zhaoLesson ?? d?.zhaoLesson ?? null;
+  return {
+    summary,
+    assessment,
+    intent,
+    betterMove,
+    zhao,
+    tag: move?.tag ?? null,
+    empty: !summary && !assessment && !intent && !betterMove && !zhao,
+  };
+}
+
 function Stage({
   state,
   connected,
@@ -1236,15 +1257,10 @@ function Stage({
     return allMoves.slice(Math.max(0, idx - 1), idx + 1);
   }, [state.moves, selectedPly, state.ply]);
 
-  const currentZhaoLesson = useMemo(() => {
-    const current = selectedPly ?? state.ply;
-    const m = (state.moves || []).find((x) => x.ply === current);
-    if (m?.zhaoLesson) return m.zhaoLesson;
-    if (state.activeCommentary?.zhaoLesson && (!selectedPly || selectedPly === state.ply)) {
-      return state.activeCommentary.zhaoLesson;
-    }
-    return null;
-  }, [state.moves, selectedPly, state.ply, state.activeCommentary]);
+  const analysis = useMemo(
+    () => moveAnalysis(state.moves || [], state.activeCommentary ?? null, selectedPly ?? state.ply),
+    [state.moves, state.activeCommentary, selectedPly, state.ply],
+  );
   const meClock = clockView(state.clocks, "me", now);
   const oppClock = clockView(state.clocks, "opponent", now);
   const over = outcome({ board: state.board, turn });
@@ -1378,7 +1394,8 @@ function Stage({
         )}
       </div>
 
-      {/* Dòng trận cờ & lời bình dưới bàn cờ */}
+      {/* Bảng phân tích dưới bàn cờ (ván trực tiếp); phân tích ván / biến thử dùng dải một dòng vì đã có khung trên. */}
+      {review || trial ? (
       <section
         className={styles.ribbon}
         data-check={commentary?.isCheck || undefined}
@@ -1407,52 +1424,85 @@ function Stage({
               ? `${trial.notations.length > 3 ? "… " : ""}${trial.notations.slice(-3).join(" → ")}`
               : "Đang bày biến thử…"}
           </span>
-        ) : (
-          <>
-            {recentMoves.length > 0 && (
-              <div className={styles.ribbonMovesRecent}>
-                {recentMoves.map((rm) => (
-                  <span
-                    key={rm.ply}
-                    className={`${styles.recentMoveBadge} ${rm.ply === (selectedPly ?? state.ply) ? styles.recentMoveActive : ""}`}
-                  >
-                    {rm.ply % 2 === 1 ? "🔴" : "⚫"} {rm.notation}
-                  </span>
-                ))}
-              </div>
-            )}
-            <div className={styles.ribbonCommentaryArea}>
-              {currentZhaoLesson ? (
-                <span className={styles.ribbonZhaoTag} title={currentZhaoLesson.title}>
-                  📖 Triệu Hâm Hâm #{currentZhaoLesson.lesson}: {currentZhaoLesson.title}
-                </span>
-              ) : commentary ? (
-                <>
-                  <span className={styles.ribbonWho}>{commentary.who}</span>
-                  <span className={styles.ribbonMove}>{commentary.notation}</span>
-                  {commentary.isCheck && commentary.note && <span className={styles.ribbonNote}>{commentary.note}</span>}
-                </>
-              ) : (
-                <span className={styles.ribbonMove}>Ván mới bắt đầu</span>
-              )}
-            </div>
-            <button
-              type="button"
-              className={styles.ribbonOpenBtn}
-              onClick={(e) => {
-                e.stopPropagation();
-                setDrawerOpen(true);
-              }}
-              title="Mở toàn bộ trận cờ và lời bình"
-            >
-              📜 Trận cờ & Bình luận ↗
-            </button>
-          </>
-        )}
+        ) : null}
         <span className={styles.ribbonTurn}>
           {review ? (formatEvalScore(review.evalScore) || "Đang phân tích") : turnText}
         </span>
       </section>
+      ) : (
+      <section
+        className={styles.analysisPanel}
+        data-check={commentary?.isCheck || undefined}
+        onClick={() => setDrawerOpen(true)}
+        role="button"
+        tabIndex={0}
+        aria-label="Xem biên bản trận cờ và lời bình"
+        title="Bấm để mở bảng trận cờ và lời bình chuyên gia"
+      >
+        <div className={styles.apHead}>
+          <span className={styles.ribbonTag}>NƯỚC {Math.ceil((selectedPly ?? state.ply) / 2)}</span>
+          {recentMoves.length > 0 ? (
+            <div className={styles.ribbonMovesRecent}>
+              {recentMoves.map((rm) => (
+                <span
+                  key={rm.ply}
+                  className={`${styles.recentMoveBadge} ${rm.ply === (selectedPly ?? state.ply) ? styles.recentMoveActive : ""}`}
+                >
+                  <span className={styles.recentMoveDot} data-side={rm.side} aria-hidden="true" />
+                  {rm.notation}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <span className={styles.ribbonMove}>Ván mới bắt đầu</span>
+          )}
+          {analysis.tag && (
+            <span className={styles.apTag} data-tag={analysis.tag}>
+              {MOVE_TAG_LABEL[analysis.tag]}
+            </span>
+          )}
+          {commentary?.isCheck && commentary.note && <span className={styles.ribbonNote}>{commentary.note}</span>}
+          <span className={styles.apTurn}>{turnText}</span>
+        </div>
+        {analysis.empty ? (
+          <p className={styles.apSummary} data-muted>
+            Lời bình sẽ hiện ở đây sau mỗi nước đi.
+          </p>
+        ) : (
+          <div className={styles.apBody}>
+            {(analysis.assessment || analysis.summary) && (
+              <p className={styles.apSummary}>
+                {analysis.assessment && <span className={styles.apEval}>{analysis.assessment}</span>}
+                {analysis.summary}
+              </p>
+            )}
+            {(analysis.intent || analysis.betterMove) && (
+              <p className={styles.apIntent}>
+                {analysis.intent && (
+                  <>
+                    <b>🎯 Ý đồ:</b> {analysis.intent}
+                  </>
+                )}
+                {analysis.intent && analysis.betterMove && <span className={styles.apSep}>·</span>}
+                {analysis.betterMove && (
+                  <>
+                    <b>💡 Nên đi:</b> <span className={styles.apBetter}>{analysis.betterMove}</span>
+                  </>
+                )}
+              </p>
+            )}
+            {analysis.zhao && (
+              <p className={styles.apZhao} title={analysis.zhao.quote}>
+                <b>
+                  📖 Triệu Hâm Hâm #{analysis.zhao.lesson} · {analysis.zhao.title}
+                </b>
+                {analysis.zhao.quote && <span className={styles.apQuote}> — “{analysis.zhao.quote}”</span>}
+              </p>
+            )}
+          </div>
+        )}
+      </section>
+      )}
 
       {/* Hàng dưới chuẩn Ziga: 3 nút đồng bên trái (Menu, Chat, Thả tim) và thông tin kỳ thủ bạn bên phải */}
       <ZigaBottomBar

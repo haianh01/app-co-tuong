@@ -1,4 +1,5 @@
 import { Move, sq } from "./engine";
+import { DEEP_PUZZLES } from "./puzzles-deep.generated";
 import { GENERATED_PUZZLES } from "./puzzles.generated";
 
 export interface Puzzle {
@@ -7,7 +8,7 @@ export interface Puzzle {
   title: string;
   goal: string;
   /** Số nước của Đỏ để thắng. */
-  depth: 1 | 2;
+  depth: number;
   /** Chỉ dành cho thành viên VIP. */
   vip?: boolean;
   fen: string;
@@ -15,6 +16,13 @@ export interface Puzzle {
   /** Một lời giải mẫu để hiển thị khi giải xong. Mọi nước chiếu bí khác cũng được tính là đúng. */
   solution: Move;
   solutionText: string;
+  /**
+   * Thế dài (từ 3 nước) không giải vét cạn được trên trình duyệt: biến chính đã được Pikafish kiểm chứng
+   * (Đỏ, Đen, Đỏ…), mỗi nước Đỏ là cách duy nhất chiếu bí kịp số nước còn lại. Đen đỡ theo biến này.
+   */
+  line?: Move[];
+  /** Xuất xứ (sách cổ, tuyển tập), hiển thị cho người giải. */
+  source?: string;
 }
 
 const CLASSIC: Puzzle[] = [
@@ -56,6 +64,6 @@ const CLASSIC: Puzzle[] = [
 /** Chương miễn phí gợi ý (hướng dẫn cho người mới). */
 export const FREE_HINT_CHAPTER = "Sát cục cơ bản";
 
-export const PUZZLES: Puzzle[] = [...CLASSIC, ...GENERATED_PUZZLES];
+export const PUZZLES: Puzzle[] = [...CLASSIC, ...GENERATED_PUZZLES, ...DEEP_PUZZLES];
 
 export const findPuzzle = (id: string) => PUZZLES.find((p) => p.id === id);

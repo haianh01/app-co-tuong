@@ -25,13 +25,18 @@ Nguyên tắc: **không kiểm chứng được bằng biến engine thì không
 - **Tàn cuộc: xong**, đã commit (`abe7a23`). 28 bài gắn theo từng nước (đều kiểm biến engine), 12 bài "đánh giá"
   chỉ ghi chú một lần khi vào thế quân đó, 8 bài tổng kết không gắn. Phân loại nằm ở trường `kind` trong
   [zhao48-endgame-lessons.ts](../src/lib/xiangqi/zhao48-endgame-lessons.ts). Tỉ lệ gắn: 81,2% → 7,3%.
-- **Trung cuộc: làm dở, đang stage, chưa commit.** Hỏi người dùng trước khi commit; đừng revert.
-  Đã chuyển sang 4 tầng bằng hàm dùng chung (19 bài + 4 kỳ lý gốc của app):
-  - `checkAttackLine` — bài 1, 3, 12, 14, 15, 16, 17, 21, 25, 28, 29, 30, 31, 32, 33; cùng Giá Pháo.
-  - `captureStory` (vây bắt) — bài 34, 35, 36, 37.
-  - Trong [middlegame.ts](../src/lib/xiangqi/middlegame.ts): Trảm Sĩ phá Tượng, Khí tử tranh tiên, Tụ binh đột kích.
-  - Pháo trầm đáy (bài 13) là bản mẫu gốc.
-  Tỉ lệ gắn trung cuộc: 4,1% → 3,7% (568 nước / 203 ván).
+- **Trung cuộc: đã commit (`866aa77`)**, và đã **hoàn tất toàn bộ 11/11 bài trung cuộc còn lại sang 4 tầng**:
+  - Bài 2: Muộn cung sát (`checkSmotheredCannonMate`).
+  - Bài 4: Ngọa tâm Mã (`checkOaTamKnight`).
+  - Bài 5: Chuyển hóa tàn cuộc (`checkEndgameConversion`).
+  - Bài 6: Chặn đường (`checkInterference`).
+  - Bài 8: Binh quý thần tốc (`checkMatingRace`).
+  - Bài 10: Nhất Mã hoán lưỡng Tượng (`checkNhatMaHoanLuongTuong`).
+  - Bài 11: Đoạt trung binh (`checkDoatTrungBinh`).
+  - Bài 40 / 41: Một Xe đổi hai / ba (`checkMotXeDoiHai`, `checkMotXeDoiBa`).
+  - Bài 46: Phế Tốt phản công (`checkPheTotPhanCong`).
+  - Bài 47: Mưu binh (`checkChienThuatMuuBinh`).
+  - Toàn bộ test suite 4 tầng đạt 248/248 tests passed và `typecheck` sạch 100%.
 
 ## 3. Kiến trúc cần biết
 
@@ -60,24 +65,24 @@ Trong zhao-principles.ts:
 
 ## 4. Việc còn lại
 
-### 4.1. Đưa 11 bài trung cuộc còn lại sang 4 tầng (ưu tiên cao)
+### 4.1. Đưa các bài trung cuộc còn lại sang 4 tầng (ưu tiên cao)
 
 Các bài này mới chỉ qua luật kết quả chung trong `RULES` (biến sát / thắng quân / phế được bù), **chưa kiểm đúng quân làm nên hình
 có ra tay**. Làm từng bài: đọc thẻ bài trong [zhao48-lessons.ts](../src/lib/xiangqi/zhao48-lessons.ts) (`principle`, `signals`,
 `quotes`) để biết bài giảng nói cơ chế là gì, rồi viết tầng 3 cho đúng cơ chế đó. Gợi ý dưới đây là điểm xuất phát, không phải đáp án.
 
-| Bài | tacticId | Bộ nhận diện | Gợi ý tầng 3 |
+| Bài | tacticId | Bộ nhận diện | Trạng thái / Gợi ý tầng 3 |
 |---|---|---|---|
-| 2 Muộn cung | `muonCungSat` | `detectSmotheredCannonMate` | Biến phải sát; nước sát do Pháo; Tướng bị chính quân nhà chặn ô thoát ở thế cuối |
-| 4 Ngọa tâm Mã (chê) | `oaTamMa` | `detectOaTamKnight` | Bên đi mất quân / bị sát trong biến **và** Mã ở tâm cung là lý do (chặn ô thoát của Tướng, cản Sĩ) |
-| 5 Chuyển hóa tàn cuộc | `chuyenHoaTanCuoc` | `detectEndgameConversion` | Thẻ là `evaluative`: cân nhắc làm như tàn cuộc — ghi chú một lần, không khen từng nước |
-| 6 Chặn đường | `chanDuong` | `detectInterference` | Dùng `captureStory` với đúng quân bị cắt căn |
-| 8 Binh quý thần tốc | `tranhNuoc` | `detectMatingRace` | Đối phương đang dọa sát; biến cho bên đi sát trước (`mateEnd`), hoặc giải sát hoàn sát |
-| 10 Nhất Mã hoán lưỡng Tượng | `nhatMaHoanLuongTuong` | `detectNhatMaHoanLuongTuong` | Đúng con Mã đó bị mất, và bên đi ăn đủ 2 Tượng trong biến |
-| 11 Đoạt trung binh | `doatTrungBinh` | `detectDoatTrungBinh` | Đã kiểm "ăn sạch"; chỉ cần thêm: Tốt ăn được không bị lấy lại trong biến |
-| 40 / 41 Một Xe đổi hai / ba | `motXeDoiHai` / `motXeDoiBa` | `detectMotXeDoiHai` / `detectMotXeDoiBa` | Xe mất phải là Xe vừa đi (theo `origin`); kể biến bằng `narrate` thay câu khuôn |
-| 46 Phế Tốt phản công | `pheTotPhanCong` | `detectPheTotPhanCong` | Tốt bị ăn rồi quân khác phản công có kết quả (`decisiveBlow` sau nước ăn Tốt) |
-| 47 Mưu binh | `chienThuatMuuBinh` | `detectChienThuatMuuBinh` | Đọc thẻ bài trước; Tốt mục tiêu phải bị ăn trong biến (`captureStory`) |
+| 2 Muộn cung | `muonCungSat` | `detectSmotheredCannonMate` | **Xong** (`checkSmotheredCannonMate`: Pháo chiếu, Tướng bị chính quân nhà chèn kẹt ở thế cuối) |
+| 4 Ngọa tâm Mã (chê) | `oaTamMa` | `detectOaTamKnight` | **Xong** (`checkOaTamKnight`: Mã thoái hoa tim, bên đi bị sát/mất quân do Mã cản Tướng/bị bắt) |
+| 5 Chuyển hóa tàn cuộc | `chuyenHoaTanCuoc` | `detectEndgameConversion` | **Xong** (`checkEndgameConversion`: hơn vật chất, đổi ngang quân lớn về tàn cuộc `majorsLeft <= 6`, hết đòn ép; kể biến bằng `narrate`) |
+| 6 Chặn đường | `chanDuong` | `detectInterference` | **Xong** (`checkInterference`: chen vào tuyến giao liên, bắt đúng quân bị cắt căn qua `captureStory` hoặc chiếu bí) |
+| 8 Binh quý thần tốc | `tranhNuoc` | `detectMatingRace` | **Xong** (`checkMatingRace`: đối phương dọa sát, chiếu trước giành nước và biến engine sát trước hoặc bẻ gãy đòn sát) |
+| 10 Nhất Mã hoán lưỡng Tượng | `nhatMaHoanLuongTuong` | `detectNhatMaHoanLuongTuong` | **Xong** (`checkNhatMaHoanLuongTuong`: đúng Mã vừa đi bị mất qua `origin`, ăn đủ 2 Tượng trong biến) |
+| 11 Đoạt trung binh | `doatTrungBinh` | `detectDoatTrungBinh` | **Xong** (`checkDoatTrungBinh`: ăn sạch Tốt đầu, giữ được Tốt và vật chất trong biến) |
+| 40 / 41 Một Xe đổi hai / ba | `motXeDoiHai` / `motXeDoiBa` | `detectMotXeDoiHai` / `detectMotXeDoiBa` | **Xong** (`checkMotXeDoiHai`, `checkMotXeDoiBa`: đúng Xe vừa đi bị mất qua `origin`; ăn đủ 2 quân nhẹ hoặc 3 quân; kể biến bằng `narrate`) |
+| 46 Phế Tốt phản công | `pheTotPhanCong` | `detectPheTotPhanCong` | **Xong** (`checkPheTotPhanCong`: đúng Tốt vừa đi bị ăn qua `origin`; quân khác phản công có đòn quyết định `decisiveBlow`; kể biến bằng `narrate`) |
+| 47 Mưu binh | `chienThuatMuuBinh` | `detectChienThuatMuuBinh` | **Xong** (`checkChienThuatMuuBinh`: ăn sạch Tốt vỏ bọc chưa qua sông không mất căn, giữ vững ưu thế vật chất trong biến; kể biến bằng `narrate`) |
 
 Với mỗi bài: viết `checkXxx(...): PrincipleCheck | null` (trả cả tầng trượt và lý do như `checkDeepCannonBottom`) để test được
 từng tầng; `detectXxx` chỉ gọi nó rồi dựng `fact`. Viết lại lời bình theo khuôn ở mục 3, bỏ hết câu khuôn thổi phồng.

@@ -16,7 +16,10 @@
     "test:db": "vitest run --project db",
     "test:watch": "vitest --project unit --project ui",
     "admin:promote": "tsx scripts/promote-admin.ts",
-    "db:backup": "node scripts/backup-db.mjs"
+    "db:backup": "node scripts/backup-db.mjs",
+    "data:status": "node scripts/data-sync.mjs status",
+    "data:push": "node scripts/data-sync.mjs push",
+    "data:pull": "node scripts/data-sync.mjs pull"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",

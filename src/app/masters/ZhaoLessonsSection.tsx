@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ZHAO_LESSONS, type ZhaoLessonCard } from "@/lib/xiangqi/zhao48-lessons";
 import { ZHAO_ENDGAME_LESSONS, type ZhaoEndgameLessonCard } from "@/lib/xiangqi/zhao48-endgame-lessons";
-import { ZHAO_BENCHMARK_LESSONS, ZHAO_BENCHMARK_MAP } from "@/lib/xiangqi/zhao-benchmark-data";
+import { ZHAO_BENCHMARK_LESSONS, ZHAO_BENCHMARK_MAP, practiceHref, type ZhaoBook } from "@/lib/xiangqi/zhao-benchmark-data";
 import { ZhaoPositionModal } from "./ZhaoPositionModal";
 import styles from "./masters.module.css";
 
@@ -29,7 +29,7 @@ export function ZhaoLessonsSection() {
   const [search, setSearch] = useState("");
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
   const [activeVideo, setActiveVideo] = useState<{ videoId: string; title: string; timecode?: string } | null>(null);
-  const [activeBenchmarkLesson, setActiveBenchmarkLesson] = useState<number | null>(null);
+  const [activeBenchmark, setActiveBenchmark] = useState<{ book: ZhaoBook; lesson: number } | null>(null);
 
   // Gộp danh sách bài học
   const allMiddlegame: UnifiedLesson[] = useMemo(() => {
@@ -136,14 +136,15 @@ export function ZhaoLessonsSection() {
             Đối Chiếu AI Với Kỳ Lý Triệu Hâm Hâm Trên Ván Đại Sư
           </h3>
           <p className={styles.benchmarkHeroDesc}>
-            {ZHAO_BENCHMARK_LESSONS.length} thế cờ từ ván đại sư thật, phủ {Object.keys(ZHAO_BENCHMARK_MAP).length} bài
-            trung cuộc: đi nước trong ván hoặc tự đi thử, xem AI (có engine xác nhận) có nhận ra kỳ lý của bài không.
+            {ZHAO_BENCHMARK_LESSONS.length} thế cờ từ ván đại sư thật, phủ {Object.keys(ZHAO_BENCHMARK_MAP.middlegame).length} bài
+            trung cuộc và {Object.keys(ZHAO_BENCHMARK_MAP.endgame).length} bài tàn cuộc: đi nước trong ván hoặc tự đi thử, xem AI
+            (có engine xác nhận) có nhận ra kỳ lý của bài không.
           </p>
         </div>
         <button
           type="button"
           className={styles.btnLaunchBenchmark}
-          onClick={() => setActiveBenchmarkLesson(ZHAO_BENCHMARK_LESSONS[0].lesson)}
+          onClick={() => setActiveBenchmark({ book: tab, lesson: Number(Object.keys(ZHAO_BENCHMARK_MAP[tab])[0] ?? 1) })}
         >
           ⚡ Mở Bàn Cờ Kiểm Tra Ngay →
         </button>
@@ -285,52 +286,54 @@ export function ZhaoLessonsSection() {
                 {/* Các nút hành động: Xem video, So sánh AI & Luyện tập */}
                 <div className={styles.zhaoCardActions}>
                   {(() => {
-                    // Thế đối chiếu chỉ có cho bài trung cuộc (số bài tàn cuộc trùng số nhưng là bài khác)
-                    const benchmarkItem = tab === "middlegame" ? ZHAO_BENCHMARK_MAP[item.lesson] : undefined;
+                    // Hai bộ bài đánh số riêng: tra theo tab đang xem
+                    const benchmarkItem = ZHAO_BENCHMARK_MAP[tab][item.lesson];
                     return (
                       <>
                         {benchmarkItem && (
                           <button
                             type="button"
                             className={styles.btnCheckBenchmark}
-                            onClick={() => setActiveBenchmarkLesson(item.lesson)}
+                            onClick={() => setActiveBenchmark({ book: tab, lesson: item.lesson })}
                             title="Xem thế cờ trên bàn cờ và đối chiếu phân tích của AI"
                           >
-                            🎯 So sánh AI &amp; Bài giảng
+                            <span>🎯 So sánh AI &amp; Bài giảng</span>
                           </button>
                         )}
 
-                        {item.video && (
-                          <button
-                            type="button"
-                            className={styles.btnWatchVideo}
-                            onClick={() =>
-                              setActiveVideo({
-                                videoId: item.video,
-                                title: `Bài ${item.lesson}: ${item.title}`,
-                                timecode: firstQuote?.at,
-                              })
+                        <div className={styles.zhaoCardSubActions}>
+                          {item.video && (
+                            <button
+                              type="button"
+                              className={styles.btnWatchVideo}
+                              onClick={() =>
+                                setActiveVideo({
+                                  videoId: item.video,
+                                  title: `Bài ${item.lesson}: ${item.title}`,
+                                  timecode: firstQuote?.at,
+                                })
+                              }
+                            >
+                              <span>▶️ Xem Video</span>
+                            </button>
+                          )}
+
+                          <Link
+                            href={
+                              benchmarkItem
+                                ? practiceHref(benchmarkItem)
+                                : "/play"
+                            }
+                            className={styles.btnPractice}
+                            title={
+                              benchmarkItem
+                                ? "Nạp thế cờ này lên bàn cờ Chơi với máy để luyện tập"
+                                : "Luyện tập cờ"
                             }
                           >
-                            ▶️ Xem Video Bài Giảng
-                          </button>
-                        )}
-
-                        <Link
-                          href={
-                            benchmarkItem
-                              ? `/play?fen=${encodeURIComponent(benchmarkItem.fen)}&lesson=${benchmarkItem.lesson}`
-                              : "/play"
-                          }
-                          className={styles.btnPractice}
-                          title={
-                            benchmarkItem
-                              ? "Nạp thế cờ này lên bàn cờ Chơi với máy để luyện tập"
-                              : "Luyện tập cờ"
-                          }
-                        >
-                          Luyện tập cờ →
-                        </Link>
+                            <span>Luyện tập cờ →</span>
+                          </Link>
+                        </div>
                       </>
                     );
                   })()}
@@ -395,12 +398,13 @@ export function ZhaoLessonsSection() {
 
       {/* Modal Kiểm tra & Đối chiếu AI */}
       {/* key theo bài: mở bài khác thì modal khởi tạo lại từ đầu */}
-      {activeBenchmarkLesson !== null && (
+      {activeBenchmark !== null && (
         <ZhaoPositionModal
-          key={activeBenchmarkLesson}
+          key={`${activeBenchmark.book}-${activeBenchmark.lesson}`}
           isOpen
-          initialLesson={activeBenchmarkLesson}
-          onClose={() => setActiveBenchmarkLesson(null)}
+          initialBook={activeBenchmark.book}
+          initialLesson={activeBenchmark.lesson}
+          onClose={() => setActiveBenchmark(null)}
           onOpenVideo={setActiveVideo}
         />
       )}

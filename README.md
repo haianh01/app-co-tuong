@@ -46,6 +46,24 @@ Máy cấp Trung bình, Khó, Đại sư, nút Gợi ý, phân tích ván và hu
 
 Cấp quyền quản trị cho một tài khoản đã đăng ký: `npm run admin:promote -- <tên đăng nhập>`, hoặc khai báo `ADMIN_USERNAMES`.
 
+### Chuyển sang máy khác
+
+App chạy được chỉ với repo này: dữ liệu app cần (ván đại sư, cờ thế, thế đối chiếu Triệu Hâm Hâm) đã sinh sẵn thành `src/lib/xiangqi/*.generated.ts`.
+Dữ liệu nghiên cứu mà các script cần (kỳ phổ `data/`, phụ đề `.data/expert-commentary`, cache Pikafish `.data/audit-cache`,
+`.data/puzzle-mining`) có bản quyền nên **không** nằm trên repo công khai này. Chúng được đồng bộ với một repo GitHub **riêng tư**
+(`DATA_REPO_URL` trong `.env`) bằng `scripts/data-sync.mjs`.
+
+Máy mới:
+
+1. `git clone` repo này rồi `npm ci`.
+2. Chép `.env` từ máy cũ. File này chứa khoá bí mật, không đưa lên git; có `DATA_REPO_URL`.
+3. Đặt Pikafish vào `engine/` (mục trên).
+4. `npm run data:pull` để lấy dữ liệu nghiên cứu.
+
+Máy cũ, sau khi dữ liệu thay đổi: `npm run data:status` để xem, `npm run data:push` để gửi lên.
+Nếu cùng một file bị sửa ở hai máy, lệnh dừng lại và cho chọn `npm run data:push -- --mine` (giữ bản máy này) hoặc
+`npm run data:pull -- --force` (lấy bản trên repo). DB dev (`.data/pglite`) không được đồng bộ: máy mới bắt đầu với DB trống.
+
 ### Biến môi trường
 
 Xem đầy đủ trong `.env.example`. App tự nạp file `.env` khi khởi động.

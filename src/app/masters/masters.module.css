@@ -669,56 +669,19 @@
 
 .zhaoCardActions {
   display: flex;
-  gap: 10px;
-  align-items: center;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
   margin-top: auto;
-}
-
-.btnWatchVideo {
-  flex: 1;
-  background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  padding: 9px 14px;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  transition: transform 0.15s ease, opacity 0.15s ease;
-}
-
-.btnWatchVideo:hover {
-  transform: scale(1.02);
-  opacity: 0.95;
-}
-
-.btnPractice {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #e5e7eb;
-  padding: 8px 14px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  text-decoration: none;
-  white-space: nowrap;
-  transition: all 0.15s ease;
-}
-
-.btnPractice:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #fff;
+  padding-top: 14px;
 }
 
 .btnCheckBenchmark {
+  width: 100%;
   background: linear-gradient(135deg, rgba(217, 164, 65, 0.25), rgba(217, 164, 65, 0.1));
   border: 1px solid rgba(217, 164, 65, 0.5);
   color: #fbbf24;
-  padding: 8px 14px;
+  padding: 9px 14px;
   border-radius: 8px;
   font-size: 13px;
   font-weight: 600;
@@ -726,6 +689,7 @@
   white-space: nowrap;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   transition: all 0.2s ease;
   box-shadow: 0 2px 8px rgba(217, 164, 65, 0.15);
@@ -737,6 +701,63 @@
   color: #fff;
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(217, 164, 65, 0.3);
+}
+
+.zhaoCardSubActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.btnWatchVideo {
+  flex: 1;
+  min-width: 0;
+  background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.btnWatchVideo:hover {
+  transform: translateY(-1px);
+  opacity: 0.95;
+}
+
+.btnPractice {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #e5e7eb;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+  transition: all 0.15s ease;
+}
+
+.btnPractice:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  transform: translateY(-1px);
 }
 
 .benchmarkHeroCallout {

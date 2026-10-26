@@ -10,18 +10,28 @@ import { reviewMove, type PositionEval } from "@/lib/xiangqi/analysis";
 import { explainText } from "@/lib/xiangqi/explain";
 import { gameReducer, newGame } from "@/lib/xiangqi/game";
 import type { ZhaoMiddlegameFact } from "@/lib/xiangqi/middlegame";
+import type { EndgamePrincipleFact } from "@/lib/xiangqi/endgame-principles";
 import { useEngine } from "@/hooks/useEngine";
 import {
   ZHAO_BENCHMARK_LESSONS,
+  ZHAO_BOOK_NAME,
+  practiceHref,
   type ZhaoBenchmarkItem,
+  type ZhaoBook,
 } from "@/lib/xiangqi/zhao-benchmark-data";
 import styles from "./ZhaoPositionModal.module.css";
 
 /** Engine JS dự phòng (khi server không có Pikafish): tính sâu hơn mức huấn luyện, không nhiễu. */
 const FALLBACK = { depth: 4, timeMs: 1000, noise: 0 } as const;
 
+/** Kỳ lý gắn được số bài: trung cuộc (zhaoMiddlegame) hoặc tàn cuộc (endgamePrinciple). */
+type LessonFact = ZhaoMiddlegameFact | EndgamePrincipleFact;
+const bookOf = (f: LessonFact): ZhaoBook => (f.kind === "zhaoMiddlegame" ? "middlegame" : "endgame");
+const factKey = (f: LessonFact) => (f.kind === "zhaoMiddlegame" ? f.tactic : f.principle);
+
 interface Props {
   isOpen: boolean;
+  initialBook?: ZhaoBook;
   initialLesson?: number;
   onClose: () => void;
   onOpenVideo?: (video: { videoId: string; title: string; timecode?: string }) => void;
@@ -31,13 +41,14 @@ type Verdict = "invalid" | "pending" | "matched" | "other" | "none";
 
 export function ZhaoPositionModal({
   isOpen,
+  initialBook = "middlegame",
   initialLesson = 1,
   onClose,
   onOpenVideo,
 }: Props) {
   // Vị trí trong danh sách thế (một bài có thể có vài thế từ các ván khác nhau)
   const [currentIndex, setCurrentIndex] = useState<number>(() =>
-    Math.max(0, ZHAO_BENCHMARK_LESSONS.findIndex((item) => item.lesson === initialLesson)),
+    Math.max(0, ZHAO_BENCHMARK_LESSONS.findIndex((item) => item.book === initialBook && item.lesson === initialLesson)),
   );
   const [hasPlayedMove, setHasPlayedMove] = useState<boolean>(false);
   const [customMove, setCustomMove] = useState<Move | null>(null);
@@ -48,7 +59,10 @@ export function ZhaoPositionModal({
 
   const benchmarkItem: ZhaoBenchmarkItem = ZHAO_BENCHMARK_LESSONS[currentIndex];
   // Thứ tự của thế này trong các thế cùng bài, vd. "ví dụ 2/3"
-  const sameLesson = ZHAO_BENCHMARK_LESSONS.filter((item) => item.lesson === benchmarkItem.lesson);
+  const sameLesson = ZHAO_BENCHMARK_LESSONS.filter(
+    (item) => item.book === benchmarkItem.book && item.lesson === benchmarkItem.lesson,
+  );
+  const lessonLabel = `Bài ${benchmarkItem.lesson} ${ZHAO_BOOK_NAME[benchmarkItem.book].toLowerCase()}`;
   const exampleNo = sameLesson.indexOf(benchmarkItem) + 1;
 
   const startState = useMemo(() => newGame(benchmarkItem.fen), [benchmarkItem.fen]);
@@ -101,14 +115,18 @@ export function ZhaoPositionModal({
     const beforeEval = evals[fenBefore] ?? null;
     const afterEval = fenAfter ? evals[fenAfter] ?? null : null;
     if (!moveState) {
-      return { verdict: "invalid" as Verdict, zhaoFacts: [] as ZhaoMiddlegameFact[], commentary: "", scoreAfter: null };
+      return { verdict: "invalid" as Verdict, zhaoFacts: [] as LessonFact[], commentary: "", scoreAfter: null };
     }
     if (!beforeEval || (!afterEval && !terminal)) {
-      return { verdict: "pending" as Verdict, zhaoFacts: [] as ZhaoMiddlegameFact[], commentary: "", scoreAfter: null };
+      return { verdict: "pending" as Verdict, zhaoFacts: [] as LessonFact[], commentary: "", scoreAfter: null };
     }
     const { review } = reviewMove(moveState.moves[0], 0, moveState, beforeEval, afterEval, undefined, [], []);
-    const facts = review.facts.filter((f): f is ZhaoMiddlegameFact => f.kind === "zhaoMiddlegame");
-    const matched = facts.some((f) => f.lesson === benchmarkItem.lesson || f.tactic === benchmarkItem.tacticId);
+    const facts = review.facts.filter(
+      (f): f is LessonFact => (f.kind === "zhaoMiddlegame" || f.kind === "endgamePrinciple") && !!f.lesson,
+    );
+    const matched = facts.some(
+      (f) => bookOf(f) === benchmarkItem.book && (f.lesson === benchmarkItem.lesson || factKey(f) === benchmarkItem.tacticId),
+    );
     return {
       verdict: (matched ? "matched" : facts.length > 0 ? "other" : "none") as Verdict,
       zhaoFacts: facts,
@@ -188,15 +206,21 @@ export function ZhaoPositionModal({
     ? fmtScore(scoreAfter)
     : "Đang tính…";
 
+  // Bài tàn cuộc loại "đánh giá" chỉ ghi chú khi ván bước vào loại tàn cuộc đó, không khen chê nước đi
+  const matchedNote = zhaoFacts.some(
+    (f) => f.kind === "endgamePrinciple" && f.tone === "note" && f.lesson === benchmarkItem.lesson && benchmarkItem.book === "endgame",
+  );
   const verdictText =
     verdict === "invalid"
       ? `Nước ${benchmarkItem.moveNotation} không hợp lệ trong thế cờ này — dữ liệu cần sửa`
       : verdict === "pending"
       ? "Đang chờ engine chấm thế cờ…"
       : verdict === "matched"
-      ? `Engine xác nhận kỳ lý của Bài ${benchmarkItem.lesson}`
+      ? matchedNote
+        ? `AI ghi chú: nước này đưa ván vào loại tàn cuộc của ${lessonLabel}`
+        : `Engine xác nhận kỳ lý của ${lessonLabel}`
       : verdict === "other"
-      ? `AI gắn kỳ lý khác, không phải Bài ${benchmarkItem.lesson}`
+      ? `AI gắn kỳ lý khác, không phải ${lessonLabel}`
       : "AI không gắn kỳ lý nào cho nước này (biến engine không xác nhận)";
 
   return (
@@ -212,10 +236,16 @@ export function ZhaoPositionModal({
               onChange={(e) => goTo(Number(e.target.value))}
               aria-label="Chọn thế cờ đối chiếu"
             >
-              {ZHAO_BENCHMARK_LESSONS.map((item, i) => (
-                <option key={`${item.lesson}-${item.game.id}-${item.game.ply}`} value={i}>
-                  Bài {item.lesson}: {item.title} ({item.moveNotation})
-                </option>
+              {(["middlegame", "endgame"] as const).map((book) => (
+                <optgroup key={book} label={ZHAO_BOOK_NAME[book]}>
+                  {ZHAO_BENCHMARK_LESSONS.map((item, i) =>
+                    item.book === book ? (
+                      <option key={`${item.book}-${item.lesson}-${item.game.id}-${item.game.ply}`} value={i}>
+                        Bài {item.lesson}: {item.title} ({item.moveNotation})
+                      </option>
+                    ) : null,
+                  )}
+                </optgroup>
               ))}
             </select>
           </div>
@@ -320,7 +350,7 @@ export function ZhaoPositionModal({
 
               <div>
                 <strong style={{ fontSize: "14px", color: "var(--accent, #d9a441)" }}>
-                  Bài {benchmarkItem.lesson}: {benchmarkItem.title}
+                  {ZHAO_BOOK_NAME[benchmarkItem.book]} · Bài {benchmarkItem.lesson}: {benchmarkItem.title}
                 </strong>
                 <p className={styles.principleText}>{benchmarkItem.principle}</p>
               </div>
@@ -346,7 +376,7 @@ export function ZhaoPositionModal({
                   onClick={() =>
                     onOpenVideo({
                       videoId: benchmarkItem.video,
-                      title: `Bài ${benchmarkItem.lesson}: ${benchmarkItem.title}`,
+                      title: `${ZHAO_BOOK_NAME[benchmarkItem.book]} · Bài ${benchmarkItem.lesson}: ${benchmarkItem.title}`,
                       timecode: benchmarkItem.quote?.at,
                     })
                   }
@@ -382,11 +412,10 @@ export function ZhaoPositionModal({
 
               {/* Huy hiệu kỳ lý nhận diện */}
               {zhaoFacts.map((f) => (
-                <div key={f.tactic} className={styles.aiTacticBadge}>
+                <div key={factKey(f)} className={styles.aiTacticBadge}>
                   <span>📖</span>
                   <span>
-                    Kỳ lý nhận diện: {f.lesson ? `Bài ${f.lesson} • ` : ""}
-                    {f.lessonTitle ?? f.tactic}
+                    Kỳ lý nhận diện: {ZHAO_BOOK_NAME[bookOf(f)]} · Bài {f.lesson} • {f.lessonTitle ?? factKey(f)}
                   </span>
                 </div>
               ))}
@@ -413,7 +442,7 @@ export function ZhaoPositionModal({
               </span>
 
               <Link
-                href={`/play?fen=${encodeURIComponent(benchmarkItem.fen)}&lesson=${benchmarkItem.lesson}`}
+                href={practiceHref(benchmarkItem)}
                 className={styles.btnPracticeHere}
                 onClick={onClose}
               >

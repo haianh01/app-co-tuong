@@ -6,8 +6,11 @@ export interface PlaySettings {
   side: Side;
   /** Phút mỗi bên; 0 = không giới hạn. */
   minutes: number;
+  /** Thế bắt đầu (FEN) khi luyện từ bài giảng; không có = thế khai cuộc. */
   fen?: string;
+  /** Bài giảng Triệu Hâm Hâm của thế cờ, `book` cho biết bộ trung cuộc hay tàn cuộc (đánh số riêng). */
   lesson?: number;
+  book?: "endgame";
 }
 
 export const TIME_OPTIONS = [
@@ -48,6 +51,7 @@ export function parseSettings(params: Params): PlaySettings {
     minutes: TIME_OPTIONS.some((t) => t.minutes === minutes) ? minutes : 10,
     fen: fen || undefined,
     lesson,
+    book: lesson && first(params.book) === "endgame" ? "endgame" : undefined,
   };
 }
 
@@ -59,5 +63,6 @@ export function settingsHref(s: PlaySettings): string {
   });
   if (s.fen) params.set("fen", s.fen);
   if (s.lesson) params.set("lesson", String(s.lesson));
+  if (s.lesson && s.book) params.set("book", s.book);
   return `/play?${params.toString()}`;
 }

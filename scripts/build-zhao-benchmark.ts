@@ -3,7 +3,8 @@
  *
  * Thế cờ lấy từ ván đại sư thật (MASTER_GAMES), không tự dựng:
  *   1. Chạy reviewGame của app trên các ván (điểm/biến Pikafish cache chung với audit-zhao-lessons.ts) và gom các nước
- *      được gắn kỳ lý trung cuộc — tức đã qua bộ lọc "biến engine xác nhận" của reviewMove.
+ *      được gắn kỳ lý trung cuộc (zhaoMiddlegame) hoặc nguyên lý tàn cuộc có số bài (endgamePrinciple) — tức đã qua
+ *      bộ lọc "biến engine xác nhận" của reviewMove. Hai bộ bài đánh số riêng nên mỗi thế ghi kèm `book`.
  *   2. Chấm lại từng ứng viên đúng như modal làm trên trình duyệt: ván một nước từ FEN, Pikafish ANALYSIS (60k nodes,
  *      MultiPV 3), không có lịch sử nước trước. Chỉ giữ thế mà kỳ lý của bài vẫn được gắn — modal mở ra sẽ thấy đúng thế.
  *
@@ -17,6 +18,7 @@ import { legalMoves, parseFen, toFen, type Move } from "../src/lib/xiangqi/engin
 import { gameReducer, newGame, replayMoves } from "../src/lib/xiangqi/game";
 import { MASTER_GAMES } from "../src/lib/xiangqi/master-games.generated";
 import { engineScore, MATE_SCORE, moveToUci, toUciFen, uciToMove } from "../src/lib/xiangqi/uci";
+import { ZHAO_ENDGAME_LESSONS } from "../src/lib/xiangqi/zhao48-endgame-lessons";
 import { ZHAO_LESSONS } from "../src/lib/xiangqi/zhao48-lessons";
 import { getEnginePool } from "../src/server/engine/uci";
 
@@ -35,10 +37,16 @@ const load = (f: string): Record<string, Cached> => (fs.existsSync(f) ? JSON.par
 const cacheFile = path.join(cacheDir, `master-all-${NODES}.json`);
 const cache: Record<string, Cached> = { ...load(path.join(cacheDir, `master-endgame-${NODES}.json`)), ...load(cacheFile) };
 
+type Book = "middlegame" | "endgame";
+type Tone = "praise" | "critique" | "note";
+/** Thứ tự ưu tiên khi chọn thế: lời khen (kỳ lý được áp dụng) → lời chê → ghi chú loại tàn cuộc. */
+const TONE_ORDER: Record<Tone, number> = { praise: 0, critique: 1, note: 2 };
+
 interface Candidate {
+  book: Book;
   lesson: number;
   tactic: string;
-  tone: "praise" | "critique";
+  tone: Tone;
   gameId: number;
   ply: number;
   fen: string;
@@ -72,16 +80,20 @@ async function main() {
     return { score: engineScore(c.cp, c.mate), best: pv[0] ?? null, pv };
   };
 
-  const byLesson = new Map<number, Candidate[]>();
+  const byLesson = new Map<string, Candidate[]>();
+  const keyOf = (book: Book, lesson: number) => `${book}:${lesson}`;
   for (const { g, state } of games) {
     const review = reviewGame(state, state.history.map((p) => cachedEval(toFen(p))));
     review.moves.forEach((r, i) => {
       for (const f of r.facts) {
-        if (f.kind !== "zhaoMiddlegame" || !f.lesson) continue;
-        const list = byLesson.get(f.lesson) ?? [];
+        if ((f.kind !== "zhaoMiddlegame" && f.kind !== "endgamePrinciple") || !f.lesson) continue;
+        const book: Book = f.kind === "zhaoMiddlegame" ? "middlegame" : "endgame";
+        const key = keyOf(book, f.lesson);
+        const list = byLesson.get(key) ?? [];
         list.push({
+          book,
           lesson: f.lesson,
-          tactic: f.tactic,
+          tactic: f.kind === "zhaoMiddlegame" ? f.tactic : f.principle,
           tone: f.tone ?? "praise",
           gameId: g.id,
           ply: r.ply,
@@ -89,7 +101,7 @@ async function main() {
           move: state.moves[i].move,
           notation: state.moves[i].notation,
         });
-        byLesson.set(f.lesson, list);
+        byLesson.set(key, list);
       }
     });
   }
@@ -111,16 +123,25 @@ async function main() {
     const before = await liveEval(c.fen);
     const after = s1.result ? null : await liveEval(toFen(s1.history[1]));
     const { review } = reviewMove(s1.moves[0], 0, s1, before, after, undefined, [], []);
-    return review.facts.some((f) => f.kind === "zhaoMiddlegame" && (f.lesson === c.lesson || f.tactic === c.tactic));
+    return review.facts.some((f) =>
+      c.book === "middlegame"
+        ? f.kind === "zhaoMiddlegame" && (f.lesson === c.lesson || f.tactic === c.tactic)
+        : f.kind === "endgamePrinciple" && f.lesson === c.lesson,
+    );
   };
 
   const picks: Candidate[] = [];
   const report: string[] = [];
-  for (const lesson of [...byLesson.keys()].sort((a, b) => a - b)) {
-    // Lời khen trước (minh hoạ kỳ lý được áp dụng), mỗi ván tối đa một thế để đa dạng
+  const keys = [...byLesson.keys()].sort((a, b) => {
+    const [ba, la] = a.split(":");
+    const [bb, lb] = b.split(":");
+    return ba === bb ? Number(la) - Number(lb) : ba === "middlegame" ? -1 : 1;
+  });
+  for (const key of keys) {
+    // Mỗi ván tối đa một thế để đa dạng
     const seen = new Set<number>();
-    const ordered = [...byLesson.get(lesson)!]
-      .sort((a, b) => (a.tone === b.tone ? 0 : a.tone === "praise" ? -1 : 1))
+    const ordered = [...byLesson.get(key)!]
+      .sort((a, b) => TONE_ORDER[a.tone] - TONE_ORDER[b.tone])
       .filter((c) => !seen.has(c.gameId) && seen.add(c.gameId));
     const kept: Candidate[] = [];
     let tried = 0;
@@ -130,7 +151,7 @@ async function main() {
       if (await confirmedLive(c)) kept.push(c);
     }
     picks.push(...kept);
-    report.push(`Bài ${lesson}: ${byLesson.get(lesson)!.length} ứng viên, thử ${tried}, giữ ${kept.length}`);
+    report.push(`${key}: ${byLesson.get(key)!.length} ứng viên, thử ${tried}, giữ ${kept.length}`);
   }
   pool.close();
 
@@ -138,6 +159,7 @@ async function main() {
   const rows = picks.map((c) => {
     const g = meta.get(c.gameId)!;
     return {
+      book: c.book,
       lesson: c.lesson,
       tactic: c.tactic,
       tone: c.tone,
@@ -152,14 +174,16 @@ async function main() {
     out,
     `// Sinh tự động bởi scripts/build-zhao-benchmark.ts — không sửa tay.\n` +
     `// Thế cờ trong ván đại sư (MASTER_GAMES) mà kỳ lý của bài được biến Pikafish xác nhận, kể cả khi chấm lại như modal.\n\n` +
-    `export interface ZhaoBenchmarkRow {\n  lesson: number;\n  tactic: string;\n  tone: "praise" | "critique";\n  fen: string;\n  move: string;\n  moveNotation: string;\n` +
+    `export interface ZhaoBenchmarkRow {\n  /** Bộ bài: 48 bài trung cuộc (zhao48-lessons) hay 48 bài tàn cuộc (zhao48-endgame-lessons), đánh số riêng. */\n  book: "middlegame" | "endgame";\n  lesson: number;\n  tactic: string;\n  tone: "praise" | "critique" | "note";\n  fen: string;\n  move: string;\n  moveNotation: string;\n` +
     `  game: { id: number; red: string; black: string; tournament: string; date: string; ply: number };\n}\n\n` +
     `export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = ${JSON.stringify(rows, null, 2)};\n`,
   );
-  const noData = Object.values(ZHAO_LESSONS).filter((c) => c.kind !== "summary" && !picks.some((p) => p.lesson === c.lesson));
+  const noData = (book: Book, cards: { lesson: number; kind: string }[]) =>
+    cards.filter((c) => c.kind !== "summary" && !picks.some((p) => p.book === book && p.lesson === c.lesson)).map((c) => c.lesson).join(", ") || "không";
   console.log(report.join("\n"));
   console.log(`\nĐã ghi ${rows.length} thế vào ${path.relative(process.cwd(), out)}`);
-  console.log(`Bài chưa có thế (không phải bài tổng kết): ${noData.map((c) => c.lesson).join(", ") || "không"}`);
+  console.log(`Trung cuộc chưa có thế (trừ bài tổng kết): ${noData("middlegame", Object.values(ZHAO_LESSONS))}`);
+  console.log(`Tàn cuộc chưa có thế (trừ bài tổng kết): ${noData("endgame", Object.values(ZHAO_ENDGAME_LESSONS))}`);
 }
 
 main().catch((e) => {

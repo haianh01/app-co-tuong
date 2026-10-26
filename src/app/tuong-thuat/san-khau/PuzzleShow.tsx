@@ -146,9 +146,12 @@ export function PuzzleShow({ state, puzzle, transparent }: { state: StageState; 
 
   const session = puzzle.session ?? null;
   const ticker = [
-    `🧩 THỬ THÁCH CỜ THẾ cùng ${host}`,
-    "💬 Comment nước đi đầu tiên của Đỏ theo ký hiệu, ví dụ X1-6 hay M8.7",
-    "❤ Đoán đúng thì thả tim cho kênh nhé!",
+    "💻 Anh IT đang build app Cờ Tướng riêng để anh em có chỗ luyện tập & giải cờ thế cực mượt",
+    "💡 Anh em có ý tưởng gì cho app thì cứ comment để mình sửa & hoàn thiện thêm nhé!",
+    "🎯 Bác nào mê cờ vào thẩm thế này giúp em với! Comment ngay nước đầu của Đỏ nhé",
+    `🧩 THỬ THÁCH CỜ THẾ cùng Anh IT`,
+    "💬 Comment nước đi đầu tiên theo ký hiệu, ví dụ X1-6 hay M8.7",
+    "❤ Thấy cờ hay thì thả tim & nhấn Follow ủng hộ Anh IT làm app nhé!",
     settings.cta,
     puzzle.source ? `📜 Thế cờ trích từ ${puzzle.source}` : "",
     `📚 Luyện thêm ${puzzle.total ?? PUZZLES.length} thế cờ tại ${domain ? `${domain}/puzzle` : "mục Cờ thế"}`,
@@ -170,6 +173,9 @@ export function PuzzleShow({ state, puzzle, transparent }: { state: StageState; 
           <span className={styles.cameraHint}>CAMERA</span>
         </div>
       </header>
+
+      {/* Dải chữ chạy nổi bật phía trên, nằm ngay dưới Header giúp người xem thấy ngay, không bị che bởi khung bình luận livestream */}
+      <Ticker lines={ticker} />
 
       <section className={styles.card} aria-label="Đề bài">
         <div className={styles.kicker}>
@@ -194,8 +200,8 @@ export function PuzzleShow({ state, puzzle, transparent }: { state: StageState; 
           hintSquare={answer ? null : live?.hintSquare ?? null}
           selected={answer ? null : live?.selected ?? null}
           targets={answer ? [] : live?.targets ?? []}
-          arrows={answer ? puzzle.arrows : []}
-          highlights={puzzle.highlights}
+          arrows={answer ? puzzle.arrows : (live?.arrows ?? [])}
+          highlights={answer ? puzzle.highlights : (live?.highlights ?? puzzle.highlights)}
           arrowWidthScale={1.8}
           animateArrows
           className={styles.board}
@@ -231,15 +237,13 @@ export function PuzzleShow({ state, puzzle, transparent }: { state: StageState; 
         </div>
         <div className={styles.stat}>
           <span className={styles.statValue}>{session?.solved ?? 0}</span>
-          <span className={styles.statLabel}>{host} tự giải</span>
+          <span className={styles.statLabel}>Anh IT tự giải</span>
         </div>
         <div className={styles.stat}>
           <span className={styles.statValue}>{live ? live.tries + (live.status === "solved" ? 0 : 1) : 0}</span>
           <span className={styles.statLabel}>lần thử thế này</span>
         </div>
       </div>
-
-      <Ticker lines={ticker} />
     </div>
   );
 }

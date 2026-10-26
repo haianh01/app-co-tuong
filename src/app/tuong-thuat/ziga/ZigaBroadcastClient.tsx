@@ -667,7 +667,20 @@ export function ZigaBroadcastClient() {
     archiveRef.current = archive;
   }, [archive]);
 
-  const onAnnotate = useCallback((from: number, to: number) => draw({ type: "annotate", from, to, color }), [color]);
+  const onAnnotate = useCallback(
+    (from: number, to: number) => {
+      let arrowColor = color;
+      if (from !== to) {
+        const curBoard = trial.stage?.board ?? pos.board;
+        const p = curBoard[from];
+        if (p) {
+          arrowColor = sideOf(p) === "r" ? "#22c55e" : "#ef4444";
+        }
+      }
+      draw({ type: "annotate", from, to, color: arrowColor });
+    },
+    [color, trial.stage, pos.board]
+  );
 
   /** Hết ván (có nước đi): tự ghi kết quả nếu bàn cờ đã phân thắng thua mà chưa bấm, rồi sang ván sau. */
   const finishRound = () => {

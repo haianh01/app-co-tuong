@@ -78,6 +78,7 @@ export interface BoardArrow {
   kind?: "played" | "better" | "reply" | "custom";
   color?: string;
   dashed?: boolean;
+  label?: string | number;
 }
 
 export interface BoardHighlight {
@@ -466,22 +467,52 @@ export function XiangqiBoard({
               const arrowClass = animateArrows && !isDashed ? styles.animatedArrow : undefined;
               const arrowStyle = animateArrows && !isDashed ? ({ "--arrow-len": Math.ceil(dist) } as CSSProperties) : undefined;
 
+              const badgeX = p1.x + dx * 0.45;
+              const badgeY = p1.y + dy * 0.45;
+              const badgeR = 10.5 * Math.max(1, arrowWidthScale * 0.85);
+
               return (
-                <line
-                  key={`arrow-${idx}-${a.from}-${a.to}`}
-                  className={arrowClass}
-                  style={arrowStyle}
-                  x1={startX}
-                  y1={startY}
-                  x2={endX}
-                  y2={endY}
-                  stroke={strokeColor}
-                  strokeWidth={(kind === "reply" ? 3.5 : 4.5) * arrowWidthScale}
-                  strokeDasharray={isDashed ? "6 4" : undefined}
-                  strokeLinecap="round"
-                  opacity={0.9}
-                  markerEnd={`url(#${markerId})`}
-                />
+                <g key={`arrow-${idx}-${a.from}-${a.to}`}>
+                  <line
+                    className={arrowClass}
+                    style={arrowStyle}
+                    x1={startX}
+                    y1={startY}
+                    x2={endX}
+                    y2={endY}
+                    stroke={strokeColor}
+                    strokeWidth={(kind === "reply" ? 3.5 : 4.5) * arrowWidthScale}
+                    strokeDasharray={isDashed ? "6 4" : undefined}
+                    strokeLinecap="round"
+                    opacity={0.9}
+                    markerEnd={`url(#${markerId})`}
+                  />
+                  {a.label !== undefined && a.label !== null && a.label !== "" && (
+                    <g pointerEvents="none">
+                      <circle
+                        cx={badgeX}
+                        cy={badgeY}
+                        r={badgeR}
+                        fill={strokeColor}
+                        stroke="#ffffff"
+                        strokeWidth={1.8 * (arrowWidthScale >= 1.5 ? 1.3 : 1)}
+                        filter="drop-shadow(0 1px 3px rgba(0, 0, 0, 0.55))"
+                      />
+                      <text
+                        x={badgeX}
+                        y={badgeY}
+                        textAnchor="middle"
+                        dominantBaseline="central"
+                        fill="#ffffff"
+                        fontSize={11.5 * Math.max(1, arrowWidthScale * 0.85)}
+                        fontWeight="800"
+                        fontFamily="system-ui, -apple-system, BlinkMacSystemFont, sans-serif"
+                      >
+                        {a.label}
+                      </text>
+                    </g>
+                  )}
+                </g>
               );
             })}
           </svg>
@@ -489,17 +520,60 @@ export function XiangqiBoard({
 
         {sketch && sketch.from !== sketch.to && (
           <svg className={styles.overlays} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
-            <line
-              x1={place(sketch.from).x}
-              y1={place(sketch.from).y}
-              x2={place(sketch.to).x}
-              y2={place(sketch.to).y}
-              stroke={sketchColor}
-              strokeWidth={4}
-              strokeDasharray="6 4"
-              strokeLinecap="round"
-              opacity={0.6}
-            />
+            {(() => {
+              const p1 = place(sketch.from);
+              const p2 = place(sketch.to);
+              const dx = p2.x - p1.x;
+              const dy = p2.y - p1.y;
+              const pieceAtStart = board[sketch.from];
+              const activeColor = pieceAtStart
+                ? sideOf(pieceAtStart) === "r"
+                  ? "#22c55e"
+                  : "#ef4444"
+                : sketchColor;
+              const badgeX = p1.x + dx * 0.45;
+              const badgeY = p1.y + dy * 0.45;
+              const badgeR = 10.5 * Math.max(1, arrowWidthScale * 0.85);
+              const nextNumber = arrows.length + 1;
+
+              return (
+                <g pointerEvents="none">
+                  <line
+                    x1={p1.x}
+                    y1={p1.y}
+                    x2={p2.x}
+                    y2={p2.y}
+                    stroke={activeColor}
+                    strokeWidth={4 * arrowWidthScale}
+                    strokeDasharray="6 4"
+                    strokeLinecap="round"
+                    opacity={0.75}
+                  />
+                  <circle
+                    cx={badgeX}
+                    cy={badgeY}
+                    r={badgeR}
+                    fill={activeColor}
+                    stroke="#ffffff"
+                    strokeWidth={1.8}
+                    opacity={0.9}
+                  />
+                  <text
+                    x={badgeX}
+                    y={badgeY}
+                    textAnchor="middle"
+                    dominantBaseline="central"
+                    fill="#ffffff"
+                    fontSize={11.5 * Math.max(1, arrowWidthScale * 0.85)}
+                    fontWeight="800"
+                    fontFamily="system-ui, -apple-system, BlinkMacSystemFont, sans-serif"
+                    opacity={0.95}
+                  >
+                    {nextNumber}
+                  </text>
+                </g>
+              );
+            })()}
           </svg>
         )}
 

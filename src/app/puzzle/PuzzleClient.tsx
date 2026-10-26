@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import { getHint, loadPuzzleState, submitPuzzleSolution } from "@/app/actions/economy";
 import { XiangqiBoard } from "@/components/board/XiangqiBoard";
 import { ResultOverlay } from "@/components/game/GamePanels";
@@ -10,10 +10,18 @@ import { Move, applyMove, findKing, inCheck, legalMovesFrom, outcome, parseFen, 
 import { lineMoveOk, moveWins, toughestReply } from "@/lib/xiangqi/mate";
 import { moveNotation } from "@/lib/xiangqi/notation";
 import type { StagePuzzleLive } from "@/app/tuong-thuat/stage-puzzle";
+import { EMPTY_DRAWING, drawingReducer } from "@/app/tuong-thuat/drawing";
 import { FREE_HINT_CHAPTER, PUZZLES, type Puzzle } from "@/lib/xiangqi/puzzles";
 import { playSound } from "@/lib/sound";
 import { PuzzleLivePanel, usePuzzleLive } from "./PuzzleLivePanel";
 import styles from "./puzzle.module.css";
+
+const COLORS = [
+  { value: "#3b82f6", label: "Xanh dương" },
+  { value: "#22c55e", label: "Xanh lá" },
+  { value: "#ef4444", label: "Đỏ" },
+  { value: "#f59e0b", label: "Vàng" },
+];
 
 type Status = "play" | "reply" | "wrong" | "solved";
 
@@ -153,7 +161,58 @@ function PuzzleBoard({ puzzle, index, locked, live, onToggleLive, livePanel, onL
   const redMovesLeft = puzzle.depth - Math.floor(line.length / 2);
   const stars = tries === 1 && !hint ? 3 : tries <= 3 ? 2 : 1;
 
-  // Bật live: mọi thao tác trên bàn (chọn quân, đi thử, sai, Đen đỡ, giải xong) phản chiếu lên sân khấu.
+  const [sketch, draw] = useReducer(drawingReducer, EMPTY_DRAWING);
+  const [drawing, setDrawing] = useState(false);
+  const [color, setColor] = useState(COLORS[0].value);
+
+  const onAnnotate = useCallback(
+    (from: number, to: number) => {
+      let arrowColor = color;
+      if (from !== to) {
+        const piece = pos.board[from];
+        if (piece) {
+          // Quân Đỏ thì vẽ màu xanh (#22c55e), quân Đen thì vẽ màu đỏ (#ef4444)
+          arrowColor = sideOf(piece) === "r" ? "#22c55e" : "#ef4444";
+        }
+      }
+      draw({ type: "annotate", from, to, color: arrowColor });
+    },
+    [color, pos.board]
+  );
+  const clearDrawings = useCallback(() => draw({ type: "clear" }), []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      const key = e.key.toLowerCase();
+      if (e.ctrlKey || e.metaKey) {
+        if (key === "z" && !e.shiftKey) draw({ type: "undo" });
+        else if (key === "y" || (key === "z" && e.shiftKey)) draw({ type: "redo" });
+        else return;
+        e.preventDefault();
+        return;
+      }
+      if (e.altKey) return;
+      if (e.key === " " && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setDrawing((d) => !d);
+        setSelected(null);
+        return;
+      }
+      if (["1", "2", "3", "4"].includes(e.key) && !e.ctrlKey && !e.metaKey) {
+        const idx = Number(e.key) - 1;
+        if (COLORS[idx]) setColor(COLORS[idx].value);
+        return;
+      }
+      if (e.key === "Escape" || key === "c") {
+        draw({ type: "clear" });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Bật live: mọi thao tác trên bàn (chọn quân, đi thử, sai, Đen đỡ, giải xong, nét vẽ) phản chiếu lên sân khấu.
   const notations = useMemo(() => {
     let p = parseFen(puzzle.fen);
     const out: string[] = [];
@@ -169,16 +228,18 @@ function PuzzleBoard({ puzzle, index, locked, live, onToggleLive, livePanel, onL
       puzzleId: puzzle.id,
       board: pos.board,
       ids,
-      selected,
-      targets: selected !== null ? legalMovesFrom(pos, selected).map((m) => m.to) : [],
+      selected: drawing ? null : selected,
+      targets: drawing ? [] : selected !== null ? legalMovesFrom(pos, selected).map((m) => m.to) : [],
       lastMove,
       checkSquare: inCheck(pos.board, pos.turn) ? findKing(pos.board, pos.turn) : null,
       status,
       tries,
       moves: notations,
       hintSquare: hint ? puzzle.solution.from : null,
+      arrows: sketch.present.arrows,
+      highlights: sketch.present.marks,
     });
-  }, [live, onLiveState, puzzle, pos, ids, selected, lastMove, status, tries, notations, hint]);
+  }, [live, onLiveState, puzzle, pos, ids, selected, lastMove, status, tries, notations, hint, drawing, sketch.present]);
 
   const play = (move: Move, from: typeof pos, idsBefore: (number | null)[]) => {
     const next = applyMove(from, move);
@@ -285,13 +346,17 @@ function PuzzleBoard({ puzzle, index, locked, live, onToggleLive, livePanel, onL
         <XiangqiBoard
           board={pos.board}
           ids={ids}
-          selected={selected}
-          targets={targets}
+          selected={drawing ? null : selected}
+          targets={drawing ? [] : targets}
           lastMove={lastMove}
           checkSquare={checkSquare}
           hintSquare={hint && status === "play" && line.length === 0 ? puzzle.solution.from : null}
-          disabled={status !== "play" || locked}
-          onSquareClick={onSquareClick}
+          disabled={drawing ? true : (status !== "play" || locked)}
+          onSquareClick={drawing ? undefined : onSquareClick}
+          arrows={sketch.present.arrows}
+          highlights={sketch.present.marks}
+          sketchColor={color}
+          onAnnotate={drawing ? onAnnotate : undefined}
         >
           {locked && (
             <ResultOverlay seal="VIP" title="Chương dành cho VIP" detail="Mở khóa toàn bộ thế cờ nâng cao, nhận 300 xu mỗi ngày.">
@@ -306,6 +371,68 @@ function PuzzleBoard({ puzzle, index, locked, live, onToggleLive, livePanel, onL
             </ResultOverlay>
           )}
         </XiangqiBoard>
+
+        {/* Toolbar công cụ vẽ phân tích thế cờ (giống hệt mục sân khấu) */}
+        <div className={styles.toolbar} role="toolbar" aria-label="Công cụ vẽ phân tích cờ">
+          <button
+            type="button"
+            className={styles.drawBtn}
+            aria-pressed={drawing}
+            title={drawing ? "Tắt vẽ để đi quân (Phím Space)" : "Bật chế độ vẽ mũi tên & khoanh ô (Phím Space)"}
+            onClick={() => {
+              setDrawing((d) => !d);
+              setSelected(null);
+            }}
+          >
+            ✏️ {drawing ? "Đang vẽ" : "Vẽ"}
+          </button>
+          <div className={styles.swatches}>
+            {COLORS.map((c, idx) => (
+              <button
+                key={c.value}
+                type="button"
+                className={styles.swatch}
+                style={{ background: c.value }}
+                aria-label={`Màu ${c.label}`}
+                title={`Màu ${c.label} (Phím ${idx + 1})`}
+                aria-pressed={color === c.value}
+                onClick={() => {
+                  setColor(c.value);
+                  if (!drawing) setDrawing(true);
+                }}
+              />
+            ))}
+          </div>
+          <button
+            type="button"
+            className={styles.toolBtn}
+            onClick={() => draw({ type: "undo" })}
+            disabled={sketch.past.length === 0}
+            title="Hoàn tác nét vẽ (Ctrl+Z)"
+            aria-label="Hoàn tác nét vẽ"
+          >
+            ↶
+          </button>
+          <button
+            type="button"
+            className={styles.toolBtn}
+            onClick={() => draw({ type: "redo" })}
+            disabled={sketch.future.length === 0}
+            title="Làm lại (Ctrl+Y)"
+            aria-label="Làm lại nét vẽ"
+          >
+            ↷
+          </button>
+          <button
+            type="button"
+            className={styles.toolBtn}
+            onClick={clearDrawings}
+            disabled={sketch.present.arrows.length === 0 && sketch.present.marks.length === 0}
+            title="Xóa nét vẽ (Phím C hoặc Esc)"
+          >
+            Xóa nét vẽ
+          </button>
+        </div>
       </section>
 
       <aside className={styles.info}>

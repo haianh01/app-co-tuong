@@ -263,7 +263,7 @@ export const DEFAULT_STAGE_SETTINGS: StageSettings = {
   round: 1,
   today: { win: 0, draw: 0, loss: 0 },
   goal: null,
-  cta: "Follow để xem ván tiếp theo",
+  cta: "Anh IT đang build app cờ riêng · Anh em có ý tưởng gì cứ comment để mình sửa nhé! · Follow ủng hộ kênh",
   timeControl: { totalMin: 15, perMoveSec: 60 },
   voiceLines: DEFAULT_STAGE_VOICE_LINES,
 };

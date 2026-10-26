@@ -49,4 +49,16 @@ describe("hoàn tác nét vẽ", () => {
     expect(s.past).toHaveLength(2);
     expect(shown(run([{ type: "undo" }], s)).arrows).toEqual([[70, 67]]);
   });
+
+  it("tự động đánh số thứ tự tuần tự 1, 2, 3 cho các mũi tên và đánh số lại khi xóa", () => {
+    let s = run([arrow(70, 67), arrow(1, 20), arrow(30, 31)]);
+    expect(s.present.arrows.map((a) => a.label)).toEqual([1, 2, 3]);
+
+    // Xóa mũi tên số 2 (1 -> 20), mũi tên thứ 3 tự động chuyển thành số 2
+    s = run([arrow(1, 20)], s);
+    expect(s.present.arrows.map((a) => [a.from, a.to, a.label])).toEqual([
+      [70, 67, 1],
+      [30, 31, 2],
+    ]);
+  });
 });

@@ -14,11 +14,11 @@
   position: absolute;
   inset: 0;
   box-sizing: border-box;
-  padding: 36px 48px 0;
+  padding: 36px 48px 24px;
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 18px;
+  gap: 16px;
   overflow: hidden;
   color: var(--ink);
   font-family: var(--font-be-vietnam, system-ui, sans-serif);
@@ -575,27 +575,28 @@
   text-overflow: ellipsis;
 }
 
-/* ── Dải chữ chạy ── */
+/* ── Dải chữ chạy (nằm phía trên, nổi bật và không bị che) ── */
 .ticker {
   flex: none;
-  height: 72px;
+  height: 64px;
   margin: 0 -48px;
   display: flex;
   align-items: center;
   overflow: hidden;
-  background: rgba(200, 49, 42, 0.9);
-  border-top: 3px solid var(--gold);
-  border-bottom: 3px solid var(--gold);
+  background: linear-gradient(90deg, rgba(200, 49, 42, 0.95), rgba(168, 36, 30, 0.95));
+  border-top: 2.5px solid var(--gold);
+  border-bottom: 2.5px solid var(--gold);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
 
 .tickerTrack {
   display: flex;
   flex: none;
   white-space: nowrap;
-  font-size: 30px;
+  font-size: 26px;
   font-weight: 700;
   color: #fff7ea;
-  animation: marquee 40s linear infinite;
+  animation: marquee 42s linear infinite;
 }
 
 .tickerTrack span {

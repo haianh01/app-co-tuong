@@ -55,6 +55,10 @@ export interface StagePuzzleLive {
   moves: string[];
   /** Ô quân gợi ý khi người dẫn đã mở gợi ý trên trang Cờ thế. */
   hintSquare: number | null;
+  /** Các mũi tên người dẫn vẽ trên bàn cờ thế (ví dụ phân tích đòn phối hợp). */
+  arrows?: BoardArrow[];
+  /** Các ô người dẫn khoanh tròn để chỉ điểm. */
+  highlights?: (number | BoardHighlight)[];
 }
 
 export interface StagePuzzleSession {

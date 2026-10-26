@@ -15,7 +15,7 @@ export interface DrawingHistory {
 
 export type DrawingAction =
   /** Kéo từ ô này sang ô khác: thêm mũi tên (hoặc bỏ nếu đã có); from === to: khoanh/bỏ khoanh ô. */
-  | { type: "annotate"; from: number; to: number; color: string }
+  | { type: "annotate"; from: number; to: number; color: string; label?: string | number }
   | { type: "clear" }
   | { type: "undo" }
   | { type: "redo" };
@@ -25,7 +25,13 @@ const LIMIT = 100;
 
 export const EMPTY_DRAWING: DrawingHistory = { past: [], present: { arrows: [], marks: [] }, future: [] };
 
-function annotate({ arrows, marks }: Drawing, from: number, to: number, color: string): Drawing {
+function annotate(
+  { arrows, marks }: Drawing,
+  from: number,
+  to: number,
+  color: string,
+  label?: string | number,
+): Drawing {
   if (from === to) {
     const existingIdx = marks.findIndex((m) => (typeof m === "number" ? m === from : m.square === from));
     if (existingIdx >= 0) {
@@ -34,8 +40,21 @@ function annotate({ arrows, marks }: Drawing, from: number, to: number, color: s
     return { arrows, marks: [...marks, { square: from, color }] };
   }
   const same = (a: BoardArrow) => a.from === from && a.to === to;
+  if (arrows.some(same)) {
+    // Xóa mũi tên nếu đã có và đánh số lại tuần tự cho các mũi tên còn lại
+    const remaining = arrows.filter((a) => !same(a)).map((a, i) => ({ ...a, label: i + 1 }));
+    return { arrows: remaining, marks };
+  }
+  const nextNumber = arrows.length + 1;
+  const newArrow: BoardArrow = {
+    from,
+    to,
+    kind: "custom",
+    color,
+    label: label ?? nextNumber,
+  };
   return {
-    arrows: arrows.some(same) ? arrows.filter((a) => !same(a)) : [...arrows, { from, to, kind: "custom", color }],
+    arrows: [...arrows, newArrow],
     marks,
   };
 }
@@ -57,7 +76,9 @@ export function drawingReducer(state: DrawingHistory, action: DrawingAction): Dr
     case "clear":
     case "annotate": {
       const next =
-        action.type === "clear" ? EMPTY_DRAWING.present : annotate(state.present, action.from, action.to, action.color);
+        action.type === "clear"
+          ? EMPTY_DRAWING.present
+          : annotate(state.present, action.from, action.to, action.color, action.label);
       // Xóa khi chưa vẽ gì thì không tính là một bước (tự xóa khi có nước mới sẽ không làm đầy lịch sử).
       if (next.arrows.length === 0 && next.marks.length === 0 && state.present.arrows.length === 0 && state.present.marks.length === 0) {
         return state;

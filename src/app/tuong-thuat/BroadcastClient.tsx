@@ -310,7 +310,20 @@ export function BroadcastClient() {
     onBoardResult: onBoard,
   });
 
-  const onAnnotate = useCallback((from: number, to: number) => draw({ type: "annotate", from, to, color }), [color]);
+  const onAnnotate = useCallback(
+    (from: number, to: number) => {
+      let arrowColor = color;
+      if (from !== to) {
+        const curBoard = trial.stage?.board ?? pos.board;
+        const p = curBoard[from];
+        if (p) {
+          arrowColor = sideOf(p) === "r" ? "#22c55e" : "#ef4444";
+        }
+      }
+      draw({ type: "annotate", from, to, color: arrowColor });
+    },
+    [color, trial.stage, pos.board]
+  );
 
   /** Lùi nước cuối (tự đi nhầm hoặc app đọc sai): bộ theo dõi sẽ đọc lại từ thế cờ trước đó. */
   const undoMistake = () => {

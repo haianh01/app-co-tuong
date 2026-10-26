@@ -7,6 +7,9 @@ import type { BoardArrow, BoardHighlight } from "@/components/board/XiangqiBoard
 import { type Board, type Move, type PieceType, type Side, inCheck, outcome, sideOf, typeOf } from "@/lib/xiangqi/engine";
 import { PIECE_NAME } from "@/lib/xiangqi/notation";
 import { detectOpeningFromMoves } from "@/lib/xiangqi/openings";
+import type { StagePuzzlePhase, StagePuzzleState } from "./stage-puzzle";
+
+export type { StagePuzzlePhase, StagePuzzleState };
 
 export interface StagePlayer {
   name: string;
@@ -240,6 +243,8 @@ export interface StageState {
   trial?: StageTrial | null;
   /** Trạng thái chiếu phân tích / xem lại ván trên màn sân khấu (null: ván trực tiếp). */
   review?: StageReviewState | null;
+  /** Trạng thái chiếu cờ thế lên sân khấu (null: không chiếu cờ thế). Loại trừ với review. */
+  puzzle?: StagePuzzleState | null;
   moves: StageMoveItem[];
   activeCommentary?: StageCommentaryDetail | null;
   timestamp: number;
@@ -447,12 +452,17 @@ export function buildStageState(params: {
   trial?: StageTrial | null;
   /** Chiếu phân tích ván cũ lên sân khấu. */
   review?: StageReviewState | null;
+  /** Chiếu cờ thế lên sân khấu. Loại trừ với review. */
+  puzzle?: StagePuzzleState | null;
   /** Danh sách toàn bộ nước đi của ván cờ (nếu không có sẽ tự dựng từ `notations`). */
   moves?: StageMoveItem[];
   activeCommentary?: StageCommentaryDetail | null;
 }): StageState {
   const { board, turn, ply, lastMove, mySide, settings, capturedPiece } = params;
-  const trial = params.trial ?? null;
+  const puzzle = params.puzzle ?? null;
+  // Cờ thế chiếm cả sân khấu: bật cờ thế thì tắt review và biến thử (không thì sân khấu phủ lớp mờ "biến thử" lên bàn cờ thế).
+  const review = puzzle ? null : (params.review ?? null);
+  const trial = puzzle ? null : (params.trial ?? null);
   const notations = params.notations ?? [];
   const openingName = detectOpeningFromMoves(notations.slice(0, ply));
   const materialBalance = computeMaterialBalance(board, mySide);
@@ -473,7 +483,7 @@ export function buildStageState(params: {
     lastNotation: notations[ply - 1],
     capturedPiece,
     mySide,
-    review: params.review,
+    review,
     openingName,
   });
   return {
@@ -498,7 +508,8 @@ export function buildStageState(params: {
     recap: generateRecap({ settings, ply, openingName, materialBalance }),
     clocks: params.clocks ?? null,
     trial,
-    review: params.review ?? null,
+    review,
+    puzzle,
     moves,
     activeCommentary,
     timestamp: Date.now(),

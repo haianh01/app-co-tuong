@@ -19,7 +19,7 @@ import { changeResult, nextRound, resultOnBoard, type StageResult } from "./stag
 import { useStageArchive } from "./useStageArchive";
 import { findRepair } from "./board-repair";
 import { clockAfterMove, readClock, startClock, stopClock, type GameClock } from "./game-clock";
-import { buildStageState, canReview, mergePanelReading, type StageClocks, type StageReviewState } from "./stage-sync";
+import { buildStageState, canReview, mergePanelReading, type StageClocks, type StagePuzzleState, type StageReviewState } from "./stage-sync";
 import { TrialBar, useTrialMoves } from "./trial";
 import { scrollMoveIntoBox } from "./scroll-moves";
 import { clockSeconds } from "@/lib/vision/zigavn-panels";
@@ -55,6 +55,7 @@ export function BroadcastClient() {
   /** null = đang xem trực tiếp; số = đang xem lại thế cờ sau nửa nước thứ n. */
   const [viewPly, setViewPly] = useState<number | null>(null);
   const [stageReview, setStageReview] = useState<StageReviewState | null>(null);
+  const [stagePuzzle, setStagePuzzle] = useState<StagePuzzleState | null>(null);
 
   const [sketch, draw] = useReducer(drawingReducer, EMPTY_DRAWING);
   // Chưa theo dõi thì bàn cờ để đi quân (bày lại các nước trang kia đã đi); bắt đầu theo dõi thì chuyển sang vẽ.
@@ -241,15 +242,29 @@ export function BroadcastClient() {
     roundResult ||
     (game.moves.length > 0 && resultOnBoard(game.history[game.moves.length], mySide))
   );
-  // Pure anti-cheat: chỉ kích hoạt review lên sân khấu nếu thỏa mãn quy tắc an toàn
-  const activeReview = stageReview && canReview(isGameOver, game.moves.length) ? stageReview : null;
+  // Pure anti-cheat: chỉ kích hoạt review / puzzle lên sân khấu nếu thỏa mãn quy tắc an toàn
+  const canOperate = canReview(isGameOver, game.moves.length);
+  const activeReview = stageReview && canOperate ? stageReview : null;
+  const activePuzzle = stagePuzzle && canOperate ? stagePuzzle : null;
 
   const handleUpdateReview = useCallback(
     (rev: StageReviewState | null) => {
       if (rev && !canReview(isGameOver, game.moves.length)) {
         return;
       }
+      if (rev) setStagePuzzle(null);
       setStageReview(rev);
+    },
+    [isGameOver, game.moves.length],
+  );
+
+  const handleUpdatePuzzle = useCallback(
+    (puz: StagePuzzleState | null) => {
+      if (puz && !canReview(isGameOver, game.moves.length)) {
+        return;
+      }
+      if (puz) setStageReview(null);
+      setStagePuzzle(puz);
     },
     [isGameOver, game.moves.length],
   );
@@ -380,11 +395,12 @@ export function BroadcastClient() {
         // Đồng hồ chỉ đúng với thế cờ đang diễn ra; xem lại nước cũ thì ẩn.
         clocks: live ? stageClocks : null,
         review: activeReview,
+        puzzle: activePuzzle,
         // Đi thử: bàn cờ là biến thử, còn lượt đi / đồng hồ vẫn của ván thật đang chạy ngầm.
         ...(trial.stage && { ...trial.stage, turn: livePos.turn, ply: game.moves.length, capturedPiece: null, clocks: stageClocks }),
       }),
     });
-  }, [sendStage, pos, ply, lastMove, checkSquare, game.moves, sketch.present, mySide, stageSettings, lastCapturedPiece, live, stageClocks, trial.stage, livePos.turn, activeReview]);
+  }, [sendStage, pos, ply, lastMove, checkSquare, game.moves, sketch.present, mySide, stageSettings, lastCapturedPiece, live, stageClocks, trial.stage, livePos.turn, activeReview, activePuzzle]);
 
   const toggleFullscreen = () => {
     if (typeof document === "undefined") return;
@@ -601,6 +617,9 @@ export function BroadcastClient() {
           archive={archive}
           review={activeReview}
           onUpdateReview={handleUpdateReview}
+          puzzle={activePuzzle}
+          onUpdatePuzzle={handleUpdatePuzzle}
+          canOperatePuzzle={canOperate}
         />
 
         <section className={styles.card}>

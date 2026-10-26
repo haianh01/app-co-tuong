@@ -71,4 +71,66 @@ describe("StagePanel", () => {
 
     expect(onUpdateReview).toHaveBeenCalledWith(null);
   });
+
+  it("khóa nút chiếu cờ thế khi ván đang diễn ra (canOperatePuzzle === false)", () => {
+    const onUpdatePuzzle = vi.fn();
+    render(
+      <StagePanel
+        settings={DEFAULT_STAGE_SETTINGS}
+        setSettings={() => {}}
+        link={dummyLink}
+        result={null}
+        onResult={() => {}}
+        autoRead={false}
+        onAutoRead={() => {}}
+        clocks={null}
+        puzzle={null}
+        onUpdatePuzzle={onUpdatePuzzle}
+        canOperatePuzzle={false}
+      />
+    );
+
+    const btn = screen.getByRole("button", { name: /Chiếu cờ thế lên sân khấu/i });
+    expect(btn).toHaveProperty("disabled", true);
+  });
+
+  it("cho phép mở điều khiển cờ thế và tắt chiếu khi đang phát", () => {
+    const onUpdatePuzzle = vi.fn();
+    const samplePuzzle = {
+      puzzleId: "bach-dien-tuong",
+      title: "Bạch diện tướng",
+      chapter: "Sát cục cơ bản",
+      goal: "Đỏ đi trước",
+      depth: 1,
+      phase: "intro" as const,
+      board: new Array(90).fill(null),
+      lastMove: null,
+      arrows: [],
+      highlights: [],
+      revealPly: 0,
+      totalPlies: 1,
+      revealed: [],
+    };
+
+    render(
+      <StagePanel
+        settings={DEFAULT_STAGE_SETTINGS}
+        setSettings={() => {}}
+        link={dummyLink}
+        result={null}
+        onResult={() => {}}
+        autoRead={false}
+        onAutoRead={() => {}}
+        clocks={null}
+        puzzle={samplePuzzle}
+        onUpdatePuzzle={onUpdatePuzzle}
+        canOperatePuzzle={true}
+      />
+    );
+
+    expect(screen.getByText(/Đang chiếu cờ thế: Bạch diện tướng/i)).toBeTruthy();
+    const closeBtn = screen.getByRole("button", { name: /✕ Tắt chiếu/i });
+    fireEvent.click(closeBtn);
+    expect(onUpdatePuzzle).toHaveBeenCalledWith(null);
+  });
 });

@@ -11,6 +11,7 @@ import { applyMove, inCheck, initialPosition, outcome, type Board, type PieceTyp
 import { MatchCommentaryDrawer } from "./MatchCommentaryDrawer";
 import { playStageVoiceEvent, unlockAudio } from "@/lib/stage-voice";
 import { DEFAULT_STAGE_VOICE_LINES, formatEvalScore, liveClocks, zigaEloRank, type BigMoment, type StageClocks, type StageCommentaryDetail, type StageMoveItem, type StagePlayer, type StageState, type StageZhaoLesson, type ZigaRankTier } from "../stage-sync";
+import { PuzzleShow, getPreviewPuzzleState } from "./PuzzleShow";
 import styles from "./stage.module.css";
 
 /** Thẻ tóm tắt cho người mới vào: chỉ hiện khi người dùng bấm hoặc nhận tin recap từ trang điều khiển. */
@@ -85,20 +86,20 @@ function useFitScale() {
   return scale;
 }
 
-/** Hiện khoảnh khắc lớn một lúc mỗi khi có khoảnh khắc mới (theo id), rồi tự ẩn. */
-function useMoment(moment: BigMoment | null | undefined) {
-  const [shown, setShown] = useState<BigMoment | null>(null);
-  const lastId = useRef<string | null>(null);
-  // Mỗi lần đồng bộ là một object mới dù cùng khoảnh khắc, nên hẹn giờ ẩn giữ ở ref (cleanup của effect sẽ hủy nó).
-  const hideTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+/**
+ * Hiện khoảnh khắc lớn một lúc mỗi khi có khoảnh khắc mới (theo id), rồi tự ẩn. `silent`: chỉ ghi nhận id mà không hiện
+ * (đang chiếu cờ thế: tắt cờ thế xong không bật lại hiệu ứng cũ của ván thật).
+ */
+function useMoment(moment: BigMoment | null | undefined, silent = false) {
+  const [last, setLast] = useState<{ id: string | null; shown: BigMoment | null }>({ id: null, shown: null });
+  if (moment && moment.id !== last.id) setLast({ id: moment.id, shown: silent ? null : moment });
+  const shown = last.shown;
+  // Mỗi lần đồng bộ là một object mới dù cùng khoảnh khắc; `shown` giữ object đầu tiên nên hẹn giờ ẩn không bị đặt lại.
   useEffect(() => {
-    if (!moment || moment.id === lastId.current) return;
-    lastId.current = moment.id;
-    setShown(moment);
-    clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => setShown(null), MOMENT_SHOW_MS);
-  }, [moment]);
-  useEffect(() => () => clearTimeout(hideTimer.current), []);
+    if (!shown) return;
+    const t = setTimeout(() => setLast((l) => (l.shown === shown ? { ...l, shown: null } : l)), MOMENT_SHOW_MS);
+    return () => clearTimeout(t);
+  }, [shown]);
   return shown;
 }
 
@@ -1052,6 +1053,7 @@ export function StageClient() {
   const room = STAGE_ROOM_RE.test(param) ? param : null;
   const isTransparent = sp.get("bg") === "transparent" || sp.get("transparent") === "1";
   const isPreview = sp.get("preview") === "1" || sp.get("demo") === "1" || param === "preview" || param === "demo";
+  const isPuzzlePreview = sp.get("preview") === "puzzle" || sp.get("puzzle") === "1";
 
   const [ply, setPly] = useState(0);
   const recap = useRecap();
@@ -1077,16 +1079,20 @@ export function StageClient() {
   );
 
   const { state: socketState, connected: socketConnected } = useStageFeed(room, recap.show, onVoice);
-  const state = socketState ?? (isPreview ? getPreviewZigaState() : null);
-  const connected = socketConnected || isPreview;
+  const preview = useMemo(
+    () => (isPuzzlePreview ? getPreviewPuzzleState(getPreviewZigaState()) : isPreview ? getPreviewZigaState() : null),
+    [isPreview, isPuzzlePreview],
+  );
+  const state = socketState ?? preview;
+  const connected = socketConnected || isPreview || isPuzzlePreview;
 
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
   if (state && state.ply !== ply) setPly(state.ply);
   const scale = useFitScale();
-  // Sân khấu không hiện thẻ "ĂN XE!/ĂN PHÁO!…" — chỉ giữ chiếu tướng và kết thúc ván.
-  const moment = useMoment(state?.bigMoment?.type === "bigCapture" ? null : state?.bigMoment);
+  // Sân khấu không hiện thẻ "ĂN XE!/ĂN PHÁO!…" — chỉ giữ chiếu tướng và kết thúc ván. Đang chiếu cờ thế thì chỉ ghi nhận.
+  const moment = useMoment(state?.bigMoment?.type === "bigCapture" ? null : state?.bigMoment, !!state?.puzzle);
 
   // Tự động unlock âm thanh khi người dùng click/chạm vào màn hình
   useEffect(() => {
@@ -1147,6 +1153,8 @@ export function StageClient() {
                 ? "Đã kết nối. Đang chờ trang Tường thuật gửi bàn cờ…"
                 : "Đang kết nối tới trang Tường thuật…"}
           </div>
+        ) : state.puzzle ? (
+          <PuzzleShow state={state} puzzle={state.puzzle} transparent={isTransparent} />
         ) : (
           <Stage
             state={state}

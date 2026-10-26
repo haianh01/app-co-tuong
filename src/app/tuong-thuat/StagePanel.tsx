@@ -1,7 +1,9 @@
 "use client";
 
 import { StageReviewControl } from "./StageReviewControl";
+import { StagePuzzleControl } from "./StagePuzzleControl";
 import type { StageReviewState } from "./stage-sync";
+import type { StagePuzzleState } from "./stage-puzzle";
 import Link from "next/link";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -78,13 +80,14 @@ function getRoom(): string {
   return roomCache;
 }
 const noSubscribe = () => () => {};
+const noRoom = () => null;
 
 /**
  * Kết nối điều khiển tới /ws/stage. Tin "state" gần nhất được gửi lại mỗi lần nối lại (server khởi động lại thì mất
- * trạng thái cũ).
+ * trạng thái cũ). `enabled = false`: không kết nối, cũng không sinh mã phòng (trang Cờ thế khi chưa bật live).
  */
-export function useStageLink() {
-  const room = useSyncExternalStore(noSubscribe, getRoom, () => null);
+export function useStageLink(enabled = true) {
+  const room = useSyncExternalStore(noSubscribe, enabled ? getRoom : noRoom, noRoom);
   const [viewers, setViewers] = useState(0);
   const [online, setOnline] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -207,6 +210,9 @@ export function StagePanel({
   archive,
   review,
   onUpdateReview,
+  puzzle,
+  onUpdatePuzzle,
+  canOperatePuzzle,
 }: {
   settings: StageSettings;
   setSettings: (update: (s: StageSettings) => StageSettings) => void;
@@ -234,11 +240,15 @@ export function StagePanel({
   };
   review?: StageReviewState | null;
   onUpdateReview?: (review: StageReviewState | null) => void;
+  puzzle?: StagePuzzleState | null;
+  onUpdatePuzzle?: (puzzle: StagePuzzleState | null) => void;
+  canOperatePuzzle?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [recapSent, setRecapSent] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [puzzleOpen, setPuzzleOpen] = useState(false);
   const stageUrl = link.room ? `${typeof window === "undefined" ? "" : window.location.origin}/tuong-thuat/san-khau?room=${link.room}` : "";
   const goal = settings.goal ?? { label: "tim", current: 0, target: 0 };
   const setGoal = (g: Partial<typeof goal>) => setSettings((s) => ({ ...s, goal: { ...goal, ...g } }));
@@ -313,10 +323,28 @@ export function StagePanel({
             type="button"
             className={styles.btn}
             style={review ? { borderColor: "#a855f7", color: "#c084fc", fontWeight: 600 } : undefined}
-            onClick={() => setReviewOpen((v) => !v)}
+            onClick={() => {
+              setReviewOpen((v) => !v);
+              if (!reviewOpen) setPuzzleOpen(false);
+            }}
             title="Chiếu phân tích AI và bước ngoặt ván cờ lên màn sân khấu OBS"
           >
             {review ? "🎬 Đang chiếu phân tích" : "🎬 Phân tích lên sân khấu"}
+          </button>
+        )}
+        {onUpdatePuzzle && (
+          <button
+            type="button"
+            className={styles.btn}
+            style={puzzle ? { borderColor: "#f59e0b", color: "#fbbf24", fontWeight: 600 } : undefined}
+            onClick={() => {
+              setPuzzleOpen(!puzzleOpen);
+              if (!puzzleOpen) setReviewOpen(false);
+            }}
+            disabled={canOperatePuzzle === false}
+            title={canOperatePuzzle === false ? "Ván đang diễn ra, bị khóa để chống gian lận" : "Chiếu cờ thế lên sân khấu livestream"}
+          >
+            {puzzle ? "🧩 Đang chiếu cờ thế" : "🧩 Chiếu cờ thế lên sân khấu"}
           </button>
         )}
       </div>
@@ -357,6 +385,43 @@ export function StagePanel({
           onUpdateReview={onUpdateReview}
           lastSavedRound={archive?.savedRound}
           lastSavedGameId={archive?.gameId}
+        />
+      )}
+
+      {puzzle && (
+        <div className={styles.stagePuzzleBanner}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className={styles.stagePulseDot} style={{ background: "#f59e0b" }} />
+            <span style={{ fontSize: 13, fontWeight: 600 }}>
+              Đang chiếu cờ thế: {puzzle.title} ({puzzle.phase})
+            </span>
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button
+              type="button"
+              className={styles.btn}
+              style={{ fontSize: 12, padding: "2px 8px" }}
+              onClick={() => setPuzzleOpen(!puzzleOpen)}
+            >
+              {puzzleOpen ? "Thu gọn" : "Điều khiển"}
+            </button>
+            <button
+              type="button"
+              className={styles.btn}
+              style={{ fontSize: 12, padding: "2px 8px", color: "#f87171", borderColor: "#f87171" }}
+              onClick={() => onUpdatePuzzle?.(null)}
+            >
+              ✕ Tắt chiếu
+            </button>
+          </div>
+        </div>
+      )}
+
+      {puzzleOpen && onUpdatePuzzle && (
+        <StagePuzzleControl
+          currentPuzzle={puzzle ?? null}
+          onUpdatePuzzle={onUpdatePuzzle}
+          canOperate={canOperatePuzzle !== false}
         />
       )}
 

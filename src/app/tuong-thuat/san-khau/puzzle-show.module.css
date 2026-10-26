@@ -1,0 +1,665 @@
+/* Sân khấu "Thử thách cờ thế" 1080×1920 (dọc), tông mực tàu – giấy dó – triện đỏ của Kỳ Đài, khác hẳn giao diện ván Ziga.
+   Từ trên xuống: tên chương trình + camera 36–206 · thẻ đề bài 224–404 · dải mục tiêu 422–506 · bàn cờ 524–1543 ·
+   dòng trạng thái 1563–1667 · thành tích 1685–1795 · dải chữ chạy 1813–1885. */
+
+.show {
+  --gold: #d9a441;
+  --gold-hi: #f6d58b;
+  --seal: #c8312a;
+  --paper: #f3e6c8;
+  --ink: #f4ecdc;
+  --muted: #b8a98c;
+  --panel: rgba(28, 20, 15, 0.86);
+  --line: rgba(217, 164, 65, 0.35);
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  padding: 36px 48px 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 18px;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--font-be-vietnam, system-ui, sans-serif);
+  background:
+    radial-gradient(ellipse 70% 40% at 50% 46%, rgba(217, 164, 65, 0.16), transparent 70%),
+    radial-gradient(ellipse 120% 60% at 50% 110%, rgba(200, 49, 42, 0.22), transparent 60%),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.012) 0 2px, transparent 2px 7px),
+    #16110e;
+}
+
+/* Chữ 棋 mờ làm nền */
+.show::before {
+  content: "棋";
+  position: absolute;
+  right: -120px;
+  top: 300px;
+  font-family: var(--font-noto-serif-sc, serif);
+  font-size: 900px;
+  line-height: 1;
+  color: rgba(217, 164, 65, 0.035);
+  pointer-events: none;
+}
+
+.show[data-transparent="true"] {
+  background: transparent;
+}
+
+.show[data-transparent="true"]::before {
+  display: none;
+}
+
+/* ── Tên chương trình ── */
+.header {
+  position: relative;
+  height: 170px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.seal {
+  flex: none;
+  width: 120px;
+  height: 120px;
+  border-radius: 14px;
+  background: var(--seal);
+  color: #fff3e6;
+  font-family: var(--font-noto-serif-sc, serif);
+  font-size: 46px;
+  font-weight: 700;
+  line-height: 1.05;
+  writing-mode: vertical-rl;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 0 5px rgba(255, 243, 230, 0.25), 0 10px 30px rgba(200, 49, 42, 0.4);
+  transform: rotate(-4deg);
+}
+
+.brand {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.showName {
+  margin: 0;
+  font-family: var(--font-noto-serif, serif);
+  font-size: 54px;
+  font-weight: 800;
+  line-height: 1.1;
+  white-space: nowrap;
+  background: linear-gradient(180deg, var(--gold-hi), var(--gold) 60%, #a8741f);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 3px 0 rgba(0, 0, 0, 0.5));
+}
+
+.hostRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 30px;
+}
+
+.liveDot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ff3b30;
+  box-shadow: 0 0 12px #ff3b30;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.liveTag {
+  padding: 2px 12px;
+  border-radius: 8px;
+  background: #ff3b30;
+  color: #fff;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 2px;
+}
+
+.host {
+  color: var(--paper);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Khung chừa chỗ cho webcam OBS đặt đè lên */
+.camera {
+  flex: none;
+  width: 260px;
+  height: 160px;
+  border-radius: 18px;
+  border: 3px solid var(--line);
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 10px;
+  box-sizing: border-box;
+}
+
+.cameraHint {
+  font-size: 18px;
+  letter-spacing: 4px;
+  color: rgba(184, 169, 140, 0.5);
+}
+
+/* ── Thẻ đề bài ── */
+.card {
+  flex: none;
+  height: 180px;
+  box-sizing: border-box;
+  padding: 18px 28px;
+  border-radius: 24px;
+  border: 2px solid var(--line);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+}
+
+.kicker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: var(--gold);
+  text-transform: uppercase;
+}
+
+.dotSep {
+  color: var(--muted);
+}
+
+.stars {
+  margin-left: auto;
+  font-size: 30px;
+  letter-spacing: 2px;
+  color: var(--gold-hi);
+}
+
+.starsOff {
+  color: rgba(184, 169, 140, 0.25);
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-noto-serif, serif);
+  font-size: 50px;
+  font-weight: 800;
+  line-height: 1.2;
+  color: var(--paper);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.source {
+  margin: 0;
+  font-size: 22px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Dải mục tiêu: câu "móc" người xem ── */
+.goal {
+  flex: none;
+  height: 84px;
+  margin: 0 -48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(90deg, transparent, var(--seal) 12%, #e04a37 50%, var(--seal) 88%, transparent);
+  color: #fff7ea;
+  font-family: var(--font-noto-serif, serif);
+  font-size: 38px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  text-shadow: 0 3px 0 rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+}
+
+/* Đang đếm ngược: chừa bên phải dải mục tiêu cho vòng đếm ngược */
+.show[data-thinking] .goal {
+  justify-content: flex-start;
+  padding-left: 90px;
+  font-size: 34px;
+}
+
+/* ── Bàn cờ ── */
+/* Dùng chuẩn bàn cờ Ziga sân khấu livestream: nét đậm, vân gỗ sáng ấm, viền gỗ 3D, 4 góc xanh neon */
+.boardWrap {
+  position: relative;
+  flex: none;
+  width: 860px;
+  align-self: center;
+  border-radius: 20px;
+  transition: filter 0.3s;
+}
+
+.boardWrap[data-win] {
+  filter: drop-shadow(0 0 45px rgba(246, 213, 139, 0.75));
+}
+
+.boardWrap[data-wrong] {
+  filter: drop-shadow(0 0 40px rgba(255, 77, 61, 0.75));
+  animation: shake 0.45s;
+}
+
+.board {
+  width: 860px !important;
+  max-width: 860px !important;
+  padding: 0 !important;
+  border-radius: 20px !important;
+  box-shadow:
+    0 20px 48px rgba(60, 40, 20, 0.45),
+    0 4px 12px rgba(60, 40, 20, 0.25),
+    inset 0 0 0 5px #8c5523,
+    inset 0 0 0 7px #dcb383 !important;
+  border: 4px solid #6b3e15 !important;
+  overflow: hidden !important;
+  background: transparent !important;
+
+  /* Sân khấu chuẩn bàn cờ Ziga: nét đậm, vân gỗ bạch dương sáng ấm, chữ Hán thư pháp, 4 góc xanh neon */
+  --board: linear-gradient(
+    180deg,
+    #f3e1c6 0%,
+    #eed9b8 14%,
+    #ebd5b2 28%,
+    #ebd3ae 45%,
+    #e4c9a2 60%,
+    #dfc39a 75%,
+    #d9bb8f 88%,
+    #d2b182 100%
+  ) !important;
+  --board-line: #381a07 !important;
+  --piece-face: radial-gradient(circle at 45% 35%, #fffdf7 0%, #faecd5 45%, #e9ce9d 85%, #dcba7e 100%) !important;
+  --piece-red: #ba1717 !important;
+  --piece-black: #111111 !important;
+  --piece-edge: #7f5122 !important;
+  --board-grid-width: 2.8;
+  --board-frame-width: 4.5;
+  --board-text-opacity: 0 !important;
+  /* Ẩn chữ 楚河漢界 để hiện chữ Cờ Ziga mờ giữa sông, giữ số cột rõ nét */
+  --board-label-opacity: 0.92;
+  --board-label-size: 24px;
+  --board-label-weight: 800;
+  --piece-border: 2.8px;
+  --piece-ring: 1.8px;
+  --han-scale: 1.15;
+  /* Dấu nước vừa đi & góc chọn quân: 4 góc xanh neon Ziga */
+  --last-from-size: 5%;
+  --last-from-border: 4px;
+  --last-from-color: #00ff44;
+  --last-corner-color: #00ff44;
+  --last-corner-thick: 8.5%;
+}
+
+/* Vòng đếm ngược */
+/* Vòng đếm ngược nằm đè dải mục tiêu và lề trên bàn cờ (hàng số cột), không che ô cờ nào. */
+.countdown {
+  position: absolute;
+  top: -168px;
+  right: -40px;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: rgba(22, 17, 14, 0.94);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+}
+
+.countdownRing {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg);
+}
+
+.countdownTrack {
+  fill: none;
+  stroke: rgba(217, 164, 65, 0.18);
+  stroke-width: 12;
+}
+
+.countdownArc {
+  fill: none;
+  stroke: var(--gold);
+  stroke-width: 12;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.25s linear;
+}
+
+.countdownValue {
+  position: relative;
+  font-family: var(--font-noto-serif, serif);
+  font-size: 70px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--gold-hi);
+}
+
+.countdownLabel {
+  position: relative;
+  margin-top: 6px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.countdown[data-urgent] .countdownArc {
+  stroke: #ff4d3d;
+}
+
+.countdown[data-urgent] .countdownValue {
+  color: #ff6b5c;
+  animation: pulse 0.5s ease-in-out infinite;
+}
+
+.countdown[data-over] .countdownValue {
+  font-size: 40px;
+  color: #ff6b5c;
+}
+
+/* Triện "SAI!" khi người dẫn đi sai */
+.stampWrong {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  padding: 8px 40px;
+  border: 10px solid #ff4d3d;
+  border-radius: 20px;
+  color: #ff4d3d;
+  background: rgba(22, 17, 14, 0.55);
+  font-family: var(--font-noto-serif, serif);
+  font-size: 140px;
+  font-weight: 900;
+  transform: translate(-50%, -50%) rotate(-12deg);
+  animation: stampIn 0.35s cubic-bezier(0.2, 1.6, 0.4, 1);
+  z-index: 6;
+  pointer-events: none;
+}
+
+/* Triện 絕殺 khi chiếu bí: đóng giữa bàn rồi thu về góc */
+.stampWin {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 360px;
+  height: 360px;
+  border-radius: 40px;
+  background: var(--seal);
+  box-shadow: inset 0 0 0 10px rgba(255, 243, 230, 0.3), 0 20px 60px rgba(200, 49, 42, 0.6);
+  color: #fff3e6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  animation: winStamp 3.2s cubic-bezier(0.2, 1.2, 0.4, 1) forwards;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.stampWinCn {
+  font-family: var(--font-noto-serif-sc, serif);
+  font-size: 150px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.stampWinVi {
+  margin-top: 10px;
+  font-size: 44px;
+  font-weight: 800;
+  letter-spacing: 2px;
+}
+
+/* Lời mời sau khi lật xong đáp án */
+.cta {
+  position: absolute;
+  left: 50%;
+  bottom: 36px;
+  transform: translateX(-50%);
+  padding: 16px 36px;
+  border-radius: 999px;
+  background: rgba(22, 17, 14, 0.92);
+  border: 3px solid var(--gold);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+  z-index: 5;
+}
+
+.cta strong {
+  font-size: 32px;
+  color: var(--gold-hi);
+}
+
+.cta span {
+  font-size: 22px;
+  color: var(--muted);
+}
+
+/* ── Dòng trạng thái ── */
+.status {
+  flex: none;
+  height: 104px;
+  box-sizing: border-box;
+  margin-top: 2px;
+  padding: 0 28px 0 0;
+  border-radius: 24px;
+  background: var(--panel);
+  border: 2px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  overflow: hidden;
+}
+
+.statusTag {
+  flex: none;
+  align-self: stretch;
+  min-width: 190px;
+  padding: 0 22px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gold);
+  color: #1a120c;
+  font-size: 30px;
+  font-weight: 900;
+  letter-spacing: 1px;
+}
+
+.statusText {
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.status[data-tone="wrong"] {
+  border-color: #ff4d3d;
+}
+
+.status[data-tone="wrong"] .statusTag {
+  background: #ff4d3d;
+  color: #fff;
+}
+
+.status[data-tone="win"] {
+  border-color: var(--gold-hi);
+}
+
+.status[data-tone="win"] .statusTag {
+  background: var(--seal);
+  color: #fff3e6;
+  font-family: var(--font-noto-serif-sc, var(--font-be-vietnam), serif);
+}
+
+.status[data-tone="hint"] .statusTag {
+  background: #2f8f6a;
+  color: #fff;
+}
+
+.status[data-tone="answer"] .statusTag {
+  background: var(--paper);
+}
+
+.status[data-tone="busy"] .statusTag {
+  background: #3a7bd5;
+  color: #fff;
+}
+
+/* ── Thành tích ── */
+.stats {
+  flex: none;
+  height: 110px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.stat {
+  border-radius: 20px;
+  background: rgba(243, 230, 200, 0.06);
+  border: 2px solid rgba(243, 230, 200, 0.1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.statValue {
+  font-family: var(--font-noto-serif, serif);
+  font-size: 50px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--gold-hi);
+}
+
+.statLabel {
+  margin-top: 6px;
+  max-width: 300px;
+  font-size: 22px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Dải chữ chạy ── */
+.ticker {
+  flex: none;
+  height: 72px;
+  margin: 0 -48px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  background: rgba(200, 49, 42, 0.9);
+  border-top: 3px solid var(--gold);
+  border-bottom: 3px solid var(--gold);
+}
+
+.tickerTrack {
+  display: flex;
+  flex: none;
+  white-space: nowrap;
+  font-size: 30px;
+  font-weight: 700;
+  color: #fff7ea;
+  animation: marquee 40s linear infinite;
+}
+
+.tickerTrack span {
+  padding-right: 120px;
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@keyframes shake {
+  20%,
+  60% {
+    transform: translateX(-14px);
+  }
+  40%,
+  80% {
+    transform: translateX(14px);
+  }
+}
+
+@keyframes stampIn {
+  from {
+    transform: translate(-50%, -50%) rotate(-12deg) scale(2.6);
+    opacity: 0;
+  }
+}
+
+@keyframes winStamp {
+  0% {
+    transform: translate(-50%, -50%) rotate(-10deg) scale(2.4);
+    opacity: 0;
+  }
+  14% {
+    transform: translate(-50%, -50%) rotate(-10deg) scale(1);
+    opacity: 1;
+  }
+  70% {
+    transform: translate(-50%, -50%) rotate(-10deg) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-160%, -175%) rotate(-10deg) scale(0.42);
+    opacity: 0.95;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tickerTrack,
+  .liveDot,
+  .stampWin,
+  .stampWrong,
+  .boardWrap[data-wrong] {
+    animation: none;
+  }
+}

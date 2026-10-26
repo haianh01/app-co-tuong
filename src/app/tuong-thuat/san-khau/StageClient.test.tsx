@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyMove, initialPosition } from "@/lib/xiangqi/engine";
+import { applyMove, initialPosition, parseFen } from "@/lib/xiangqi/engine";
+import { PUZZLES, findPuzzle, type Puzzle } from "@/lib/xiangqi/puzzles";
+import { buildPuzzleStage, type StagePuzzleLive, type StagePuzzleState } from "../stage-puzzle";
 import { moveNotation } from "@/lib/xiangqi/notation";
 import { DEFAULT_STAGE_SETTINGS, buildStageState } from "../stage-sync";
 import { StageClient, moveAnalysis } from "./StageClient";
@@ -418,5 +420,105 @@ describe("bảng phân tích dưới bàn cờ", () => {
     expect(screen.getByText("Mã 2 tiến 3")).toBeDefined();
     expect(screen.getByText(/Triệu Hâm Hâm #3 · Pháo đầu tranh tiên/)).toBeDefined();
     expect(screen.getByText(/pháo đầu là nước mạnh/)).toBeDefined();
+  });
+});
+
+describe("sân khấu Thử thách cờ thế", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const sample = findPuzzle("bach-dien-tuong")!;
+  const deep = PUZZLES.find((p) => (p.line?.length ?? 0) >= 5)!;
+
+  function send(puzzle: StagePuzzleState, base = stateAfterCentralCannon()) {
+    FakeSocket.all[0].receive({ t: "state", state: { ...base, puzzle } });
+    return base;
+  }
+
+  function liveOf(p: Puzzle, patch: Partial<StagePuzzleLive> = {}): StagePuzzleLive {
+    return {
+      puzzleId: p.id, board: parseFen(p.fen).board, selected: null, targets: [], lastMove: null, checkSquare: null,
+      status: "play", tries: 0, moves: [], hintSquare: null, ...patch,
+    };
+  }
+
+  it("thay hẳn giao diện ván Ziga: tên chương trình, đề bài, mục tiêu", () => {
+    render(<StageClient />);
+    send({ ...buildPuzzleStage(sample, "intro", 0), number: 1, total: PUZZLES.length });
+
+    expect(screen.getByText("THỬ THÁCH CỜ THẾ")).toBeDefined();
+    expect(screen.getByText("Bạch diện tướng")).toBeDefined();
+    expect(screen.getByText(sample.goal)).toBeDefined();
+    expect(screen.getByText(`THẾ #1 / ${PUZZLES.length}`)).toBeDefined();
+    expect(screen.queryByText(/zigavn/i)).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("Bạn tìm ra nước đầu tiên chưa?");
+  });
+
+  it("đếm ngược cho khán giả đoán", () => {
+    render(<StageClient />);
+    send(buildPuzzleStage(sample, "thinking", 0, { countdown: { startedAt: Date.now(), durationMs: 60_000 } }));
+    expect(screen.getByText("GIÂY ĐỂ ĐOÁN")).toBeDefined();
+    expect(screen.getByRole("status").textContent).toContain("Comment nước đi đầu tiên");
+  });
+
+  it("phản chiếu người dẫn đang giải: chọn quân, đi thử, sai, giải xong", () => {
+    render(<StageClient />);
+    const base = buildPuzzleStage(deep, "intro", 0);
+
+    send({ ...base, live: liveOf(deep, { selected: deep.solution.from }) });
+    expect(screen.getByRole("status").textContent).toContain("đang cân nhắc");
+
+    send({ ...base, live: liveOf(deep, { moves: ["X6.1", "S5/4"], tries: 1 }) });
+    expect(screen.getByRole("status").textContent).toContain("đang giải: 1. X6.1  S5/4");
+    expect(screen.getByText("LẦN 2")).toBeDefined();
+
+    send({ ...base, live: liveOf(deep, { status: "wrong", moves: ["X6.1"], tries: 2 }) });
+    expect(screen.getByText("SAI!")).toBeDefined();
+    expect(screen.getByText("CHƯA ĐÚNG")).toBeDefined();
+
+    send({ ...base, live: liveOf(deep, { status: "solved", moves: ["X6.1"], tries: 3 }) });
+    expect(screen.getByRole("img", { name: "Chiếu bí" })).toBeDefined();
+    expect(screen.getByRole("status").textContent).toContain("đã giải được sau 3 lần thử");
+  });
+
+  it("bàn phản chiếu của thế khác không lên sân khấu", () => {
+    render(<StageClient />);
+    // usePuzzleLive chỉ gắn `live` khi trùng thế; sân khấu vẫn dùng bàn cờ của thế đang chiếu nếu không có `live`.
+    send(buildPuzzleStage(sample, "hint", 0));
+    expect(screen.getByRole("status").textContent).toContain(sample.hint);
+  });
+
+  it("lật đáp án: chỉ hiện các nước đã lật, đánh số theo nước Đỏ", () => {
+    render(<StageClient />);
+    send(buildPuzzleStage(deep, "reveal", 2, { caption: "Xe thí quân" }));
+    const text = screen.getByRole("status").textContent ?? "";
+    expect(screen.getByText("ĐÁP ÁN")).toBeDefined();
+    expect(text).toMatch(/^ĐÁP ÁN1\. \S+  \S+ — Xe thí quân$/);
+  });
+
+  it("giải xong: triện 絕殺 và lời mời giải thử tại đúng tên miền", () => {
+    render(<StageClient />);
+    send(buildPuzzleStage(sample, "solved", 1));
+    expect(screen.getByRole("img", { name: "Chiếu bí" })).toBeDefined();
+    expect(screen.getByText(`Giải thử tại ${window.location.host}/puzzle`)).toBeDefined();
+  });
+
+  it("tắt cờ thế không chiếu lại hiệu ứng cũ của ván thật", () => {
+    vi.useFakeTimers();
+    render(<StageClient />);
+    const ws = FakeSocket.all[0];
+    const base = stateAfterCentralCannon();
+    base.bigMoment = { id: "check-5", type: "check", title: "將軍", badge: "將" };
+
+    ws.receive({ t: "state", state: base });
+    expect(screen.getByText("將軍")).toBeDefined();
+    act(() => vi.advanceTimersByTime(4000));
+
+    ws.receive({ t: "state", state: { ...base, puzzle: buildPuzzleStage(sample, "solved", 1) } });
+    act(() => vi.advanceTimersByTime(4000));
+
+    ws.receive({ t: "state", state: base });
+    expect(screen.queryByText("將軍")).toBeNull();
   });
 });

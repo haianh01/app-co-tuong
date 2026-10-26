@@ -2,7 +2,7 @@
 // Đồng hồ giả cho lần tự đặt lại sau nước sai và nước đỡ của máy.
 
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionUser } from "@/lib/session-types";
 import { applyMove, legalMoves, outcome, parseFen, sq, type Move } from "@/lib/xiangqi/engine";
 import { toughestReply, winningMoves } from "@/lib/xiangqi/mate";
@@ -329,5 +329,68 @@ describe("PuzzleClient", () => {
     expect(actions.getHint).toHaveBeenCalledWith(PUZZLES[i].id);
     expect(status()).toBe(`Gợi ý: ${PUZZLES[i].hint}`);
     expect(session.refresh).toHaveBeenCalled();
+  });
+});
+
+describe("chiếu lên live", () => {
+  /** WebSocket giả tới /ws/stage: ghi lại tin trang Cờ thế gửi cho sân khấu. */
+  class FakeSocket {
+    static all: FakeSocket[] = [];
+    static OPEN = 1;
+    readyState = 1;
+    sent: string[] = [];
+    onopen: (() => void) | null = null;
+    onmessage: ((e: { data: string }) => void) | null = null;
+    onclose: (() => void) | null = null;
+    constructor(public url: string) {
+      FakeSocket.all.push(this);
+    }
+    send(text: string) {
+      this.sent.push(text);
+    }
+    close() {}
+  }
+
+  beforeEach(() => {
+    FakeSocket.all = [];
+    vi.stubGlobal("WebSocket", FakeSocket);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("chưa bật live thì không kết nối sân khấu", () => {
+    render(<PuzzleClient />);
+    expect(FakeSocket.all).toHaveLength(0);
+  });
+
+  it("bật live: điều khiển ngay trên trang, gửi đúng thế đang xem lên sân khấu", () => {
+    render(<PuzzleClient />);
+    fireEvent.click(screen.getByRole("button", { name: /Chiếu lên live/ }));
+
+    expect(screen.getByText("Sân khấu livestream")).toBeDefined();
+    // Khóa vào thế đang xem: không có bộ lọc / ô chọn thế riêng.
+    expect(screen.queryByPlaceholderText(/Tìm theo tên thế cờ/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /🎪 Lên sân khấu/ }));
+    const ws = FakeSocket.all[0];
+    expect(ws.url).toContain("/ws/stage");
+    expect(ws.url).toContain("role=control");
+    const msg = JSON.parse(ws.sent.at(-1)!);
+    expect(msg.t).toBe("state");
+    expect(msg.state.puzzle).toMatchObject({ puzzleId: PUZZLES[0].id, phase: "intro", revealed: [] });
+
+    // Người dẫn chọn quân trên bàn giải: sân khấu thấy ngay.
+    const from = PUZZLES[0].solution.from;
+    act(() => tap(Math.floor(from / 9), from % 9));
+    const mirrored = JSON.parse(ws.sent.at(-1)!);
+    expect(mirrored.state.puzzle.live).toMatchObject({ puzzleId: PUZZLES[0].id, selected: from, status: "play" });
+  });
+
+  it("thế VIP đang khóa thì không hiện nút", () => {
+    render(<PuzzleClient />);
+    const vip = PUZZLES[firstOf((p) => !!p.vip)];
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(vip.title) }));
+    expect(screen.queryByRole("button", { name: /Chiếu lên live/ })).toBeNull();
   });
 });

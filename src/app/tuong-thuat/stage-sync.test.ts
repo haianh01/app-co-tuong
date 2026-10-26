@@ -207,3 +207,68 @@ describe("zigaEloRank", () => {
     expect(zigaEloRank(null, null, null, "b")).toMatchObject({ tier: "kythu", avatarUrl: "/stage/avatar_black.jpg" });
   });
 });
+
+describe("buildStageState - puzzle và review loại trừ nhau", () => {
+  const baseParams = {
+    board: parseFen(START_FEN).board,
+    turn: "r" as const,
+    ply: 0,
+    lastMove: null,
+    checkSquare: null,
+    notations: [],
+    arrows: [],
+    highlights: [],
+    mySide: "r" as const,
+    settings: DEFAULT_STAGE_SETTINGS,
+  };
+
+  const sampleReview: StageReviewState = {
+    gameId: "game-1",
+    round: 1,
+    ply: 2,
+    totalPlies: 10,
+    board: parseFen(START_FEN).board,
+    lastMove: null,
+    evalScore: 50,
+  };
+
+  const samplePuzzle = {
+    puzzleId: "bach-dien-tuong",
+    title: "Bạch diện tướng",
+    chapter: "Sát cục cơ bản",
+    goal: "Đỏ đi trước, chiếu bí trong 1 nước.",
+    depth: 1,
+    phase: "intro" as const,
+    board: parseFen(START_FEN).board,
+    lastMove: null,
+    arrows: [],
+    highlights: [],
+    revealPly: 0,
+    totalPlies: 1,
+    revealed: [],
+  };
+
+  it("gán đúng puzzle vào stage state khi được truyền", () => {
+    const state = buildStageState({ ...baseParams, puzzle: samplePuzzle });
+    expect(state.puzzle).toBe(samplePuzzle);
+    expect(state.review).toBeNull();
+  });
+
+  it("khi có cả review và puzzle: puzzle được ưu tiên và review bị tắt (loại trừ nhau)", () => {
+    const state = buildStageState({ ...baseParams, review: sampleReview, puzzle: samplePuzzle });
+    expect(state.puzzle).toBe(samplePuzzle);
+    expect(state.review).toBeNull();
+  });
+
+  it("khi có cả biến thử và puzzle: biến thử bị tắt trên sân khấu", () => {
+    const state = buildStageState({ ...baseParams, trial: { notations: ["P2-5"] }, puzzle: samplePuzzle });
+    expect(state.puzzle).toBe(samplePuzzle);
+    expect(state.trial).toBeNull();
+  });
+
+  it("khi không có puzzle: review hoạt động bình thường", () => {
+    const state = buildStageState({ ...baseParams, review: sampleReview });
+    expect(state.review).toBe(sampleReview);
+    expect(state.puzzle).toBeNull();
+  });
+});

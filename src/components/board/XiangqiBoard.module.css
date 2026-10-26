@@ -166,15 +166,17 @@
 }
 
 .target span {
-  width: 36%;
+  width: 30%;
   aspect-ratio: 1;
   border-radius: 50%;
-  background: rgba(46, 125, 90, 0.85);
-  box-shadow: 0 0 0 4px rgba(46, 125, 90, 0.25);
+  background: rgba(46, 125, 90, 0.9);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  transition: transform 0.15s ease, background 0.15s ease;
 }
 
 .target:hover span {
   background: rgba(46, 125, 90, 1);
+  transform: scale(1.25);
 }
 
 .lastFrom {
@@ -231,6 +233,9 @@
     transition: none;
   }
   .inCheck {
+    animation: none;
+  }
+  .zigaTarget .targetCorners {
     animation: none;
   }
 }
@@ -362,22 +367,37 @@
   }
 }
 
-/* Dấu hồng tâm tròn xanh neon tại giao điểm các ô đích Ziga */
+/* Dấu chấm xanh neon tại giao điểm các ô đích Ziga (không viền bao, gọn gàng) */
 .zigaTarget {
   width: calc(var(--piece-size) * 0.9);
 }
 
 .zigaTarget .targetCorners {
-  position: absolute;
-  inset: 0;
-  width: 100% !important;
-  height: 100% !important;
-  border-radius: 50% !important;
-  border: 2px dashed #00ff44 !important;
-  background: radial-gradient(circle, #00ff44 26%, transparent 34%, rgba(0, 255, 68, 0.3) 65%, transparent 72%) !important;
-  box-shadow: 0 0 12px rgba(0, 255, 68, 0.85) !important;
+  width: 26%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #00ff44;
+  box-shadow: 0 0 6px rgba(0, 255, 68, 0.9), 0 1px 2px rgba(0, 0, 0, 0.4);
   pointer-events: none;
-  animation: zigaCornerPulse 1.4s ease-in-out infinite alternate;
+  animation: zigaDotPulse 1.4s ease-in-out infinite alternate;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.zigaTarget:hover .targetCorners {
+  transform: scale(1.25);
+  background: #33ff66;
+  box-shadow: 0 0 10px #00ff44;
+}
+
+@keyframes zigaDotPulse {
+  0% {
+    transform: scale(0.92);
+    box-shadow: 0 0 5px rgba(0, 255, 68, 0.7);
+  }
+  100% {
+    transform: scale(1.08);
+    box-shadow: 0 0 8px rgba(0, 255, 68, 1);
+  }
 }
 
 

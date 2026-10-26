@@ -1,15 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { getHint, loadPuzzleState, submitPuzzleSolution } from "@/app/actions/economy";
 import { XiangqiBoard } from "@/components/board/XiangqiBoard";
 import { ResultOverlay } from "@/components/game/GamePanels";
 import { useSession } from "@/components/session/SessionProvider";
 import { Move, applyMove, findKing, inCheck, legalMovesFrom, outcome, parseFen, sideOf } from "@/lib/xiangqi/engine";
 import { lineMoveOk, moveWins, toughestReply } from "@/lib/xiangqi/mate";
+import { moveNotation } from "@/lib/xiangqi/notation";
+import type { StagePuzzleLive } from "@/app/tuong-thuat/stage-puzzle";
 import { FREE_HINT_CHAPTER, PUZZLES, type Puzzle } from "@/lib/xiangqi/puzzles";
 import { playSound } from "@/lib/sound";
+import { PuzzleLivePanel, usePuzzleLive } from "./PuzzleLivePanel";
 import styles from "./puzzle.module.css";
 
 type Status = "play" | "reply" | "wrong" | "solved";
@@ -29,7 +32,11 @@ export function PuzzleClient() {
   const [index, setIndex] = useState(0);
   const [stars, setStars] = useState<Record<string, number>>({});
   const [hints, setHints] = useState<string[]>([]);
+  // Chế độ chiếu lên livestream: kết nối sân khấu và thế đang chiếu giữ ở đây, vì PuzzleBoard bị dựng lại mỗi khi đổi thế.
+  const [live, setLive] = useState(false);
   const puzzle = PUZZLES[index];
+  const stage = usePuzzleLive(live, puzzle);
+  const locked = !!puzzle.vip && !vip;
 
   useEffect(() => {
     if (!member) return;
@@ -80,7 +87,11 @@ export function PuzzleClient() {
         key={puzzle.id}
         puzzle={puzzle}
         index={index}
-        locked={!!puzzle.vip && !vip}
+        locked={locked}
+        live={live}
+        onToggleLive={() => setLive((v) => !v)}
+        onLiveState={stage.report}
+        livePanel={live && !locked ? <PuzzleLivePanel puzzleId={puzzle.id} stage={stage} /> : null}
         member={member}
         hintOwned={hints.includes(puzzle.id)}
         onHintBought={() => setHints((h) => [...h, puzzle.id])}
@@ -95,6 +106,11 @@ interface BoardProps {
   puzzle: Puzzle;
   index: number;
   locked: boolean;
+  live: boolean;
+  onToggleLive: () => void;
+  livePanel: ReactNode;
+  /** Báo trạng thái bàn giải cho sân khấu livestream (chỉ gọi khi đang bật live). */
+  onLiveState: (state: StagePuzzleLive) => void;
   member: boolean;
   hintOwned: boolean;
   onHintBought: () => void;
@@ -104,7 +120,7 @@ interface BoardProps {
 
 const startIds = (fen: string) => parseFen(fen).board.map((p, i) => (p ? i : null));
 
-function PuzzleBoard({ puzzle, index, locked, member, hintOwned, onHintBought, onSolved, onNext }: BoardProps) {
+function PuzzleBoard({ puzzle, index, locked, live, onToggleLive, livePanel, onLiveState, member, hintOwned, onHintBought, onSolved, onNext }: BoardProps) {
   const { refresh } = useSession();
   const [pos, setPos] = useState(() => parseFen(puzzle.fen));
   const [ids, setIds] = useState(() => startIds(puzzle.fen));
@@ -136,6 +152,33 @@ function PuzzleBoard({ puzzle, index, locked, member, hintOwned, onHintBought, o
   const checkSquare = inCheck(pos.board, pos.turn) ? findKing(pos.board, pos.turn) : null;
   const redMovesLeft = puzzle.depth - Math.floor(line.length / 2);
   const stars = tries === 1 && !hint ? 3 : tries <= 3 ? 2 : 1;
+
+  // Bật live: mọi thao tác trên bàn (chọn quân, đi thử, sai, Đen đỡ, giải xong) phản chiếu lên sân khấu.
+  const notations = useMemo(() => {
+    let p = parseFen(puzzle.fen);
+    const out: string[] = [];
+    for (const m of line) {
+      out.push(moveNotation(p.board, m));
+      p = applyMove(p, m);
+    }
+    return out;
+  }, [line, puzzle.fen]);
+  useEffect(() => {
+    if (!live) return;
+    onLiveState({
+      puzzleId: puzzle.id,
+      board: pos.board,
+      ids,
+      selected,
+      targets: selected !== null ? legalMovesFrom(pos, selected).map((m) => m.to) : [],
+      lastMove,
+      checkSquare: inCheck(pos.board, pos.turn) ? findKing(pos.board, pos.turn) : null,
+      status,
+      tries,
+      moves: notations,
+      hintSquare: hint ? puzzle.solution.from : null,
+    });
+  }, [live, onLiveState, puzzle, pos, ids, selected, lastMove, status, tries, notations, hint]);
 
   const play = (move: Move, from: typeof pos, idsBefore: (number | null)[]) => {
     const next = applyMove(from, move);
@@ -279,7 +322,13 @@ function PuzzleBoard({ puzzle, index, locked, member, hintOwned, onHintBought, o
             {freeHint || hintOwned ? "Gợi ý" : "Gợi ý (10 xu)"}
           </button>
           <button type="button" className="btn" onClick={reset} disabled={locked}>Đặt lại</button>
+          {!locked && (
+            <button type="button" className="btn" aria-pressed={live} onClick={onToggleLive} title="Hiện bảng điều khiển chiếu thế này lên sân khấu livestream (OBS)">
+              {live ? "✕ Ẩn bảng live" : "🎥 Chiếu lên live"}
+            </button>
+          )}
         </div>
+        {livePanel}
       </aside>
     </>
   );

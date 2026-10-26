@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { applyMove, initialPosition } from "@/lib/xiangqi/engine";
 import { moveNotation } from "@/lib/xiangqi/notation";
 import { DEFAULT_STAGE_SETTINGS, buildStageState } from "../stage-sync";
-import { StageClient } from "./StageClient";
+import { StageClient, moveAnalysis } from "./StageClient";
 
 vi.mock("@/components/session/SessionProvider", () => ({
   useSession: () => ({ user: null }),
@@ -346,5 +346,77 @@ describe("StageClient", () => {
     // Dialog mở ra
     expect(screen.getByRole("dialog", { name: /Biên bản trận cờ và Lời bình/i })).toBeDefined();
     expect(screen.getByText(/TRẬN CỜ & LỜI BÌNH CHUYÊN GIA/i)).toBeDefined();
+  });
+});
+
+describe("moveAnalysis", () => {
+  const zhao = { lesson: 18, title: "Mã Hoạt Chiến Thắng", kind: "endgame" as const, quote: "mã hoạt có ưu thế" };
+  const moves = [
+    { ply: 1, notation: "Pháo 2 bình 5", side: "r" as const, commentary: "Pháo đầu", evalCp: 40, tag: "good" as const },
+    { ply: 2, notation: "Mã 8 tiến 7", side: "b" as const, zhaoLesson: zhao },
+  ];
+  const detail = {
+    ply: 2,
+    notation: "Mã 8 tiến 7",
+    side: "b" as const,
+    summary: "Đen lên mã giữ trung lộ",
+    assessment: "⚖ Cân bằng (0.0)",
+    intent: "Bảo vệ tốt đầu",
+    betterMove: "Mã 2 tiến 3",
+  };
+
+  it("nước mới nhất: dùng lời bình chi tiết và bài học Triệu đã lưu", () => {
+    const a = moveAnalysis(moves, detail, 2);
+    expect(a.summary).toBe("Đen lên mã giữ trung lộ");
+    expect(a.intent).toBe("Bảo vệ tốt đầu");
+    expect(a.betterMove).toBe("Mã 2 tiến 3");
+    expect(a.zhao?.lesson).toBe(18);
+    expect(a.empty).toBe(false);
+  });
+
+  it("lùi xem nước cũ: không mượn lời bình chi tiết của nước mới nhất", () => {
+    const a = moveAnalysis(moves, detail, 1);
+    expect(a.summary).toBe("Pháo đầu");
+    expect(a.assessment).toBe("🔴 Đỏ ưu (+0.4)");
+    expect(a.intent).toBe("");
+    expect(a.tag).toBe("good");
+    expect(a.zhao).toBeNull();
+  });
+
+  it("chưa có lời bình nào: empty", () => {
+    expect(moveAnalysis([], null, 0).empty).toBe(true);
+  });
+});
+
+describe("bảng phân tích dưới bàn cờ", () => {
+  it("hiện tóm tắt, ý đồ, nên đi và bài học Triệu Hâm Hâm của nước mới nhất", () => {
+    render(<StageClient />);
+    const ws = FakeSocket.all[0];
+    const state = stateAfterCentralCannon();
+    state.moves = [
+      {
+        ply: 1,
+        notation: "Pháo 2 bình 5",
+        side: "r",
+        zhaoLesson: { lesson: 3, title: "Pháo đầu tranh tiên", kind: "middlegame", quote: "pháo đầu là nước mạnh" },
+      },
+    ];
+    state.activeCommentary = {
+      ply: 1,
+      notation: "Pháo 2 bình 5",
+      side: "r",
+      summary: "Bạn đi Pháo đầu",
+      assessment: "⚖ Cân bằng (0.0)",
+      intent: "Uy hiếp tốt đầu",
+      betterMove: "Mã 2 tiến 3",
+    };
+    ws.receive({ t: "state", state });
+
+    expect(screen.getByText("Bạn đi Pháo đầu")).toBeDefined();
+    expect(screen.getByText("⚖ Cân bằng (0.0)")).toBeDefined();
+    expect(screen.getByText(/Uy hiếp tốt đầu/)).toBeDefined();
+    expect(screen.getByText("Mã 2 tiến 3")).toBeDefined();
+    expect(screen.getByText(/Triệu Hâm Hâm #3 · Pháo đầu tranh tiên/)).toBeDefined();
+    expect(screen.getByText(/pháo đầu là nước mạnh/)).toBeDefined();
   });
 });

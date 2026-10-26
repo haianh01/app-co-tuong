@@ -33,26 +33,30 @@ const RULES: Record<string, Rule> = {
   danDu: (o, mover) => realSacrifice(o, mover) || (o.kind === "winsMaterial" && o.materialNow <= 0),
   nhatMaHoanLuongTuong: (o, mover) => countCaptured(o, opponent(mover), "n") >= 1 && countCaptured(o, mover, "b") >= 2,
   motXeDoiHai: rookFor(2),
-  motXeDoiBa: rookFor(3),
-  pheTotPhanCong: (o) => o.kind === "sacrifice" && o.materialAfterReply >= -150,
+  motXeDoiBa: (o, mover) =>
+    countCaptured(o, opponent(mover), "r") >= 1 &&
+    countCaptured(o, mover, "rncabp") >= 3 &&
+    countCaptured(o, mover, "nc") >= 2 &&
+    o.materialSettled > -200,
+  pheTotPhanCong: (o) => (o.kind === "sacrifice" || o.kind === "mate" || o.kind === "winsMaterial") && o.materialSettled >= -100,
   // Phá Sĩ Tượng
   tramSiPhaTuong: (o, mover) => moverCaptured(o, mover, "ab") && o.materialSettled >= 0 && o.kind !== "exchange",
   kheoPhaSiTuong: (o, mover) => moverCaptured(o, mover, "ab") && o.materialAfterReply >= 0 && o.materialSettled >= 150,
   // Ăn Tốt sạch
   chienThuatMuuBinh: (o, mover) => o.kind === "cleanCapture" && moverCaptured(o, mover, "p", 0),
-  doatTrungBinh: (o, mover) => o.kind === "cleanCapture" && moverCaptured(o, mover, "p", 0),
+  doatTrungBinh: (o, mover) => (o.kind === "cleanCapture" || o.kind === "winsMaterial" || o.kind === "mate") && moverCaptured(o, mover, "p", 0) && o.materialSettled >= 100,
   // Đổi quân có chủ đích
   chuyenHoaTanCuoc: (o) => o.kind === "exchange",
   doiQuanGianhTien: (o) => o.kind === "exchange",
   // Đuổi quân được tiên / chặn đường: đối phương phải lo chạy, hoặc quân bị cắt căn thì mất
-  chanDuong: (o) => o.kind === "winsMaterial",
+  chanDuong: (o) => o.kind === "winsMaterial" || o.kind === "mate" || o.materialSettled >= 150,
   // Đòn tấn công: phải có kết quả trong biến
-  muonCungSat: attackPaysOff,
+  // Bộ nhận diện đã tự kiểm cơ chế (checkSmotheredCannonMate, checkDeepCannonBottom); ở đây chỉ chặn biến không sát hoặc lỗ vật chất
+  muonCungSat: (o) => o.kind === "mate" || o.materialSettled >= 150,
   ngoaTaoMa: attackPaysOff,
   khongTamPhao: attackPaysOff,
   thienDiaPhao: attackPaysOff,
   khuyetSiSongXe: attackPaysOff,
-  // Bộ nhận diện đã tự kiểm cơ chế theo đúng con Pháo (checkDeepCannonBottom); ở đây chỉ chặn biến lỗ vật chất
   phaoTramDay: (o) => o.kind === "mate" || o.materialSettled >= 150,
   phaoDayKhoaXe: attackPaysOff,
   manhCongTuyenApDay: attackPaysOff,
@@ -63,7 +67,7 @@ const RULES: Record<string, Rule> = {
   xeSongPhao: attackPaysOff,
   xeMaLanhChieu: attackPaysOff,
   giaPhao: attackPaysOff,
-  tranhNuoc: attackPaysOff,
+  tranhNuoc: (o) => o.kind === "mate" || o.kind === "winsMaterial" || o.materialSettled >= 200,
   diCongViThu: attackPaysOff,
   tuBinhDotKich: attackPaysOff,
   tranhDoatLo3Lo7: attackPaysOff,

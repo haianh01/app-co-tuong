@@ -16,12 +16,15 @@
     "test:db": "vitest run --project db",
     "test:watch": "vitest --project unit --project ui",
     "admin:promote": "tsx scripts/promote-admin.ts",
-    "db:backup": "node scripts/backup-db.mjs"
+    "db:backup": "node scripts/backup-db.mjs",
+    "data:status": "node scripts/data-sync.mjs status",
+    "data:push": "node scripts/data-sync.mjs push",
+    "data:pull": "node scripts/data-sync.mjs pull"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.8",
     "drizzle-orm": "^0.45.4",
-    "next": "16.4.2",
+    "next": "^16.4.3",
     "pg": "^8.23.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
@@ -41,7 +44,7 @@
     "@types/ws": "^8.18.2",
     "drizzle-kit": "^0.31.11",
     "eslint": "^9",
-    "eslint-config-next": "16.4.2",
+    "eslint-config-next": "^16.4.3",
     "happy-dom": "^20.14.6",
     "typescript": "^5",
     "vitest": "^5.0.3"

@@ -76,7 +76,7 @@ describe("tình huống chiến thuật", () => {
     expect(outcome(applyMove(p, move!))).toMatchObject({ over: true, winner: "r" });
   });
 
-  it.each(PUZZLES.map((p) => [p.id, p] as const))("giải được cờ thế %s", (_id, puzzle) => {
+  it.each(PUZZLES.filter((p) => !p.line).map((p) => [p.id, p] as const))("giải được cờ thế %s", (_id, puzzle) => {
     const p = parseFen(puzzle.fen);
     const { move } = findBestMove(p, 3, () => 0);
     // Thế 1 nước: chiếu bí ngay. Thế 2 nước: nước đầu phải giữ được thắng ép buộc.

@@ -8,6 +8,7 @@ import { usePositionAnalysis } from "@/hooks/usePositionAnalysis";
 import { convertChineseGame } from "@/lib/xiangqi/chinese-notation";
 import type { MasterGameRecord } from "@/lib/xiangqi/master-games.generated";
 import type { Move, Position } from "@/lib/xiangqi/engine";
+import { translatePlayer, translateEccoName, getMasterDisplayName } from "@/lib/xiangqi/master-translator";
 import styles from "../masters.module.css";
 
 interface Props {
@@ -164,17 +165,32 @@ export function MasterGameViewer({ game }: Props) {
 
             <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 15 }}>
               <div>
-                <strong style={{ color: "#ef4444" }}>Đỏ:</strong> {game.red}{" "}
-                {game.masterRed && <span style={{ color: "var(--accent)", fontSize: 12 }}>⭐ {game.masterRed}</span>}
+                <strong style={{ color: "#ef4444" }}>Đỏ:</strong>{" "}
+                <span>{translatePlayer(game.red).fullName}</span>{" "}
+                {game.masterRed && (
+                  <span style={{ color: "var(--accent)", fontSize: 12 }}>
+                    ⭐ {getMasterDisplayName(game.masterRed)}
+                  </span>
+                )}
               </div>
               <div>
-                <strong style={{ color: "#60a5fa" }}>Đen:</strong> {game.black}{" "}
-                {game.masterBlack && <span style={{ color: "var(--accent)", fontSize: 12 }}>⭐ {game.masterBlack}</span>}
+                <strong style={{ color: "#60a5fa" }}>Đen:</strong>{" "}
+                <span>{translatePlayer(game.black).fullName}</span>{" "}
+                {game.masterBlack && (
+                  <span style={{ color: "var(--accent)", fontSize: 12 }}>
+                    ⭐ {getMasterDisplayName(game.masterBlack)}
+                  </span>
+                )}
               </div>
             </div>
 
             <div style={{ marginTop: 10, fontSize: 13, color: "var(--muted)", lineHeight: 1.5 }}>
-              <div><strong>Khai cuộc:</strong> {game.eccoName || "Khai cuộc"}</div>
+              <div>
+                <strong>Khai cuộc:</strong>{" "}
+                <span style={{ color: "var(--text)" }}>
+                  {translateEccoName(game.eccoName, game.eccoCode)}
+                </span>
+              </div>
               {game.tournament && <div><strong>Giải đấu:</strong> {game.tournament}</div>}
               <div><strong>Kết quả:</strong> {resultLabel}</div>
             </div>

@@ -11,6 +11,7 @@ import {
   mergePanelReading,
   canReview,
   formatEvalScore,
+  zigaEloRank,
   type StageReviewState,
 } from "./stage-sync";
 
@@ -160,5 +161,49 @@ describe("mergePanelReading", () => {
   it("không có gì đổi: trả lại đúng object cũ", () => {
     const s = { ...DEFAULT_STAGE_SETTINGS, me: { name: "W1", stars: 2 } };
     expect(mergePanelReading(s, { name: "W1", points: null, stars: 2 }, none)).toBe(s);
+  });
+});
+
+describe("zigaEloRank", () => {
+  it("phân loại đúng 5 bậc Elo và tính số sao tự động", () => {
+    // 1. Tập sự (< 1200)
+    expect(zigaEloRank(900)).toMatchObject({ tier: "tapsu", title: "Tập sự", stars: 1, avatarUrl: "/stage/avatar_tapsu.jpg" });
+    expect(zigaEloRank(1000)).toMatchObject({ tier: "tapsu", stars: 2 });
+    expect(zigaEloRank("1150")).toMatchObject({ tier: "tapsu", stars: 3 });
+
+    // 2. Phong trào (1200 - 1599)
+    expect(zigaEloRank(1250)).toMatchObject({ tier: "phongtrao", title: "Phong trào", stars: 1, avatarUrl: "/stage/avatar_phongtrao.jpg" });
+    expect(zigaEloRank(1400)).toMatchObject({ tier: "phongtrao", stars: 2 });
+    expect(zigaEloRank("1,550 Điểm")).toMatchObject({ tier: "phongtrao", stars: 3 });
+
+    // 3. Kỳ thủ (1600 - 1999)
+    expect(zigaEloRank(1650)).toMatchObject({ tier: "kythu", title: "Kỳ thủ", stars: 1, avatarUrl: "/stage/avatar_black.jpg" });
+    expect(zigaEloRank(1800)).toMatchObject({ tier: "kythu", stars: 2 });
+
+    // 4. Kỳ sĩ (2000 - 2399)
+    expect(zigaEloRank(2050)).toMatchObject({ tier: "kysi", title: "Kỳ sĩ", stars: 1, avatarUrl: "/stage/avatar_red.jpg" });
+    expect(zigaEloRank(2250)).toMatchObject({ tier: "kysi", stars: 2 });
+
+    // 5. Kỳ vương (>= 2400)
+    expect(zigaEloRank(2450)).toMatchObject({ tier: "kyvuong", title: "Kỳ vương", stars: 1, avatarUrl: "/stage/avatar_kyvuong.jpg" });
+    expect(zigaEloRank(2750)).toMatchObject({ tier: "kyvuong", stars: 3 });
+  });
+
+  it("giữ nguyên title và stars hiện có nếu được cung cấp", () => {
+    const res = zigaEloRank(1300, "Đặc Cấp Phong Trào", 3);
+    expect(res).toMatchObject({ tier: "phongtrao", title: "Đặc Cấp Phong Trào", stars: 3 });
+  });
+
+  it("fallback theo từ khóa trong danh hiệu khi không có điểm Elo số", () => {
+    expect(zigaEloRank(null, "Tập sự cấp 1")).toMatchObject({ tier: "tapsu", avatarUrl: "/stage/avatar_tapsu.jpg" });
+    expect(zigaEloRank(null, "Phong trào cao cấp")).toMatchObject({ tier: "phongtrao", avatarUrl: "/stage/avatar_phongtrao.jpg" });
+    expect(zigaEloRank(null, "Kỳ vương lừng danh")).toMatchObject({ tier: "kyvuong", avatarUrl: "/stage/avatar_kyvuong.jpg" });
+    expect(zigaEloRank(null, "Kỳ sĩ Lưu Bị")).toMatchObject({ tier: "kysi", avatarUrl: "/stage/avatar_red.jpg" });
+    expect(zigaEloRank(null, "Kỳ thủ Quan Vũ")).toMatchObject({ tier: "kythu", avatarUrl: "/stage/avatar_black.jpg" });
+  });
+
+  it("fallback mặc định theo phe khi không có điểm và không có danh hiệu", () => {
+    expect(zigaEloRank(null, null, null, "r")).toMatchObject({ tier: "kysi", avatarUrl: "/stage/avatar_red.jpg" });
+    expect(zigaEloRank(null, null, null, "b")).toMatchObject({ tier: "kythu", avatarUrl: "/stage/avatar_black.jpg" });
   });
 });

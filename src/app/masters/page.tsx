@@ -3,8 +3,8 @@ import { MASTER_GAMES } from "@/lib/xiangqi/master-games.generated";
 import { MastersListClient } from "./MastersListClient";
 
 export const metadata: Metadata = {
-  title: "Kho Ván Đại Sư – Cờ Tướng Thực Chiến",
-  description: "Tuyển tập ván cờ các đại sư hàng đầu thế giới (Hứa Ngân Xuyên, Lữ Khâm, Hồ Vinh Hoa...), đối chiếu mã khai cuộc ECCO và phân tích bằng AI.",
+  title: "Kho Ván Đại Sư & 96 Kỳ Lý Triệu Hâm Hâm – Cờ Tướng Thực Chiến",
+  description: "Tuyển tập 96 bài giảng nguyên lý Trung Cuộc & Tàn Cuộc của Đặc cấp Đại sư Triệu Hâm Hâm, cùng hơn 200 ván cờ thực chiến đỉnh cao của các đại sư hàng đầu thế giới (Hứa Ngân Xuyên, Lữ Khâm, Hồ Vinh Hoa...).",
 };
 
 export default function MastersPage() {

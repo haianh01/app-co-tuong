@@ -24,8 +24,20 @@ export async function createDb(options: { url?: string; dataDir?: string } = {})
     const { drizzle } = await import("drizzle-orm/node-postgres");
     const { migrate } = await import("drizzle-orm/node-postgres/migrator");
     const pool = new Pool({ connectionString: options.url, max: 10 });
+    // Lỗi trong pool (kết nối rảnh bị phía máy chủ cắt) không được làm sập tiến trình.
+    pool.on("error", (err) => console.error("[db] pool error:", err.message));
     const db = drizzle(pool, { schema });
-    await migrate(db, { migrationsFolder: MIGRATIONS });
+    // Supabase/pooler đôi khi cắt kết nối đầu tiên (project vừa thức dậy, mạng chập chờn) – thử lại vài lần.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await migrate(db, { migrationsFolder: MIGRATIONS });
+        break;
+      } catch (err) {
+        if (attempt >= 5) throw err;
+        console.warn(`[db] migrate thất bại (lần ${attempt}), thử lại sau ${attempt * 2}s:`, (err as Error).cause ?? err);
+        await new Promise((r) => setTimeout(r, attempt * 2000));
+      }
+    }
     return { db, close: () => pool.end() };
   }
 

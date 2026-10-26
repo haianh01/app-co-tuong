@@ -167,7 +167,8 @@ describe("middlegame.ts - Khái niệm trung cuộc cờ tướng (B5)", () => {
       const after = playMove(pos.board, move);
 
       const fact = detectPalaceBreaker(pos.board, move, after, { loss: 0 });
-      expect(fact?.summary).toContain("Công phá phòng tuyến");
+      expect(fact?.summary).toContain("cung Tướng đối phương mất một quân che");
+      expect(fact?.summary).not.toContain("đổi quân lớn");
     });
 
     it("detectSacrificeForInitiative phát hiện đòn Khí tử tranh tiên táo bạo", () => {
@@ -240,17 +241,14 @@ describe("middlegame.ts - Khái niệm trung cuộc cờ tướng (B5)", () => {
       expect(detectFlankOverload(pos.board, move, after, { loss: 0 })).toBeNull();
     });
 
-    it("detectFlankOverload phát hiện thế Tụ binh đột kích áp đảo 1 cánh", () => {
+    it("detectFlankOverload: đủ hình Tụ binh mà không có biến engine xác nhận đòn thì không gắn", () => {
       // Xe Đỏ i7 đã bắt Mã đen g7; Tốt i6 qua sông, Pháo h5. Mã Đỏ f5 nhảy sang h6 — giờ Xe và Mã cùng nhắm Mã g7,
-      // 4 quân tấn công trên cánh chỉ có 1 quân giữ.
+      // 4 quân tấn công trên cánh chỉ có 1 quân giữ. Hình đủ, nhưng "tụ binh" chỉ nói khi biến cho thấy các quân đó ra tay.
       const pos = parseFen("2baka3/9/4b1n1R/9/8P/5N1C1/9/9/9/3AKA3 w - - 0 1");
       const move: Move = { from: sq(5, 5), to: sq(4, 7) };
       const after = playMove(pos.board, move);
 
-      const fact = detectFlankOverload(pos.board, move, after, { loss: 0 });
-      expect(fact).not.toBeNull();
-      expect(fact?.tactic).toBe("tuBinhDotKich");
-      expect(fact?.summary).toContain("Tụ binh đột kích");
+      expect(detectFlankOverload(pos.board, move, after, { loss: 0 })).toBeNull();
     });
 
     it("detectFlankOverload bỏ qua khi các quân đứng chung cánh nhưng không cùng nhắm điểm nào", () => {

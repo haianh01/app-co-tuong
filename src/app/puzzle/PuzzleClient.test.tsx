@@ -4,7 +4,7 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionUser } from "@/lib/session-types";
-import { applyMove, parseFen, sq, type Move } from "@/lib/xiangqi/engine";
+import { applyMove, legalMoves, outcome, parseFen, sq, type Move } from "@/lib/xiangqi/engine";
 import { toughestReply, winningMoves } from "@/lib/xiangqi/mate";
 import { PUZZLES, type Puzzle } from "@/lib/xiangqi/puzzles";
 import { PuzzleClient } from "./PuzzleClient";
@@ -64,13 +64,13 @@ function playLine(index: number) {
   let pos = parseFen(p.fen);
   const line: Move[] = [];
   for (let left = p.depth; left > 0; left--) {
-    const m = left === p.depth ? p.solution : winningMoves(pos, left)[0];
+    const m = p.line ? p.line[line.length] : left === p.depth ? p.solution : winningMoves(pos, left)[0];
     tapSq(m.from);
     tapSq(m.to);
     line.push(m);
     pos = applyMove(pos, m);
     if (left > 1) {
-      const reply = toughestReply(pos, left - 1)!;
+      const reply = p.line ? p.line[line.length] : toughestReply(pos, left - 1)!;
       act(() => vi.advanceTimersByTime(600));
       line.push(reply);
       pos = applyMove(pos, reply);
@@ -176,18 +176,19 @@ describe("PuzzleClient", () => {
     expect(status()).toBe("Đến lượt Đỏ. Chọn quân để bắt đầu.");
   });
 
-  it("'Thế tiếp theo' đi hết các thế miễn phí; thế cuối cùng không còn nút này", () => {
+  it("'Thế tiếp theo' đi hết dãy thế miễn phí đầu danh sách", () => {
     render(<PuzzleClient />);
-    // Các thế miễn phí xếp liền nhau từ đầu danh sách.
-    for (let i = 0; i < FREE.length; i++) {
+    const lead = PUZZLES.findIndex((p) => p.vip || p.depth > 1);
+    for (let i = 0; i < lead; i++) {
       expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(PUZZLES[i].title);
       solve(i);
       fireEvent.click(screen.getByRole("button", { name: "Thế tiếp theo" }));
     }
     const nav = screen.getByRole("navigation", { name: "Danh sách thế cờ" });
-    expect(within(nav).getAllByText(SOLVED)).toHaveLength(FREE.length);
-    expect(screen.getByText(`Đã giải ${FREE.length}/${PUZZLES.length} thế`)).toBeTruthy();
-  });
+    expect(within(nav).getAllByText(SOLVED)).toHaveLength(lead);
+    expect(screen.getByText(`Đã giải ${lead}/${PUZZLES.length} thế`)).toBeTruthy();
+    // Giải liền ~30 thế, truy vấn theo vai trò trên danh sách >100 thế: chậm khi máy bận.
+  }, 30_000);
 
   it("chọn thế trong danh sách; thế mới bắt đầu sạch (không giữ quân đã chọn, gợi ý)", () => {
     render(<PuzzleClient />);
@@ -271,6 +272,27 @@ describe("PuzzleClient", () => {
     expect(actions.submitPuzzleSolution).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(1200));
     expect(status()).toBe("Đến lượt Đỏ. Chọn quân để bắt đầu.");
+  });
+
+  it("thế dài: đi lệch biến chính thì báo không kịp; đi đúng thì Đen đỡ theo biến chính tới chiếu bí", async () => {
+    session.user = VIP();
+    render(<PuzzleClient />);
+    const i = firstOf((p) => !!p.line);
+    const p = PUZZLES[i];
+    fireEvent.click(listItem(p.title));
+    expect(screen.getByText(`Xuất xứ: ${p.source}`)).toBeTruthy();
+    const pos = parseFen(p.fen);
+    const wrong = legalMoves(pos).find((m) => (m.from !== p.solution.from || m.to !== p.solution.to) && !outcome(applyMove(pos, m)).over)!;
+    tapSq(wrong.from);
+    tapSq(wrong.to);
+    expect(status()).toBe(`Nước này không chiếu bí kịp trong ${p.depth} nước. Thử lại nhé!`);
+    act(() => vi.advanceTimersByTime(1200));
+
+    const line = playLine(i);
+    expect(line).toEqual(p.line);
+    expect(screen.getByRole("dialog", { name: "Chiếu bí! Giải đúng thế cờ." })).toBeTruthy();
+    await act(async () => {});
+    expect(actions.submitPuzzleSolution).toHaveBeenCalledWith(p.id, p.line, 2);
   });
 
   it("chưa đăng nhập: giải xong được mời đăng nhập để lưu, không gọi máy chủ", async () => {

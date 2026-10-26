@@ -179,3 +179,24 @@
 .review:empty {
   display: none;
 }
+
+/* Thế cờ nạp từ bài giảng Triệu Hâm Hâm (?lesson=) */
+.lessonBanner {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--gold) 40%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--gold) 15%, transparent);
+  font-size: 12px;
+  text-align: left;
+}
+.lessonBanner strong {
+  color: var(--gold-text);
+}
+.lessonBanner span {
+  color: var(--muted);
+  font-size: 11px;
+}

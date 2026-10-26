@@ -16,6 +16,8 @@ import { Move, findKing, inCheck, legalMovesFrom, opponent, sideOf, toFen } from
 import { GameResult, currentPosition, describeResult, forbiddenMoves, gameReducer, newGame, pieceIds, timeoutResult } from "@/lib/xiangqi/game";
 import { LiveCoach } from "./LiveCoach";
 import { PlaySettings, TIME_OPTIONS, settingsHref } from "./settings";
+import { ZHAO_LESSONS } from "@/lib/xiangqi/zhao48-lessons";
+import { ZHAO_ENDGAME_LESSONS } from "@/lib/xiangqi/zhao48-endgame-lessons";
 import styles from "./play.module.css";
 
 const LEVELS = Object.entries(AI_LEVELS).map(([k, v]) => ({ level: Number(k) as AiLevel, label: v.label }));
@@ -82,7 +84,11 @@ export function PlayClient({ initial }: { initial: PlaySettings }) {
 function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; onNewGame: () => void; setup: ReactNode }) {
   const { level, side: player, minutes } = settings;
   const ai = opponent(player);
-  const [state, dispatch] = useReducer(gameReducer, undefined, () => newGame());
+  const [state, dispatch] = useReducer(gameReducer, undefined, () => newGame(settings.fen));
+  // Thế nạp từ bài giảng Triệu Hâm Hâm (?fen=&lesson=&book=)
+  const lessonCard = settings.fen && settings.lesson
+    ? (settings.book === "endgame" ? ZHAO_ENDGAME_LESSONS : ZHAO_LESSONS)[settings.lesson]
+    : undefined;
   const [selection, setSelection] = useState<{ ply: number; square: number } | null>(null);
   const [hint, setHint] = useState<{ ply: number; move: Move } | null>(null);
   // Hết ván: nửa nước đang xem lại khi bấm vào nước bị AI chấm (null = thế cuối).
@@ -242,6 +248,14 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
           captured={capturedBy(ai)}
         />
         <div className={`card ${styles.status}`} role="status">
+          {lessonCard && (
+            <div className={styles.lessonBanner}>
+              <strong>
+                📖 {settings.book === "endgame" ? "Tàn cuộc" : "Trung cuộc"} · Bài {settings.lesson}: {lessonCard.title}
+              </strong>
+              <span>Thế cờ từ ván đại sư • Kỳ lý Triệu Hâm Hâm</span>
+            </div>
+          )}
           <strong>{status}</strong>
           {checkSquare !== null && !result && <span className={styles.checkSeal}>將軍</span>}
           {!result && <span className="muted">Bấm vào quân của bạn rồi bấm điểm xanh để đi.</span>}

@@ -53,9 +53,10 @@
 .label text {
   font-family: var(--font-body);
   font-size: var(--board-label-size, 14px);
-  font-weight: 600;
+  font-weight: var(--board-label-weight, 600);
   fill: var(--board-line);
-  opacity: var(--board-text-opacity, 0.8);
+  /* Số cột có độ mờ riêng để trang có thể ẩn chữ sông mà vẫn giữ số (sân khấu livestream). */
+  opacity: var(--board-label-opacity, var(--board-text-opacity, 0.8));
   text-anchor: middle;
   dominant-baseline: central;
 }

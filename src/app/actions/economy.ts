@@ -100,7 +100,7 @@ const isMove = (m: unknown): m is { from: number; to: number } =>
 export async function submitPuzzleSolution(puzzleId: string, moves: unknown, attempts: number): Promise<PuzzleSubmitResult> {
   const user = await member();
   if (!user) return NEED_LOGIN;
-  if (!Array.isArray(moves) || moves.length > 7 || !moves.every(isMove)) return { ok: false, message: "Lời giải không hợp lệ." };
+  if (!Array.isArray(moves) || moves.length > 17 || !moves.every(isMove)) return { ok: false, message: "Lời giải không hợp lệ." };
   const res = await submitPuzzle(await getDb(), user.id, String(puzzleId), moves.map(({ from, to }) => ({ from, to })), Number(attempts));
   return res.ok ? { ok: true, stars: res.stars, reward: res.reward } : { ok: false, message: res.error };
 }

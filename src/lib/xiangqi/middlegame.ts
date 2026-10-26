@@ -15,6 +15,7 @@ import {
 import { attackPressure } from "./strategy";
 import { exchangeGain, ref, type PieceRef } from "./explain";
 import { extractFeatures } from "./features";
+import { decisiveBlow, engineLine, narrate, pieceRole } from "./engine-line";
 import { moveNotation, PIECE_NAME } from "./notation";
 
 export interface InitiativeFact {
@@ -494,6 +495,8 @@ export interface ZhaoMiddlegameFact {
   details?: string;
   /** "critique" = nguyên lý bị vi phạm (nước lỗi); mặc định là khen. */
   tone?: "praise" | "critique";
+  /** Đoạn kể lại biến engine trong lời bình (nếu có) — để hai kỳ lý cùng kể một biến thì chỉ nói một lần. */
+  line?: string;
   lesson?: number;
   lessonTitle?: string;
   quote?: { text: string; at: string };
@@ -563,17 +566,26 @@ export function detectPalaceBreaker(
   const moverPieceName = PIECE_NAME[moveType] ?? "quân";
   const moveNotat = moveNotation(before, move);
 
-  const summary = defended
-    ? `Trảm ${victimName} phá thành theo phong cách Triệu Hâm Hâm: phế đổi ${moverPieceName} xé toang phòng tuyến cung Tướng, đưa Tướng đối phương vào thế hiểm nghèo.`
-    : `Công phá phòng tuyến: diệt gọn ${victimName} yểm trợ cung cấm, làm suy yếu nghiêm trọng khả năng che chắn của đối phương.`;
+  // Có biến engine thì kể đúng chuyện xảy ra sau khi trảm (ai ăn lại, đòn tiếp theo được gì) thay vì câu khuôn
+  const line = engineLine(before, move, options);
+  const blow = line ? decisiveBlow(line, 0) : null;
+  const story = line && blow ? `${narrate(line, blow.end)} — ${blow.text}` : undefined;
+  // Biến chỉ có đúng nước ăn này (không ai ăn lại, không đòn tiếp) thì câu mở đầu đã đủ, không kể lại
+  const took = line && blow?.end === 0
+    ? `${moverPieceName} ăn ${victimName} (${moveNotat}), đối phương không bắt lại được — cung Tướng mất một quân che`
+    : defended
+      ? `${moverPieceName} ăn ${victimName} (${moveNotat}), đổi quân lớn lấy quân thủ cung để mở cung Tướng`
+      : `${moverPieceName} ăn ${victimName} (${moveNotat}), cung Tướng đối phương mất một quân che`;
+  const told = story && blow!.end > 0 ? story : undefined;
 
   return {
     kind: "zhaoMiddlegame",
     side: mover,
     tactic: "tramSiPhaTuong",
     move: moveNotat,
-    summary,
+    summary: told ? `Trảm ${victimName} phá thành: ${told}.` : `Trảm ${victimName} phá thành: ${took}.`,
     details: `${moverPieceName} trảm ${victimName}`,
+    ...(story ? { line: story } : {}),
   };
 }
 
@@ -623,17 +635,33 @@ export function detectSacrificeForInitiative(
   // Cuối biến đã thu hồi vật chất (hoặc hơn) thì là thí quân có tính toán, không phải bỏ quân lấy thế.
   // (PV bắt đầu bằng nước ăn lại quân phế, nên chỉ cần cộng phần quân vừa ăn được ở nước này.)
   const recovered = pvAfter && pvAfter.length > 0 ? capVal + pvMaterialSwing(after, pvAfter, mover) >= 0 : false;
-  const summary = recovered
-    ? `Khí tử tranh tiên: thí ${moverPieceName} giành tiên, chuỗi ép liên tục sau đó thu hồi lại vật chất.`
-    : `Khí tử tranh tiên đậm chất Lục Mạch Thần Kiếm: táo bạo phế ${moverPieceName} để đoạt tiên cơ áp đảo và phát động đợt công sát vũ bão.`;
+  // Có biến engine thì kể lại chuỗi nước ép sau khi thí quân
+  const line = engineLine(before, move, options);
+  if (line && line.plies.length >= 3) {
+    // Bị ăn rồi ăn lại được ngay nước sau là đổi quân (thường là chiếu đổi), không phải thí quân giành tiên
+    const value = (t: string | null) => (t ? PIECE_VALUES[t as keyof typeof PIECE_VALUES] : 0);
+    const net = line.plies.slice(0, 3).reduce((s, e) => s + (e.side === mover ? 1 : -1) * value(e.victim), 0);
+    if (net > -100) return null;
+  }
+  const blow = line ? decisiveBlow(line, 1) : null;
+  const story = line
+    ? `${narrate(line, blow ? blow.end : Math.min(6, line.plies.length - 1))}${blow ? ` — ${blow.text}` : ""}`
+    : undefined;
+  // Có đoạn kể biến thì để nó tự nói kết quả vật chất; chỉ khi không có biến mới dựa vào cờ tính `recovered`
+  const head = story
+    ? `Khí tử tranh tiên: thí ${moverPieceName} (${moveNotat}) để giành nước tiên`
+    : recovered
+      ? `Khí tử tranh tiên: thí ${moverPieceName} (${moveNotat}) giành tiên, chuỗi nước ép sau đó thu hồi lại vật chất`
+      : `Khí tử tranh tiên: thí ${moverPieceName} (${moveNotat}) để giành nước tiên, đổi vật chất lấy thế công`;
 
   return {
     kind: "zhaoMiddlegame",
     side: mover,
     tactic: "khiTuTranhTien",
     move: moveNotat,
-    summary,
+    summary: story ? `${head}; theo biến: ${story}.` : `${head}.`,
     details: `Phế ${moverPieceName} đoạt tiên`,
+    ...(story ? { line: story } : {}),
   };
 }
 
@@ -806,17 +834,29 @@ export function detectFlankOverload(
   const enteredFlank = !flankCols.includes(fromCol) || crossedRiver(rowOf(move.to), mover);
   if (!enteredFlank) return null;
 
+  // Biến engine phải cho thấy đòn có kết quả (sát / thắng quân) và ít nhất hai quân đã tụ về cánh cùng ra tay
+  const line = engineLine(before, move, options);
+  const blow = line ? decisiveBlow(line) : null;
+  if (!line || !blow || (!blow.mate && line.outcome.materialSettled < 250)) return null;
+  const origins = attackerSqs.map((s) => (s === move.to ? move.from : s));
+  const acted = origins.filter((o) => {
+    const r = pieceRole(line, o, blow.end);
+    return r.checks > 0 || r.captures.length > 0;
+  });
+  if (acted.length < 2) return null;
+
   const moveNotat = moveNotation(before, move);
   const uniqueNames = Array.from(new Set(attackerTypes)).join(", ");
-  const summary = `Tụ binh đột kích ${flankName}: tập trung hỏa lực áp đảo với sự phối hợp của các quân ${uniqueNames}, tạo thế lấy đông hiếp yếu khoét sâu điểm yếu đối phương.`;
+  const story = `${narrate(line, blow.end)} — ${blow.text}`;
 
   return {
     kind: "zhaoMiddlegame",
     side: mover,
     tactic: "tuBinhDotKich",
     move: moveNotat,
-    summary,
+    summary: `Tụ binh đột kích ${flankName}: ${uniqueNames} cùng dồn về một cánh (${moveNotat}); theo biến: ${story}.`,
     details: `Tụ binh ${flankName}`,
+    line: story,
   };
 }
 

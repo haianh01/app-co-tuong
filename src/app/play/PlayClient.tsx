@@ -18,6 +18,7 @@ import { LiveCoach } from "./LiveCoach";
 import { PlaySettings, TIME_OPTIONS, settingsHref } from "./settings";
 import { ZHAO_LESSONS } from "@/lib/xiangqi/zhao48-lessons";
 import { ZHAO_ENDGAME_LESSONS } from "@/lib/xiangqi/zhao48-endgame-lessons";
+import { ZHAO_OPENING_LESSONS } from "@/lib/xiangqi/zhao48-opening-lessons";
 import styles from "./play.module.css";
 
 const LEVELS = Object.entries(AI_LEVELS).map(([k, v]) => ({ level: Number(k) as AiLevel, label: v.label }));
@@ -98,7 +99,11 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
   const [state, dispatch] = useReducer(gameReducer, undefined, () => newGame(settings.fen));
   // Thế nạp từ bài giảng Triệu Hâm Hâm (?fen=&lesson=&book=)
   const lessonCard = settings.fen && settings.lesson
-    ? (settings.book === "endgame" ? ZHAO_ENDGAME_LESSONS : ZHAO_LESSONS)[settings.lesson]
+    ? (settings.book === "endgame"
+        ? ZHAO_ENDGAME_LESSONS
+        : settings.book === "opening"
+        ? ZHAO_OPENING_LESSONS
+        : ZHAO_LESSONS)[settings.lesson]
     : undefined;
   const [selection, setSelection] = useState<{ ply: number; square: number } | null>(null);
   const [hint, setHint] = useState<{ ply: number; move: Move } | null>(null);
@@ -264,7 +269,7 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
           {lessonCard && (
             <div className={styles.lessonBanner}>
               <strong>
-                📖 {settings.book === "endgame" ? "Tàn cuộc" : "Trung cuộc"} · Bài {settings.lesson}: {lessonCard.title}
+                📖 {settings.book === "endgame" ? "Tàn cuộc" : settings.book === "opening" ? "Khai cuộc" : "Trung cuộc"} · Bài {settings.lesson}: {lessonCard.title}
               </strong>
               <span>Thế cờ từ ván đại sư • Kỳ lý Triệu Hâm Hâm</span>
             </div>

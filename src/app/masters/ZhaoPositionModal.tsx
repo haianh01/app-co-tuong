@@ -8,9 +8,10 @@ import { MATE_SCORE, uciToMove } from "@/lib/xiangqi/uci";
 import { moveNotation } from "@/lib/xiangqi/notation";
 import { reviewMove, type PositionEval } from "@/lib/xiangqi/analysis";
 import { explainText } from "@/lib/xiangqi/explain";
-import { gameReducer, newGame } from "@/lib/xiangqi/game";
+import { gameReducer, newGame, replayMoves } from "@/lib/xiangqi/game";
 import type { ZhaoMiddlegameFact } from "@/lib/xiangqi/middlegame";
 import type { EndgamePrincipleFact } from "@/lib/xiangqi/endgame-principles";
+import type { ZhaoOpeningFact } from "@/lib/xiangqi/opening-principles";
 import { useEngine } from "@/hooks/useEngine";
 import {
   ZHAO_BENCHMARK_LESSONS,
@@ -24,10 +25,12 @@ import styles from "./ZhaoPositionModal.module.css";
 /** Engine JS dự phòng (khi server không có Pikafish): tính sâu hơn mức huấn luyện, không nhiễu. */
 const FALLBACK = { depth: 4, timeMs: 1000, noise: 0 } as const;
 
-/** Kỳ lý gắn được số bài: trung cuộc (zhaoMiddlegame) hoặc tàn cuộc (endgamePrinciple). */
-type LessonFact = ZhaoMiddlegameFact | EndgamePrincipleFact;
-const bookOf = (f: LessonFact): ZhaoBook => (f.kind === "zhaoMiddlegame" ? "middlegame" : "endgame");
-const factKey = (f: LessonFact) => (f.kind === "zhaoMiddlegame" ? f.tactic : f.principle);
+/** Kỳ lý gắn được số bài: khai cuộc (zhaoOpening), trung cuộc (zhaoMiddlegame) hoặc tàn cuộc (endgamePrinciple). */
+type LessonFact = ZhaoMiddlegameFact | EndgamePrincipleFact | ZhaoOpeningFact;
+const bookOf = (f: LessonFact): ZhaoBook =>
+  f.kind === "zhaoMiddlegame" ? "middlegame" : f.kind === "endgamePrinciple" ? "endgame" : "opening";
+const factKey = (f: LessonFact) =>
+  f.kind === "zhaoMiddlegame" ? f.tactic : f.kind === "endgamePrinciple" ? f.principle : f.tactic;
 
 interface Props {
   isOpen: boolean;
@@ -65,27 +68,43 @@ export function ZhaoPositionModal({
   const lessonLabel = `Bài ${benchmarkItem.lesson} ${ZHAO_BOOK_NAME[benchmarkItem.book].toLowerCase()}`;
   const exampleNo = sameLesson.indexOf(benchmarkItem) + 1;
 
-  const startState = useMemo(() => newGame(benchmarkItem.fen), [benchmarkItem.fen]);
-  const initialPos = startState.history[0];
+  const isOpening = benchmarkItem.book === "opening";
+  const priorMoves: Move[] = useMemo(() => {
+    if (!isOpening || !benchmarkItem.historyMoves) return [];
+    return benchmarkItem.historyMoves.map(uciToMove).filter((m): m is Move => m !== null);
+  }, [isOpening, benchmarkItem.historyMoves]);
+
+  const startState = useMemo(() => {
+    if (isOpening && priorMoves.length > 0) {
+      return replayMoves(priorMoves);
+    }
+    return newGame(benchmarkItem.fen);
+  }, [isOpening, priorMoves, benchmarkItem.fen]);
+
+  const moveIndex = isOpening && priorMoves.length > 0 ? priorMoves.length : 0;
+  const initialPos = isOpening && priorMoves.length > 0 ? startState.history[moveIndex] : startState.history[0];
 
   const zhaoMove: Move | null = useMemo(() => uciToMove(benchmarkItem.move), [benchmarkItem.move]);
-
   const zhaoLegal = !!zhaoMove && legalMovesFrom(initialPos, zhaoMove.from).some((m) => m.to === zhaoMove.to);
 
   // Nước đang xét: nước tự thử hoặc nước của Triệu Hâm Hâm
   const activeMove: Move | null = customMove ?? zhaoMove;
 
-  // Ván một nước (thế bài học → nước đang xét); gameReducer tự ghi kết quả khi chiếu bí / hết nước
+  // Với khai cuộc: phục dựng cả chuỗi nước từ đầu ván đến nước đang xét để chấm có ngữ cảnh;
+  // Với trung/tàn: ván một nước
   const moveState = useMemo(() => {
     if (!activeMove) return null;
+    if (isOpening && priorMoves.length > 0) {
+      return replayMoves([...priorMoves, activeMove]);
+    }
     const s = gameReducer(startState, { type: "move", move: activeMove });
     return s.moves.length === 1 ? s : null;
-  }, [startState, activeMove]);
+  }, [isOpening, priorMoves, startState, activeMove]);
 
-  const currentBoard = hasPlayedMove && moveState ? moveState.history[1].board : initialPos.board;
+  const currentBoard = hasPlayedMove && moveState ? moveState.history[moveIndex + 1].board : initialPos.board;
 
   const fenBefore = useMemo(() => toFen(initialPos), [initialPos]);
-  const fenAfter = useMemo(() => (moveState ? toFen(moveState.history[1]) : null), [moveState]);
+  const fenAfter = useMemo(() => (moveState ? toFen(moveState.history[moveIndex + 1]) : null), [moveState, moveIndex]);
   const terminal = !!moveState?.result;
 
   // Cần chấm: thế trước nước đi và thế sau nước đi (trừ khi nước đi kết thúc ván)
@@ -125,9 +144,19 @@ export function ZhaoPositionModal({
     if (!beforeEval || (!afterEval && !terminal)) {
       return { verdict: "pending" as Verdict, zhaoFacts: [] as LessonFact[], commentary: "", scoreAfter: null };
     }
-    const { review } = reviewMove(moveState.moves[0], 0, moveState, beforeEval, afterEval, undefined, [], ["—"]);
+    const { review } = reviewMove(
+      moveState.moves[moveIndex],
+      moveIndex,
+      moveState,
+      beforeEval,
+      afterEval,
+      undefined,
+      isOpening ? undefined : [],
+      isOpening ? undefined : ["—"],
+    );
     const facts = review.facts.filter(
-      (f): f is LessonFact => (f.kind === "zhaoMiddlegame" || f.kind === "endgamePrinciple") && !!f.lesson,
+      (f): f is LessonFact =>
+        (f.kind === "zhaoMiddlegame" || f.kind === "endgamePrinciple" || f.kind === "zhaoOpening") && !!f.lesson,
     );
     const matched = facts.some(
       (f) => bookOf(f) === benchmarkItem.book && (f.lesson === benchmarkItem.lesson || factKey(f) === benchmarkItem.tacticId),
@@ -139,7 +168,7 @@ export function ZhaoPositionModal({
       // Điểm sau nước đi theo bên vừa đi
       scoreAfter: afterEval ? -afterEval.score : null,
     };
-  }, [evals, fenBefore, fenAfter, moveState, terminal, benchmarkItem, initialPos.turn]);
+  }, [evals, fenBefore, fenAfter, moveState, moveIndex, isOpening, terminal, benchmarkItem, initialPos.turn]);
 
   const scoreBefore = evals[fenBefore]?.score ?? null;
 
@@ -214,7 +243,11 @@ export function ZhaoPositionModal({
   // Bài loại "đánh giá" chỉ ghi chú khi ván bước vào loại tàn cuộc / thế quân đó, không khen chê nước đi
   const matchedNote = zhaoFacts.some(
     (f) => f.tone === "note" && f.lesson === benchmarkItem.lesson &&
-      (benchmarkItem.book === "endgame" ? f.kind === "endgamePrinciple" : f.kind === "zhaoMiddlegame"),
+      (benchmarkItem.book === "endgame"
+        ? f.kind === "endgamePrinciple"
+        : benchmarkItem.book === "opening"
+        ? f.kind === "zhaoOpening"
+        : f.kind === "zhaoMiddlegame"),
   );
   const verdictText =
     verdict === "invalid"
@@ -223,7 +256,7 @@ export function ZhaoPositionModal({
       ? "Đang chờ engine chấm thế cờ…"
       : verdict === "matched"
       ? matchedNote
-        ? `AI ghi chú: nước này đưa ván vào ${benchmarkItem.book === "endgame" ? "loại tàn cuộc" : "thế quân"} của ${lessonLabel}`
+        ? `AI ghi chú: nước này đưa ván vào ${benchmarkItem.book === "endgame" ? "loại tàn cuộc" : benchmarkItem.book === "opening" ? "bố cục khai cuộc" : "thế quân"} của ${lessonLabel}`
         : `Engine xác nhận kỳ lý của ${lessonLabel}`
       : verdict === "other"
       ? `AI gắn kỳ lý khác, không phải ${lessonLabel}`
@@ -242,7 +275,7 @@ export function ZhaoPositionModal({
               onChange={(e) => goTo(Number(e.target.value))}
               aria-label="Chọn thế cờ đối chiếu"
             >
-              {(["middlegame", "endgame"] as const).map((book) => (
+              {(["opening", "middlegame", "endgame"] as const).map((book) => (
                 <optgroup key={book} label={ZHAO_BOOK_NAME[book]}>
                   {ZHAO_BENCHMARK_LESSONS.map((item, i) =>
                     item.book === book ? (

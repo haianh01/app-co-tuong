@@ -9,11 +9,13 @@ import { MASTER_GAMES } from "./master-games.generated";
 import { moveToUci } from "./uci";
 import { ZHAO_BENCHMARK_LESSONS, ZHAO_BENCHMARK_MAP, practiceHref } from "./zhao-benchmark-data";
 import { ZHAO_ENDGAME_LESSONS } from "./zhao48-endgame-lessons";
-import { parseSettings } from "@/app/play/settings";
 import { ZHAO_LESSONS } from "./zhao48-lessons";
+import { ZHAO_OPENING_LESSONS } from "./zhao48-opening-lessons";
+import { parseSettings } from "@/app/play/settings";
 
 describe("thế cờ đối chiếu Triệu Hâm Hâm", () => {
-  it("có thế cho cả hai bộ bài, mỗi bài có thế đầu tiên trong bản đồ của đúng bộ", () => {
+  it("có thế cho cả ba bộ bài, mỗi bài có thế đầu tiên trong bản đồ của đúng bộ", () => {
+    expect(ZHAO_BENCHMARK_LESSONS.some((x) => x.book === "opening")).toBe(true);
     expect(ZHAO_BENCHMARK_LESSONS.some((x) => x.book === "middlegame")).toBe(true);
     expect(ZHAO_BENCHMARK_LESSONS.some((x) => x.book === "endgame")).toBe(true);
     for (const item of ZHAO_BENCHMARK_LESSONS) expect(ZHAO_BENCHMARK_MAP[item.book][item.lesson]?.book).toBe(item.book);
@@ -33,7 +35,12 @@ describe("thế cờ đối chiếu Triệu Hâm Hâm", () => {
 
   it("không dùng bài tổng kết; tiêu đề, trích dẫn lấy từ thẻ bài của đúng bộ", () => {
     for (const item of ZHAO_BENCHMARK_LESSONS) {
-      const card = item.book === "middlegame" ? ZHAO_LESSONS[item.lesson] : ZHAO_ENDGAME_LESSONS[item.lesson];
+      const card =
+        item.book === "opening"
+          ? ZHAO_OPENING_LESSONS[item.lesson]
+          : item.book === "middlegame"
+          ? ZHAO_LESSONS[item.lesson]
+          : ZHAO_ENDGAME_LESSONS[item.lesson];
       expect(card.kind).not.toBe("summary");
       expect(item.title).toBe(card.title);
       if (item.quote) expect(card.quotes).toContainEqual(item.quote);
@@ -42,18 +49,23 @@ describe("thế cờ đối chiếu Triệu Hâm Hâm", () => {
 
   it("ghi chú (tone note) chỉ đến từ bài loại đánh giá của đúng bộ bài", () => {
     for (const item of ZHAO_BENCHMARK_LESSONS.filter((x) => x.tone === "note")) {
-      const card = item.book === "endgame"
-        ? ZHAO_ENDGAME_LESSONS[item.lesson]
-        : Object.values(ZHAO_LESSONS).find((c) => c.lesson === item.lesson);
+      const card =
+        item.book === "opening"
+          ? ZHAO_OPENING_LESSONS[item.lesson]
+          : item.book === "endgame"
+          ? ZHAO_ENDGAME_LESSONS[item.lesson]
+          : Object.values(ZHAO_LESSONS).find((c) => c.lesson === item.lesson);
       expect(card?.kind).toBe("evaluative");
     }
   });
 
   it("link luyện tập mở /play đúng thế và đúng bộ bài", () => {
-    for (const item of [ZHAO_BENCHMARK_LESSONS.find((x) => x.book === "middlegame")!, ZHAO_BENCHMARK_LESSONS.find((x) => x.book === "endgame")!]) {
+    for (const book of ["opening", "middlegame", "endgame"] as const) {
+      const item = ZHAO_BENCHMARK_LESSONS.find((x) => x.book === book);
+      if (!item) continue;
       const s = parseSettings(Object.fromEntries(new URL(practiceHref(item), "http://x").searchParams));
       expect(s).toMatchObject({ fen: item.fen, lesson: item.lesson, side: parseSettings({ fen: item.fen }).side });
-      expect(s.book).toBe(item.book === "endgame" ? "endgame" : undefined);
+      expect(s.book).toBe(book === "middlegame" ? undefined : book);
     }
   });
 });

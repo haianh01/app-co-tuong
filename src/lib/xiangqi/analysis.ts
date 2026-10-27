@@ -3,6 +3,7 @@ import { assessPosition, type PositionAssessment } from "./assess";
 import { attackersOf, inCheck, isDefended, legalMoves, opponent, play, PIECE_VALUES, sideOf, typeOf, type Board, type Move, type Side } from "./engine";
 import { explainMove, personaFacts, type Fact } from "./explain";
 import { endgamePrincipleFacts } from "./endgame-principles";
+import { detectAllOpeningTactics } from "./opening-principles";
 import { classifyMoveOutcome, type MoveOutcome } from "./move-outcome";
 import { zhaoOutcomeAllows } from "./zhao-outcome";
 import { detectIntent, type IntentFact } from "./intent";
@@ -327,6 +328,16 @@ function keepEndgameFact(f: Fact, isFault: boolean): boolean {
   return f.tone === "critique" ? isFault : !isFault;
 }
 
+/**
+ * Nguyên lý khai cuộc: lời chê chỉ đi với nước bị chấm lỗi, lời khen chỉ đi với nước không lỗi
+ * (bộ nhận diện đã tự kiểm biến engine); nước theo sách nếu đúng kỳ lý thì chỉ khen.
+ */
+function keepOpeningFact(f: Fact, cls: MoveClass | null, isFault: boolean): boolean {
+  if (f.kind !== "zhaoOpening") return true;
+  if (cls === "book") return f.tone !== "critique";
+  return f.tone === "critique" ? isFault : !isFault;
+}
+
 /** Kết quả của nước đi theo biến engine (null khi không có điểm/biến sau nước đi). */
 export function moveOutcomeFromEval(before: Board, move: Move, afterEval: PositionEval | null): MoveOutcome | null {
   if (!afterEval) return null;
@@ -355,6 +366,8 @@ export function suppressRepeatedZhaoFacts(reviews: MoveReview[], window = 12): v
       } else if (f.kind === "endgamePrinciple") {
         key = f.tone === "note" ? `note:${f.principle}` : `${f.side}:${f.principle}`;
         if (f.tone === "note") span = Infinity;
+      } else if (f.kind === "zhaoOpening") {
+        key = `${f.side}:opening:${f.lesson}`;
       } else {
         return true;
       }
@@ -550,6 +563,21 @@ export function reviewMove(
       evalAfter: afterEval,
     }).filter((f) => keepEndgameFact(f, isFault)),
   );
+
+  // Kỳ lý khai cuộc Triệu Hâm Hâm: tối đa 1 kỳ lý mỗi nước, chỉ xét ≤ 24 nửa nước đầu, không trùng openingFault
+  if (i < 24) {
+    const openingCandidates = detectAllOpeningTactics(state.history[i].board, m.move, state.history[i + 1].board, {
+      pv: afterEval?.pv,
+      loss,
+      evalBefore: before,
+      evalAfter: afterEval,
+    }).filter((f) => keepOpeningFact(f, cls, isFault));
+    const hasOpeningFault = facts.some((f) => f.kind === "openingFault");
+    const chosenOpening = openingCandidates[0] ?? null;
+    if (chosenOpening && !hasOpeningFault) {
+      facts.push(chosenOpening);
+    }
+  }
 
   // 2. Ý đồ của nước AI đề xuất tốt hơn nếu nước đi bị chấm lỗi (B4)
   let betterIntent: IntentFact | null = null;

@@ -8,9 +8,9 @@ export interface PlaySettings {
   minutes: number;
   /** Thế bắt đầu (FEN) khi luyện từ bài giảng; không có = thế khai cuộc. */
   fen?: string;
-  /** Bài giảng Triệu Hâm Hâm của thế cờ, `book` cho biết bộ trung cuộc hay tàn cuộc (đánh số riêng). */
+  /** Bài giảng Triệu Hâm Hâm của thế cờ, `book` cho biết bộ bài (khai cuộc, trung cuộc hay tàn cuộc, đánh số riêng). */
   lesson?: number;
-  book?: "endgame";
+  book?: "endgame" | "opening";
 }
 
 export const TIME_OPTIONS = [
@@ -44,6 +44,7 @@ export function parseSettings(params: Params): PlaySettings {
 
   const sideParam = first(params.side);
   const side: Side = sideParam === "b" || sideParam === "r" ? sideParam : fenTurn ?? "r";
+  const bookParam = first(params.book);
 
   return {
     level: (level >= 1 && level <= 5 ? Math.round(level) : 3) as AiLevel,
@@ -51,7 +52,7 @@ export function parseSettings(params: Params): PlaySettings {
     minutes: TIME_OPTIONS.some((t) => t.minutes === minutes) ? minutes : 10,
     fen: fen || undefined,
     lesson,
-    book: lesson && first(params.book) === "endgame" ? "endgame" : undefined,
+    book: lesson && (bookParam === "endgame" || bookParam === "opening") ? bookParam : undefined,
   };
 }
 

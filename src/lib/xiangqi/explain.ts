@@ -19,6 +19,7 @@ import { detectTheoreticalEndgame, type TheoreticalEndgame } from "./endgame";
 import { detectAllZhaoTactics } from "./zhao-principles";
 import { detectAllXuTactics } from "./xu-principles";
 import type { EndgamePrincipleFact } from "./endgame-principles";
+import type { ZhaoOpeningFact } from "./opening-principles";
 import { buildLlmCommentaryPrompt, generateLlmCommentary, type LlmCommentaryOptions, type LlmPrompt } from "./llm-commentary";
 import { detectPatterns, type MatePatternId } from "./patterns";
 import { type PositionAssessment, FACTOR_NAMES } from "./assess";
@@ -234,7 +235,9 @@ export type Fact =
   /** Kỳ lý trung cuộc Hứa Ngân Xuyên ("Thái Cực Bổng") (B7). */
   | XuMiddlegameFact
   /** Nguyên lý tàn cuộc của nước đi (đổi quân lý thuyết, Tốt, Tướng, khống chế, phòng thủ). */
-  | EndgamePrincipleFact;
+  | EndgamePrincipleFact
+  /** Kỳ lý khai cuộc Triệu Hâm Hâm. */
+  | ZhaoOpeningFact;
 
 export interface MoveContext {
   before: Board;
@@ -1316,6 +1319,8 @@ export function sentence(f: Fact, mover: Side = "r", seed?: number): string {
       return f.summary;
     case "endgamePrinciple":
       return f.summary;
+    case "zhaoOpening":
+      return f.summary;
   }
 }
 
@@ -1367,8 +1372,8 @@ export function explainText(
     );
     const zhaoFacts = visible.filter((f): f is ZhaoMiddlegameFact => f.kind === "zhaoMiddlegame");
     const lessonFact = visible.find(
-      (f): f is (ZhaoMiddlegameFact | EndgamePrincipleFact) =>
-        (f.kind === "zhaoMiddlegame" || f.kind === "endgamePrinciple") && f.lesson !== undefined,
+      (f): f is (ZhaoMiddlegameFact | EndgamePrincipleFact | ZhaoOpeningFact) =>
+        (f.kind === "zhaoMiddlegame" || f.kind === "endgamePrinciple" || f.kind === "zhaoOpening") && f.lesson !== undefined,
     );
     const lessonTag = lessonFact ? ` (Kỳ lý #${lessonFact.lesson}: ${lessonFact.lessonTitle})` : "";
     const quoteSuffix = lessonFact?.quote && lessonFact?.videoUrl
@@ -1383,6 +1388,10 @@ export function explainText(
     }
     if (lessonFact?.kind === "endgamePrinciple") {
       return `[Triệu Hâm Hâm - Tàn cuộc]${lessonTag}: ${base}${quoteSuffix}`;
+    }
+    if (lessonFact?.kind === "zhaoOpening") {
+      const prefix = lessonFact.tone === "critique" ? "Cảnh tỉnh" : "Khai cuộc";
+      return `[Triệu Hâm Hâm - ${prefix}]${lessonTag}: ${base}${quoteSuffix}`;
     }
     if (hasZhao) {
       return `[Triệu Hâm Hâm - Công sát]${lessonTag}: ${base}${quoteSuffix}`;

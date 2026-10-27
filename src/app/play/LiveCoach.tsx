@@ -250,7 +250,7 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
                 </span>
               </div>
               {(() => {
-                const zhaoFact = m.facts?.find((f): f is Fact & { lesson?: number; lessonTitle?: string; quote?: { text: string; at: string }; videoUrl?: string } => (f.kind === "zhaoMiddlegame" || f.kind === "endgamePrinciple") && (f as { lesson?: number }).lesson !== undefined);
+                const zhaoFact = m.facts?.find((f): f is Fact & { lesson?: number; lessonTitle?: string; quote?: { text: string; at: string }; videoUrl?: string } => (f.kind === "zhaoMiddlegame" || f.kind === "endgamePrinciple" || f.kind === "zhaoOpening") && (f as { lesson?: number }).lesson !== undefined);
                 const note = explainText(m.facts, m.side, m.ply, commentaryStyle);
                 return (
                   <>

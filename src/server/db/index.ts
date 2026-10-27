@@ -23,7 +23,14 @@ export async function createDb(options: { url?: string; dataDir?: string } = {})
     const { Pool } = await import("pg");
     const { drizzle } = await import("drizzle-orm/node-postgres");
     const { migrate } = await import("drizzle-orm/node-postgres/migrator");
-    const pool = new Pool({ connectionString: options.url, max: 10 });
+    const pool = new Pool({
+      connectionString: options.url,
+      max: 10,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10000,
+    });
     // Lỗi trong pool (kết nối rảnh bị phía máy chủ cắt) không được làm sập tiến trình.
     pool.on("error", (err) => console.error("[db] pool error:", err.message));
     const db = drizzle(pool, { schema });

@@ -4,16 +4,17 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ZHAO_LESSONS, type ZhaoLessonCard } from "@/lib/xiangqi/zhao48-lessons";
 import { ZHAO_ENDGAME_LESSONS, type ZhaoEndgameLessonCard } from "@/lib/xiangqi/zhao48-endgame-lessons";
+import { ZHAO_OPENING_LESSONS, type ZhaoOpeningLessonCard } from "@/lib/xiangqi/zhao48-opening-lessons";
 import { ZHAO_BENCHMARK_LESSONS, ZHAO_BENCHMARK_MAP, practiceHref, type ZhaoBook } from "@/lib/xiangqi/zhao-benchmark-data";
 import { ZhaoPositionModal } from "./ZhaoPositionModal";
 import styles from "./masters.module.css";
 
-type TabType = "middlegame" | "endgame";
+type TabType = "opening" | "middlegame" | "endgame";
 type KindFilter = "all" | "detectable" | "evaluative" | "summary";
 
 interface UnifiedLesson {
   id: string;
-  category: "middlegame" | "endgame";
+  category: "opening" | "middlegame" | "endgame";
   lesson: number;
   title: string;
   principle: string;
@@ -25,13 +26,28 @@ interface UnifiedLesson {
 }
 
 export function ZhaoLessonsSection() {
-  const [tab, setTab] = useState<TabType>("middlegame");
+  const [tab, setTab] = useState<TabType>("opening");
   const [search, setSearch] = useState("");
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
   const [activeVideo, setActiveVideo] = useState<{ videoId: string; title: string; timecode?: string } | null>(null);
   const [activeBenchmark, setActiveBenchmark] = useState<{ book: ZhaoBook; lesson: number } | null>(null);
 
   // Gộp danh sách bài học
+  const allOpening: UnifiedLesson[] = useMemo(() => {
+    return Object.values(ZHAO_OPENING_LESSONS).map((c: ZhaoOpeningLessonCard) => ({
+      id: `op_${c.lesson}`,
+      category: "opening",
+      lesson: c.lesson,
+      title: c.title,
+      principle: c.principle,
+      signals: c.signals,
+      quotes: c.quotes,
+      kind: c.kind,
+      video: c.video,
+      tacticId: c.tacticId,
+    }));
+  }, []);
+
   const allMiddlegame: UnifiedLesson[] = useMemo(() => {
     return Object.values(ZHAO_LESSONS).map((c: ZhaoLessonCard) => ({
       id: `mg_${c.lesson}`,
@@ -62,7 +78,7 @@ export function ZhaoLessonsSection() {
     }));
   }, []);
 
-  const currentList = tab === "middlegame" ? allMiddlegame : allEndgame;
+  const currentList = tab === "opening" ? allOpening : tab === "middlegame" ? allMiddlegame : allEndgame;
 
   const filtered = useMemo(() => {
     return currentList.filter((item) => {
@@ -98,10 +114,10 @@ export function ZhaoLessonsSection() {
       <div className={styles.zhaoBanner}>
         <div className={styles.zhaoBadge}>ĐẶC CẤP ĐẠI SƯ • TRIỆU HÂM HÂM</div>
         <h2 className={styles.zhaoHeroTitle}>
-          Tượng Kỳ Kỳ Lý – Tuyển Tập 96 Bài Giảng Đỉnh Cao
+          Tượng Kỳ Kỳ Lý – Tuyển Tập 144 Bài Giảng Đỉnh Cao
         </h2>
         <p className={styles.zhaoHeroDesc}>
-          Toàn bộ tinh hoa chiến thuật trung cuộc và tàn cuộc do Đặc cấp Đại sư{" "}
+          Toàn bộ tinh hoa chiến thuật khai cuộc, trung cuộc và tàn cuộc do Đặc cấp Đại sư{" "}
           <strong>Triệu Hâm Hâm (&quot;Lục Mạch Thần Kiếm&quot;)</strong> đúc kết trong bộ tác phẩm danh chấn
           kỳ đàn <em>&quot;Tượng kỳ kỳ lý tam bộ khúc&quot;</em>. Mọi nguyên lý đều kèm lời giảng nguyên văn,
           dấu hiệu nhận diện hình cờ và video phân tích chi tiết.
@@ -109,6 +125,10 @@ export function ZhaoLessonsSection() {
 
         {/* Thống kê nhanh */}
         <div className={styles.zhaoStatsRow}>
+          <div className={styles.zhaoStatBox}>
+            <span className={styles.zhaoStatNum}>48</span>
+            <span className={styles.zhaoStatText}>Kỳ lý Khai Cuộc</span>
+          </div>
           <div className={styles.zhaoStatBox}>
             <span className={styles.zhaoStatNum}>48</span>
             <span className={styles.zhaoStatText}>Kỳ lý Trung Cuộc</span>
@@ -121,10 +141,6 @@ export function ZhaoLessonsSection() {
             <span className={styles.zhaoStatNum}>100%</span>
             <span className={styles.zhaoStatText}>Phụ đề & Video chính chủ</span>
           </div>
-          <div className={styles.zhaoStatBox}>
-            <span className={styles.zhaoStatNum}>AI Engine</span>
-            <span className={styles.zhaoStatText}>Tích hợp tự động nhận diện</span>
-          </div>
         </div>
       </div>
 
@@ -136,9 +152,9 @@ export function ZhaoLessonsSection() {
             Đối Chiếu AI Với Kỳ Lý Triệu Hâm Hâm Trên Ván Đại Sư
           </h3>
           <p className={styles.benchmarkHeroDesc}>
-            {ZHAO_BENCHMARK_LESSONS.length} thế cờ từ ván đại sư thật, phủ {Object.keys(ZHAO_BENCHMARK_MAP.middlegame).length} bài
-            trung cuộc và {Object.keys(ZHAO_BENCHMARK_MAP.endgame).length} bài tàn cuộc: đi nước trong ván hoặc tự đi thử, xem AI
-            (có engine xác nhận) có nhận ra kỳ lý của bài không.
+            {ZHAO_BENCHMARK_LESSONS.length} thế cờ từ ván đại sư thật, phủ {Object.keys(ZHAO_BENCHMARK_MAP.opening).length} bài
+            khai cuộc, {Object.keys(ZHAO_BENCHMARK_MAP.middlegame).length} bài trung cuộc và {Object.keys(ZHAO_BENCHMARK_MAP.endgame).length} bài
+            tàn cuộc: đi nước trong ván hoặc tự đi thử, xem AI (có engine xác nhận) có nhận ra kỳ lý của bài không.
           </p>
         </div>
         <button
@@ -150,8 +166,15 @@ export function ZhaoLessonsSection() {
         </button>
       </div>
 
-      {/* Switcher Trung Cuộc / Tàn Cuộc */}
+      {/* Switcher Khai Cuộc / Trung Cuộc / Tàn Cuộc */}
       <div className={styles.zhaoTabsRow}>
+        <button
+          type="button"
+          className={`${styles.zhaoTabBtn} ${tab === "opening" ? styles.zhaoTabActive : ""}`}
+          onClick={() => setTab("opening")}
+        >
+          🌱 Kỳ Lý Khai Cuộc (48 Bài)
+        </button>
         <button
           type="button"
           className={`${styles.zhaoTabBtn} ${tab === "middlegame" ? styles.zhaoTabActive : ""}`}
@@ -173,7 +196,7 @@ export function ZhaoLessonsSection() {
         <input
           type="text"
           className={styles.searchInput}
-          placeholder={`Tìm theo bài số, tên đòn (${tab === "middlegame" ? "Khuyết Sĩ, Không tâm pháo, Song Xe..." : "Tàn cuộc, Xe Tốt, Pháo Mã..."})`}
+          placeholder={`Tìm theo bài số, tên đòn (${tab === "opening" ? "Xuất Xe, Phong Xe, Lưỡng đầu xà..." : tab === "middlegame" ? "Khuyết Sĩ, Không tâm pháo, Song Xe..." : "Tàn cuộc, Xe Tốt, Pháo Mã..."})`}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />

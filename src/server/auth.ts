@@ -226,8 +226,41 @@ export function isUniqueViolation(err: unknown): boolean {
   return false;
 }
 
+export function isTransientDbError(err: unknown): boolean {
+  if (!err) return false;
+  for (let e = err as { message?: string; cause?: unknown } | undefined, i = 0; e && i < 5; e = e.cause as typeof e, i++) {
+    const msg = (e.message ?? "").toLowerCase();
+    if (
+      msg.includes("client network socket disconnected") ||
+      msg.includes("tls connection") ||
+      msg.includes("econnreset") ||
+      msg.includes("etimedout") ||
+      msg.includes("connection terminated") ||
+      msg.includes("socket closed") ||
+      msg.includes("broken pipe")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export async function authenticate(db: Database, username: string, password: string): Promise<AuthUser | null> {
-  const [user] = await db.select().from(users).where(eq(users.username, normalizeUsername(username))).limit(1);
+  const normalized = normalizeUsername(username);
+  let user: User | undefined;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      [user] = await db.select().from(users).where(eq(users.username, normalized)).limit(1);
+      break;
+    } catch (err) {
+      if (attempt === 1 && isTransientDbError(err)) {
+        console.warn("[auth] Kết nối CSDL gián đoạn, thử lại:", (err as Error).message);
+        await new Promise((r) => setTimeout(r, 300));
+        continue;
+      }
+      throw err;
+    }
+  }
   if (!user || !user.passwordHash.startsWith("scrypt$")) {
     dummyHash ??= hashPassword("khong-phai-mat-khau-that");
     await verifyPassword(password, await dummyHash);

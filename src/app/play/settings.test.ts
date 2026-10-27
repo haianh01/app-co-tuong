@@ -64,10 +64,12 @@ describe("parseSettings — thế cờ từ bài giảng (?fen=&lesson=)", () =>
     expect(s.side).toBe("b");
   });
 
-  it("book=endgame chỉ có nghĩa khi có lesson", () => {
+  it("book (endgame, opening) chỉ có nghĩa khi có lesson", () => {
     expect(parseSettings({ lesson: "12", book: "endgame" }).book).toBe("endgame");
+    expect(parseSettings({ lesson: "12", book: "opening" }).book).toBe("opening");
     expect(parseSettings({ lesson: "12", book: "x" }).book).toBeUndefined();
     expect(parseSettings({ book: "endgame" }).book).toBeUndefined();
+    expect(parseSettings({ book: "opening" }).book).toBeUndefined();
   });
 
   it("lesson không phải số thì bỏ qua", () => {

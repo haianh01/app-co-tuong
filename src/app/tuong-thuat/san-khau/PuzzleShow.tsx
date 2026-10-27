@@ -14,7 +14,7 @@ import type { StageState } from "../stage-sync";
 import { buildPuzzleStage, countdownSecondsLeft, type StagePuzzleState } from "../stage-puzzle";
 import styles from "./puzzle-show.module.css";
 
-const subscribeNever = () => () => {};
+const subscribeNever = () => () => { };
 
 /** Tên miền của trang sân khấu: chính app phục vụ trang này, nên đây là địa chỉ khán giả vào được (rỗng khi render trên server). */
 function usePageHost(): string {

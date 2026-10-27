@@ -6,10 +6,15 @@
 import { ZHAO_BENCHMARK_ROWS, type ZhaoBenchmarkRow } from "./zhao-benchmark.generated";
 import { ZHAO_ENDGAME_LESSONS } from "./zhao48-endgame-lessons";
 import { ZHAO_LESSONS, type ZhaoQuote } from "./zhao48-lessons";
+import { ZHAO_OPENING_LESSONS } from "./zhao48-opening-lessons";
 
 export type ZhaoBook = ZhaoBenchmarkRow["book"];
 
-export const ZHAO_BOOK_NAME: Record<ZhaoBook, string> = { middlegame: "Trung cuộc", endgame: "Tàn cuộc" };
+export const ZHAO_BOOK_NAME: Record<ZhaoBook, string> = {
+  middlegame: "Trung cuộc",
+  endgame: "Tàn cuộc",
+  opening: "Khai cuộc",
+};
 
 export interface ZhaoBenchmarkItem {
   book: ZhaoBook;
@@ -24,12 +29,18 @@ export interface ZhaoBenchmarkItem {
   principle: string;
   /** Câu trích nguyên văn đầu tiên của bài (nếu có), kèm mốc thời gian trong video. */
   quote: ZhaoQuote | null;
+  /** Chuỗi nước đi từ đầu ván đến trước thế cờ (nếu có, dùng để dựng lại ngữ cảnh khai cuộc). */
+  historyMoves?: string[];
   /** Ván đại sư chứa thế cờ, `ply` là nửa nước đang xét (tính từ 1). */
   game: ZhaoBenchmarkRow["game"];
 }
 
 const cardOf = (book: ZhaoBook, lesson: number) =>
-  book === "middlegame" ? ZHAO_LESSONS[lesson] : ZHAO_ENDGAME_LESSONS[lesson];
+  book === "middlegame"
+    ? ZHAO_LESSONS[lesson]
+    : book === "endgame"
+    ? ZHAO_ENDGAME_LESSONS[lesson]
+    : ZHAO_OPENING_LESSONS[lesson];
 
 export const ZHAO_BENCHMARK_LESSONS: ZhaoBenchmarkItem[] = ZHAO_BENCHMARK_ROWS.flatMap((r) => {
   const card = cardOf(r.book, r.lesson);
@@ -46,6 +57,7 @@ export const ZHAO_BENCHMARK_LESSONS: ZhaoBenchmarkItem[] = ZHAO_BENCHMARK_ROWS.f
     video: card.video,
     principle: card.principle,
     quote: card.quotes[0] ?? null,
+    historyMoves: r.historyMoves,
     game: r.game,
   }];
 });
@@ -53,10 +65,15 @@ export const ZHAO_BENCHMARK_LESSONS: ZhaoBenchmarkItem[] = ZHAO_BENCHMARK_ROWS.f
 /** Đường dẫn chơi tiếp với máy từ thế này (đọc lại bởi parseSettings ở /play). */
 export function practiceHref(item: ZhaoBenchmarkItem): string {
   const params = new URLSearchParams({ fen: item.fen, lesson: String(item.lesson) });
-  if (item.book === "endgame") params.set("book", "endgame");
+  if (item.book !== "middlegame") params.set("book", item.book);
   return `/play?${params.toString()}`;
 }
 
 /** Thế đầu tiên của mỗi bài, theo bộ bài — để biết bài nào có thế đối chiếu. */
-export const ZHAO_BENCHMARK_MAP: Record<ZhaoBook, Record<number, ZhaoBenchmarkItem>> = { middlegame: {}, endgame: {} };
+export const ZHAO_BENCHMARK_MAP: Record<ZhaoBook, Record<number, ZhaoBenchmarkItem>> = {
+  middlegame: {},
+  endgame: {},
+  opening: {},
+};
 for (const item of ZHAO_BENCHMARK_LESSONS) ZHAO_BENCHMARK_MAP[item.book][item.lesson] ??= item;
+

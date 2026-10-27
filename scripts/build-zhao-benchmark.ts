@@ -22,6 +22,7 @@ import { MASTER_GAMES } from "../src/lib/xiangqi/master-games.generated";
 import { engineScore, MATE_SCORE, moveToUci, toUciFen, uciToMove } from "../src/lib/xiangqi/uci";
 import { ZHAO_ENDGAME_LESSONS } from "../src/lib/xiangqi/zhao48-endgame-lessons";
 import { ZHAO_LESSONS } from "../src/lib/xiangqi/zhao48-lessons";
+import { ZHAO_OPENING_LESSONS } from "../src/lib/xiangqi/zhao48-opening-lessons";
 import { zhaoOutcomeAllows } from "../src/lib/xiangqi/zhao-outcome";
 import { detectAllZhaoTactics } from "../src/lib/xiangqi/zhao-principles";
 import { getEnginePool } from "../src/server/engine/uci";
@@ -41,10 +42,11 @@ const load = (f: string): Record<string, Cached> => (fs.existsSync(f) ? JSON.par
 const cacheFile = path.join(cacheDir, `master-all-${NODES}.json`);
 const cache: Record<string, Cached> = { ...load(path.join(cacheDir, `master-endgame-${NODES}.json`)), ...load(cacheFile) };
 
-type Book = "middlegame" | "endgame";
+type Book = "middlegame" | "endgame" | "opening";
 type Tone = "praise" | "critique" | "note";
 /** Thứ tự ưu tiên khi chọn thế: lời khen (kỳ lý được áp dụng) → lời chê → ghi chú loại tàn cuộc. */
 const TONE_ORDER: Record<Tone, number> = { praise: 0, critique: 1, note: 2 };
+const BOOK_ORDER: Record<Book, number> = { opening: 0, middlegame: 1, endgame: 2 };
 
 interface Candidate {
   book: Book;
@@ -56,6 +58,7 @@ interface Candidate {
   fen: string;
   move: Move;
   notation: string;
+  historyMoves?: string[];
 }
 
 function loadExtraGames(dirPath: string): typeof MASTER_GAMES {
@@ -159,20 +162,21 @@ async function main() {
         }
       }
       for (const f of r.facts) {
-        if ((f.kind !== "zhaoMiddlegame" && f.kind !== "endgamePrinciple") || !f.lesson) continue;
-        const book: Book = f.kind === "zhaoMiddlegame" ? "middlegame" : "endgame";
+        if ((f.kind !== "zhaoMiddlegame" && f.kind !== "endgamePrinciple" && f.kind !== "zhaoOpening") || !f.lesson) continue;
+        const book: Book = f.kind === "zhaoMiddlegame" ? "middlegame" : f.kind === "endgamePrinciple" ? "endgame" : "opening";
         const key = keyOf(book, f.lesson);
         const list = byLesson.get(key) ?? [];
         list.push({
           book,
           lesson: f.lesson,
-          tactic: f.kind === "zhaoMiddlegame" ? f.tactic : f.principle,
+          tactic: f.kind === "zhaoMiddlegame" ? f.tactic : f.kind === "endgamePrinciple" ? f.principle : f.tactic,
           tone: f.tone ?? "praise",
           gameId: g.id,
           ply: r.ply,
           fen: toFen(state.history[i]),
           move: state.moves[i].move,
           notation: state.moves[i].notation,
+          historyMoves: book === "opening" ? state.moves.slice(0, i).map((x) => moveToUci(x.move)) : undefined,
         });
         byLesson.set(key, list);
       }
@@ -183,7 +187,7 @@ async function main() {
     byLesson.set(key, [...(byLesson.get(key) ?? []), c]);
   }
 
-  // 2. Chấm lại như modal: một nước, không lịch sử, Pikafish ANALYSIS
+  // 2. Chấm lại như modal: Pikafish ANALYSIS (khai cuộc có chuỗi nước trước, trung/tàn ván một nước)
   const fresh = new Map<string, PositionEval>();
   const liveEval = async (fen: string): Promise<PositionEval> => {
     const hit = fresh.get(fen);
@@ -203,6 +207,20 @@ async function main() {
     return ev;
   };
   const confirmedLive = async (c: Candidate): Promise<boolean> => {
+    if (c.book === "opening") {
+      const priorMoves = (c.historyMoves ?? []).map(uciToMove).filter((m): m is Move => m !== null);
+      const fullState = replayMoves([...priorMoves, c.move]);
+      const moveIndex = priorMoves.length;
+      const before = await liveEval(c.fen);
+      const fenAfter = toFen(fullState.history[moveIndex + 1]);
+      const after = fullState.result
+        ? { score: fullState.result.winner === fullState.moves[moveIndex].side ? -MATE_SCORE : 0, best: null, pv: [] }
+        : await liveEval(fenAfter);
+      const { review } = reviewMove(fullState.moves[moveIndex], moveIndex, fullState, before, after);
+      return review.facts.some((f) =>
+        f.kind === "zhaoOpening" && (f.lesson === c.lesson || f.tactic === c.tactic),
+      );
+    }
     const s1 = gameReducer(newGame(c.fen), { type: "move", move: c.move });
     if (s1.moves.length !== 1) return false;
     const before = await liveEval(c.fen);
@@ -221,9 +239,9 @@ async function main() {
   const picks: Candidate[] = [];
   const report: string[] = [];
   const keys = [...byLesson.keys()].sort((a, b) => {
-    const [ba, la] = a.split(":");
-    const [bb, lb] = b.split(":");
-    return ba === bb ? Number(la) - Number(lb) : ba === "middlegame" ? -1 : 1;
+    const [ba, la] = a.split(":") as [Book, string];
+    const [bb, lb] = b.split(":") as [Book, string];
+    return ba === bb ? Number(la) - Number(lb) : BOOK_ORDER[ba] - BOOK_ORDER[bb];
   });
   for (const key of keys) {
     // Mỗi ván tối đa một thế để đa dạng
@@ -255,6 +273,7 @@ async function main() {
       fen: c.fen,
       move: moveToUci(c.move),
       moveNotation: c.notation,
+      ...(c.historyMoves ? { historyMoves: c.historyMoves } : {}),
       game: { id: g.id, red: g.red, black: g.black, tournament: g.tournament, date: g.date, ply: c.ply },
     };
   });
@@ -263,7 +282,7 @@ async function main() {
     out,
     `// Sinh tự động bởi scripts/build-zhao-benchmark.ts — không sửa tay.\n` +
     `// Thế cờ trong ván đại sư (MASTER_GAMES) mà kỳ lý của bài được biến Pikafish xác nhận, kể cả khi chấm lại như modal.\n\n` +
-    `export interface ZhaoBenchmarkRow {\n  /** Bộ bài: 48 bài trung cuộc (zhao48-lessons) hay 48 bài tàn cuộc (zhao48-endgame-lessons), đánh số riêng. */\n  book: "middlegame" | "endgame";\n  lesson: number;\n  tactic: string;\n  tone: "praise" | "critique" | "note";\n  fen: string;\n  move: string;\n  moveNotation: string;\n` +
+    `export interface ZhaoBenchmarkRow {\n  /** Bộ bài: 48 bài khai cuộc (zhao48-opening-lessons), 48 bài trung cuộc (zhao48-lessons) hay 48 bài tàn cuộc (zhao48-endgame-lessons), đánh số riêng. */\n  book: "middlegame" | "endgame" | "opening";\n  lesson: number;\n  tactic: string;\n  tone: "praise" | "critique" | "note";\n  fen: string;\n  move: string;\n  moveNotation: string;\n  historyMoves?: string[];\n` +
     `  game: { id: number; red: string; black: string; tournament: string; date: string; ply: number };\n}\n\n` +
     `export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = ${JSON.stringify(rows, null, 2)};\n`,
   );
@@ -271,6 +290,7 @@ async function main() {
     cards.filter((c) => c.kind !== "summary" && !picks.some((p) => p.book === book && p.lesson === c.lesson)).map((c) => c.lesson).join(", ") || "không";
   console.log(report.join("\n"));
   console.log(`\nĐã ghi ${rows.length} thế vào ${path.relative(process.cwd(), out)}`);
+  console.log(`Khai cuộc chưa có thế (trừ bài tổng kết): ${noData("opening", Object.values(ZHAO_OPENING_LESSONS))}`);
   console.log(`Trung cuộc chưa có thế (trừ bài tổng kết): ${noData("middlegame", Object.values(ZHAO_LESSONS))}`);
   console.log(`Tàn cuộc chưa có thế (trừ bài tổng kết): ${noData("endgame", Object.values(ZHAO_ENDGAME_LESSONS))}`);
 }

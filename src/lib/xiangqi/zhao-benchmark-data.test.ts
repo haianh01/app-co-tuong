@@ -40,10 +40,12 @@ describe("thế cờ đối chiếu Triệu Hâm Hâm", () => {
     }
   });
 
-  it("ghi chú loại tàn cuộc (tone note) chỉ đến từ bài tàn cuộc loại đánh giá", () => {
+  it("ghi chú (tone note) chỉ đến từ bài loại đánh giá của đúng bộ bài", () => {
     for (const item of ZHAO_BENCHMARK_LESSONS.filter((x) => x.tone === "note")) {
-      expect(item.book).toBe("endgame");
-      expect(ZHAO_ENDGAME_LESSONS[item.lesson].kind).toBe("evaluative");
+      const card = item.book === "endgame"
+        ? ZHAO_ENDGAME_LESSONS[item.lesson]
+        : Object.values(ZHAO_LESSONS).find((c) => c.lesson === item.lesson);
+      expect(card?.kind).toBe("evaluative");
     }
   });
 

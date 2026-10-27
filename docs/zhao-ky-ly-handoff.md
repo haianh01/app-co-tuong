@@ -87,20 +87,53 @@ có ra tay**. Làm từng bài: đọc thẻ bài trong [zhao48-lessons.ts](../s
 Với mỗi bài: viết `checkXxx(...): PrincipleCheck | null` (trả cả tầng trượt và lý do như `checkDeepCannonBottom`) để test được
 từng tầng; `detectXxx` chỉ gọi nó rồi dựng `fact`. Viết lại lời bình theo khuôn ở mục 3, bỏ hết câu khuôn thổi phồng.
 
-### 4.2. 12 bài thế trận đang tắt (cần người dùng quyết)
+### 4.2. 12 bài thế trận (đã xử lý 2026-10-27, người dùng duyệt cơ chế)
 
-Bài 7, 9, 18, 19, 20, 22, 23, 26, 27, 38, 39, 42 có bộ nhận diện hình nhưng **không có trong `RULES`**, nên không bao giờ gắn.
-Lời bình của chúng vẫn là câu khuôn cũ (vd. bài 18: "đóng băng toàn bộ Song Mã Song Pháo").
-**Đừng thêm vào `RULES` chỉ để chúng hiện lên.** Với từng bài, đề xuất một cơ chế đo được trên biến engine (ví dụ: hình còn
-giữ suốt biến, quân đối phương bị khóa thật — số nước đi được của quân đó giảm, đối phương không phá được hình) rồi trình người dùng
-duyệt trước khi code. Bài nào không tìm được cơ chế đo được thì để tắt và ghi rõ lý do trong comment.
+Tầng 4 chung: không hớ (`soundMove`), engine chấm bên đi từ +100. Bài cần hình còn giữ thì biến phải dài ít nhất `HOLD_PLIES` (6) nửa nước.
+Số trong ngoặc là số nước được gắn trên 203 ván (cache 30k nodes).
 
-### 4.3. 7 bài không gắn lần nào trên 203 ván (kiểm có chặt quá không)
+| Bài | Hàm | Cơ chế tầng 3 |
+|---|---|---|
+| 9 Máy ủi trung lộ | `checkMayUiTrungLo` | `checkAttackLine` với nhóm Tốt giữa + Pháo đầu + Xe/Mã cột 3–5, cần ≥ 2 quân ra tay (0) |
+| 19 Chiếm tuyến Tốt | `checkChiemTuyenTot` | một trong: Xe ăn Tốt không bị bắt · ô nhảy **an toàn** của Mã đối phương giảm ≥ 2 · Mã nhà vào ngọa tào (1) |
+| 23 Tốt biên đại náo | `checkTotBienDaiNao` | `checkAttackLine` với chính con Tốt biên (0) |
+| 42 Hồi Mã kim thương | `checkMaVanNhuLong` | Mã thoái, không phải chạy Mã bị dọa; `checkAttackLine` với chính con Mã (2) |
+| 18 Kiềm chế đỉnh cung | `checkKiemCheDinhCung` | ô đi an toàn của Mã+Pháo đối phương giảm ≥ 30% (≥ 3 ô), quân khóa đứng trên hàng suốt biến, cuối biến chưa gỡ (0) |
+| 20 Kỵ hà xa | `checkKhongCheKyHa` | Xe đứng trên tuyến kỵ hà suốt biến, đối phương không đưa thêm quân qua sông (0) |
+| 22 Phong tỏa lộ Xe | `checkPhongToaLoXe` | phong tỏa: Xe đối phương ở góc suốt biến ≤ 2 ô đi · phản phong tỏa: phải có Pháo/Mã đối phương trên lộ 2/8, Xe nhà cuối biến ≥ 5 ô đi (1) |
+| 38 / 39 Xe Song Mã đối Xe Song Pháo | `checkXeMaDoiXePhao` | `kind: "evaluative"`, tone `"note"`: ghi chú một lần khi vào cấu hình, dẫn bài của bên engine chấm hơn ≥ 100; cân bằng thì im (1 + 1) |
+| 7, 26, 27 | — | **Để tắt**, lý do ghi trong comment ở `RULES` (zhao-outcome.ts) |
 
-Không tâm pháo, Pháo đáy khóa Xe, Song Xe phối hợp, Xe Song Pháo, Vây Xe, Vây Mã giác, Tụ binh đột kích.
-Chạy `npx tsx scripts/audit-zhao-corpus.ts --only <nhóm>` và **đọc các nước bị bỏ sót** trước khi nới. Phần lớn lời bình kỳ phổ
-nhắc các thế này theo nghĩa thế trận hoặc kế hoạch ("有空头炮占优", "如改走…", "窥卧槽") — những nước đó bỏ sót là đúng.
-Chỉ nới khi nước bị bỏ sót là đòn chiến thuật thật, và thêm chính thế đó vào test.
+Cạm bẫy mới: đếm "số nước đi được" của quân đối phương bằng nước hợp lệ sẽ sai khi đối phương đang bị chiếu (quân nào cũng
+"kẹt") — dùng ô đi an toàn (`safeMoves`). Phản phong tỏa mà chỉ có quân nhà chắn Xe rồi tự tránh đi là xuất Xe thường.
+
+### 4.3. Bài không gắn lần nào trên 203 ván (audit phễu 2026-10-27)
+
+`data/kypho/loi-binh.jsonl` không có trên máy nên `audit-zhao-corpus.ts` không chạy được; thay bằng phễu trên 203 ván (cache 30k):
+gọi thẳng bộ nhận diện với biến engine → luật kết quả (`RULES`) → lọc khen/chê + "nước đáng bình" → ưu tiên / bỏ lặp.
+
+| Bài | Bộ nhận diện khớp | Rớt ở đâu, kết luận |
+|---|---|---|
+| 4 Oa tâm Mã (chê) | 1 | nước của đại sư loss 0 → không chê là đúng |
+| 12 Không tâm pháo | 1 | nước tự ăn Tốt (attackPaysOff loại); biến thực ra là Xe mở tuyến, không phải không tâm pháo — đúng |
+| 15 Pháo đáy khóa Xe | 0 (cả theo ván) | kỳ phổ không có hình — đúng |
+| 25 Song Xe | 6 | 2 nước bị **Mạnh công tuyến áp đáy** (ưu tiên cao hơn, cùng biến) chiếm → **đã sửa thứ tự** |
+| 30 Xe Song Pháo | 3 | 1 nước bị Mạnh công chiếm (đã sửa); 2 nước lặng rớt ở "đáng bình" |
+| 31 Xe Mã lãnh chiêu | 1 | **lỗi**: bộ nhận diện bắt ăn Sĩ, attackPaysOff loại mọi nước tự ăn quân → không bao giờ gắn. Đã thay luật: sát hoặc `materialSettled ≥ 600` (Sĩ + một quân nhẹ). Ca duy nhất chỉ +300 nên vẫn 0 |
+| 33 Phế quân phá Sĩ Tượng | 140 | hình rộng, RULES (`realSacrifice`) lọc gần hết: đa số là ăn Sĩ/Tượng rồi đổi quân — đúng |
+| 34 Vây Xe | 11 | cả 11 biến là Xe đổi Xe (Xe "bị vây" tự đổi ra) — đúng |
+| 37 Vây Mã giác | 7 | 5 đổi Mã ngang — đúng; 1 nước lặng thắng Mã rớt ở "đáng bình" |
+
+Thứ tự `PRIORITY` mới: Oanh tạc lộ sườn → Song Xe → Xe Mã Pháo tam tử → Xe Song Pháo → Xe Song Mã → Mạnh công tuyến áp đáy
+(tổ hợp nhiều quân cụ thể hơn "một quân vào hàng 2"; Oanh tạc đứng đầu để bài 16 giữ thế 8636 #36).
+
+**Nước lặng**: modal trước đây bỏ `lines` (MultiPV) của `/api/engine` nên `reviewMove` không bao giờ chấm ra nước duy nhất / nước hay,
+khác màn phân tích ván (batch route có MultiPV). Đã cho modal giữ `lines` + `wdl`; builder bước 2 làm y hệt, bước 1 gom thêm nước
+lặng có kỳ lý khen đã qua `RULES` (xếp sau ứng viên thường).
+
+Kết quả sinh lại (`--per-lesson 3`): 105 → 109 thế. Thêm bài 25 (7261 #61), 30 (1266 #78), thêm thế cho 17, 19, 22;
+bài 28 dời 1211 #72 → #62. Tàn cuộc không đổi. Trung cuộc còn trống: 2, 4, 7, 9, 10, 12, 15, 18, 20, 23, 26, 27, 31, 33, 34, 37
+(37: 2 nước lặng đều rớt khi chấm lại; 2, 10: ứng viên duy nhất vẫn rớt khi chấm lại).
 
 ## 5. Cách làm và kiểm
 

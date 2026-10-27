@@ -5,6 +5,8 @@
  *   1. Chạy reviewGame của app trên các ván (điểm/biến Pikafish cache chung với audit-zhao-lessons.ts) và gom các nước
  *      được gắn kỳ lý trung cuộc (zhaoMiddlegame) hoặc nguyên lý tàn cuộc có số bài (endgamePrinciple) — tức đã qua
  *      bộ lọc "biến engine xác nhận" của reviewMove. Hai bộ bài đánh số riêng nên mỗi thế ghi kèm `book`.
+ *      Cache không có MultiPV nên nước lặng (không chiếu, không ăn quân) rớt ở bộ lọc "nước đáng bình" dù có thể là nước
+ *      duy nhất; các nước này (kỳ lý khen đã qua luật kết quả zhao-outcome) được gom thêm, xếp sau.
  *   2. Chấm lại từng ứng viên đúng như modal làm trên trình duyệt: ván một nước từ FEN, Pikafish ANALYSIS (60k nodes,
  *      MultiPV 3), không có lịch sử nước trước. Chỉ giữ thế mà kỳ lý của bài vẫn được gắn — modal mở ra sẽ thấy đúng thế.
  *
@@ -12,7 +14,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { reviewGame, reviewMove, type PositionEval } from "../src/lib/xiangqi/analysis";
+import { moveOutcomeFromEval, reviewGame, reviewMove, type PositionEval } from "../src/lib/xiangqi/analysis";
 import { convertChineseGame } from "../src/lib/xiangqi/chinese-notation";
 import { legalMoves, parseFen, toFen, type Move } from "../src/lib/xiangqi/engine";
 import { gameReducer, newGame, replayMoves } from "../src/lib/xiangqi/game";
@@ -20,6 +22,8 @@ import { MASTER_GAMES } from "../src/lib/xiangqi/master-games.generated";
 import { engineScore, MATE_SCORE, moveToUci, toUciFen, uciToMove } from "../src/lib/xiangqi/uci";
 import { ZHAO_ENDGAME_LESSONS } from "../src/lib/xiangqi/zhao48-endgame-lessons";
 import { ZHAO_LESSONS } from "../src/lib/xiangqi/zhao48-lessons";
+import { zhaoOutcomeAllows } from "../src/lib/xiangqi/zhao-outcome";
+import { detectAllZhaoTactics } from "../src/lib/xiangqi/zhao-principles";
 import { getEnginePool } from "../src/server/engine/uci";
 
 const args = process.argv.slice(2);
@@ -82,9 +86,32 @@ async function main() {
 
   const byLesson = new Map<string, Candidate[]>();
   const keyOf = (book: Book, lesson: number) => `${book}:${lesson}`;
+  const quiet: Candidate[] = [];
   for (const { g, state } of games) {
-    const review = reviewGame(state, state.history.map((p) => cachedEval(toFen(p))));
+    const evals = state.history.map((p) => cachedEval(toFen(p)));
+    const review = reviewGame(state, evals);
     review.moves.forEach((r, i) => {
+      // 1b. Nước lặng: kỳ lý khen qua luật kết quả nhưng không "đáng bình" khi thiếu MultiPV
+      const isFault = r.cls === "blunder" || r.cls === "mistake" || r.cls === "inaccuracy";
+      if (r.phase !== "tanCuoc" && r.cls !== "book" && !isFault) {
+        const before = state.history[i].board;
+        const { move } = state.moves[i];
+        const outcome = moveOutcomeFromEval(before, move, evals[i + 1]);
+        const zhao = outcome
+          ? detectAllZhaoTactics(before, move, state.history[i + 1].board, {
+            pv: evals[i + 1]?.pv, loss: r.loss, evalBefore: evals[i], evalAfter: evals[i + 1],
+            recentMoves: state.moves.slice(Math.max(0, i - 6), i).map((x) => x.move),
+          }).slice(0, 2)
+          : [];
+        for (const f of zhao) {
+          if (!f.lesson || (f.tone ?? "praise") !== "praise" || !zhaoOutcomeAllows(f.tactic, outcome!, f.side)) continue;
+          if (r.facts.some((x) => x.kind === "zhaoMiddlegame" && x.tactic === f.tactic)) continue;
+          quiet.push({
+            book: "middlegame", lesson: f.lesson, tactic: f.tactic, tone: "praise", gameId: g.id, ply: r.ply,
+            fen: toFen(state.history[i]), move, notation: state.moves[i].notation,
+          });
+        }
+      }
       for (const f of r.facts) {
         if ((f.kind !== "zhaoMiddlegame" && f.kind !== "endgamePrinciple") || !f.lesson) continue;
         const book: Book = f.kind === "zhaoMiddlegame" ? "middlegame" : "endgame";
@@ -105,6 +132,10 @@ async function main() {
       }
     });
   }
+  for (const c of quiet) {
+    const key = keyOf(c.book, c.lesson);
+    byLesson.set(key, [...(byLesson.get(key) ?? []), c]);
+  }
 
   // 2. Chấm lại như modal: một nước, không lịch sử, Pikafish ANALYSIS
   const fresh = new Map<string, PositionEval>();
@@ -113,7 +144,15 @@ async function main() {
     if (hit) return hit;
     const r = await pool.search(toUciFen(parseFen(fen)), ANALYSIS);
     const pv = (r.pv ?? []).map(uciToMove).filter((m): m is Move => m !== null);
-    const ev = { score: engineScore(r.cp, r.mate), best: r.bestmove ? uciToMove(r.bestmove) : null, pv };
+    // Giữ MultiPV như modal: reviewMove dựa vào đó mới nhận ra nước duy nhất / nước hay
+    const lines = r.lines?.map((l) => ({
+      best: l.bestmove ? uciToMove(l.bestmove) : null,
+      score: engineScore(l.cp, l.mate),
+      depth: l.depth,
+      pv: l.pv.map(uciToMove).filter((m): m is Move => m !== null),
+      wdl: l.wdl,
+    }));
+    const ev: PositionEval = { score: engineScore(r.cp, r.mate), best: r.bestmove ? uciToMove(r.bestmove) : null, pv, lines, wdl: r.wdl };
     fresh.set(fen, ev);
     return ev;
   };
@@ -151,7 +190,8 @@ async function main() {
       if (await confirmedLive(c)) kept.push(c);
     }
     picks.push(...kept);
-    report.push(`${key}: ${byLesson.get(key)!.length} ứng viên, thử ${tried}, giữ ${kept.length}`);
+    const nQuiet = quiet.filter((c) => keyOf(c.book, c.lesson) === key).length;
+    report.push(`${key}: ${byLesson.get(key)!.length} ứng viên${nQuiet ? ` (${nQuiet} nước lặng)` : ""}, thử ${tried}, giữ ${kept.length}`);
   }
   pool.close();
 

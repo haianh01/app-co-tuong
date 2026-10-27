@@ -19,7 +19,7 @@ import {
   pvMaterialSwing, soundMove,
   type ZhaoMiddlegameFact, type ZhaoTactics, type ZhaoTacticsOptions,
 } from "./middlegame";
-import { moveNotation, PIECE_NAME } from "./notation";
+import { moveNotation, PIECE_NAME, SIDE_NAME } from "./notation";
 import { decisiveBlow, engineLine, mateEnd, mateText, narrate, pieceRole, tally, type EngineLine } from "./engine-line";
 import { classifyMoveOutcome } from "./move-outcome";
 import { MATE_SCORE, MATE_THRESHOLD } from "./uci";
@@ -43,7 +43,7 @@ function pieces(board: Board, s: Side, types: string): number[] {
 const LINE_MARK = "theo biến: ";
 
 function fact(
-  before: Board, move: Move, tactic: ZhaoTactics, summary: string, details: string, tone?: "critique",
+  before: Board, move: Move, tactic: ZhaoTactics, summary: string, details: string, tone?: "critique" | "note",
 ): ZhaoMiddlegameFact {
   const f: ZhaoMiddlegameFact = {
     kind: "zhaoMiddlegame",
@@ -1611,49 +1611,41 @@ export function detectVoSuTienTotBien(
 // ============================================================================
 
 /**
- * Máy ủi trung lộ (Triệu Hâm Hâm Bài 9):
- * Có Pháo đầu yểm trợ, thúc Tốt giữa (lộ 5) xông thẳng vào trung tâm đối phương
- * như máy ủi nghiền nát tuyến phòng ngự.
+ * Máy ủi trung lộ (Triệu Hâm Hâm Bài 9), kiểm 4 tầng:
+ * 1. Hình: có Pháo đầu (cột 4), thúc Tốt giữa tiến tới hàng tạo áp lực (hàng 5 với Đỏ / hàng 4 với Đen trở lên),
+ *    và có Xe hoặc Mã đứng ở cột 3–5 — "Pháo đầu, Tốt giữa cùng Mã và Xe tạo thành mũi dùi trực diện".
+ * 2–4. `checkAttackLine` với nhóm trung lộ (Tốt vừa đi, Pháo đầu, Xe/Mã cột 3–5): ít nhất 2 quân trong nhóm ra tay
+ *    trước hoặc ở đòn quyết định — một quân đơn độc thì không phải máy ủi.
  */
+export function checkMayUiTrungLo(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): PrincipleCheck | null {
+  const piece = before[move.from];
+  if (!piece || typeOf(piece) !== "p" || colOf(move.from) !== 4) return null;
+  const mover = sideOf(piece);
+  const fr = rowOf(move.from);
+  const tr = rowOf(move.to);
+  if (!(mover === "r" ? tr < fr && tr <= 5 : tr > fr && tr >= 4)) return null;
+
+  const cannons = pieces(before, mover, "c").filter((s) => colOf(s) === 4);
+  if (cannons.length === 0) return { ok: false, layer: 1, reason: "Không có Pháo đầu yểm trợ" };
+  const heavies = pieces(before, mover, "rn").filter((s) => colOf(s) >= 3 && colOf(s) <= 5);
+  if (heavies.length === 0) return { ok: false, layer: 1, reason: "Không có Xe/Mã ở trung lộ phối hợp" };
+
+  return checkAttackLine(before, move, options, [move.from, ...cannons, ...heavies], 2);
+}
+
 export function detectMayUiTrungLo(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
 ): ZhaoMiddlegameFact | null {
-  const piece = before[move.from];
-  if (!piece) return null;
-  const mover = sideOf(piece);
-  const opp = opponent(mover);
-  if (!soundMove(options)) return null;
-
-  // Bên đi phải có Pháo đầu (Pháo ở cột 4)
-  let hasCentralCannon = false;
-  for (let i = 0; i < before.length; i++) {
-    const p = before[i];
-    if (p && sideOf(p) === mover && typeOf(p) === "c" && colOf(i) === 4) {
-      hasCentralCannon = true;
-      break;
-    }
-  }
-  if (!hasCentralCannon) return null;
-
-  // Nước đi là thúc Tốt giữa tiến lên
-  if (typeOf(piece) !== "p") return null;
-  const fc = colOf(move.from);
-  if (fc !== 4) return null;
-
-  const fr = rowOf(move.from);
-  const tr = rowOf(move.to);
-  const isForward = mover === "r" ? tr < fr : tr > fr;
-  if (!isForward) return null;
-
-  // Tốt dâng cao tạo áp lực: đã qua sông hoặc tiến đến hàng 5 (Đỏ) / hàng 4 (Đen)
-  const isPressuring = mover === "r" ? tr <= 5 : tr >= 4;
-  if (!isPressuring) return null;
-
+  const r = checkMayUiTrungLo(before, move, after, options);
+  if (!r?.ok) return null;
+  const names = [...actedTypes(before, r.acted)].map((t) => PIECE_NAME[t]).join(", ");
   return fact(
     before,
     move,
     "mayUiTrungLo",
-    "Máy ủi trung lộ: Có Pháo đầu yểm trợ, thúc Tốt giữa xông thẳng vào trung tâm đối phương như máy ủi nghiền nát tuyến phòng ngự.",
+    `Máy ủi trung lộ: có Pháo đầu, thúc Tốt giữa (${moveNotation(before, move)}), ${names} trung lộ cùng ra tay; theo biến: ${r.summary}.`,
     "Máy ủi trung lộ",
   );
 }
@@ -2151,43 +2143,85 @@ export function detectManhCongTuyenApDay(
 // 27. KIỀM CHẾ TUYẾN ĐỈNH CUNG (Triệu Hâm Hâm Bài 18)
 // ============================================================================
 
+/** Kỳ lý thế trận cần hình còn giữ qua biến: biến phải có ít nhất bấy nhiêu nửa nước sau nước đi. */
+const HOLD_PLIES = 6;
+
+/** Bàn cờ sau từng nửa nước của biến (phần tử i = thế sau nửa nước i, tính cả chính nước đi ở i = 0). */
+function lineBoards(before: Board, line: EngineLine): Board[] {
+  const out: Board[] = [];
+  let board = before;
+  for (const e of line.plies) out.push((board = play(board, e.move)));
+  return out;
+}
+
+/** Ô của quân xuất phát từ ô `origin` sau nửa nước `upTo` của biến; -1 khi quân đã bị ăn. */
+function squareInLine(line: EngineLine, origin: number, upTo: number): number {
+  let at = origin;
+  for (const e of line.plies.slice(0, upTo + 1)) {
+    if (e.origin === origin) at = e.move.to;
+    else if (e.move.to === at) return -1;
+  }
+  return at;
+}
+
+/** Số ô quân ở `from` đi tới được mà bên `enemy` không khống chế — không dùng nước hợp lệ vì đang bị chiếu thì quân nào cũng "kẹt". */
+function safeMoves(board: Board, from: number, enemy: Side): number {
+  return pseudoMoves(board, from).filter((t) => attackersOf(board, t, enemy).length === 0).length;
+}
+
 /**
- * Kiềm chế tuyến đỉnh cung (Triệu Hâm Hâm Bài 18):
- * Pháo hoặc Xe chiếm lĩnh hàng ngang đỉnh cửu cung (hàng 2 đối với Đỏ, hàng 7 đối với Đen)
- * phong tỏa diện rộng và đóng băng toàn bộ Song Mã Song Pháo đối thủ.
+ * Kiềm chế tuyến đỉnh cung (Triệu Hâm Hâm Bài 18), kiểm 4 tầng:
+ * 1. Hình: Pháo hoặc Xe từ hàng khác vào hàng đỉnh cung đối phương (hàng 2 với Đỏ / hàng 7 với Đen), đối phương còn
+ *    ít nhất 2 Mã/Pháo.
+ * 2. Mục đích: không tự ăn quân lớn.
+ * 3. Cơ chế — "đóng băng thế trận đối phương": số ô đi an toàn của Mã + Pháo đối phương giảm ít nhất 30% (và ít nhất 3 ô)
+ *    ngay sau nước đi, quân khóa đứng trên hàng đỉnh cung suốt biến (ít nhất HOLD_PLIES nửa nước), và tới cuối biến
+ *    đối phương vẫn chưa gỡ được (vẫn kém thế trước nước đi ít nhất 30%).
+ * 4. Kết quả: không hớ, engine chấm bên đi từ +100.
  */
+export function checkKiemCheDinhCung(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): PrincipleCheck | null {
+  const piece = before[move.from];
+  if (!piece || !"cr".includes(typeOf(piece))) return null;
+  const mover = sideOf(piece);
+  const opp = opponent(mover);
+  const browRow = mover === "r" ? 2 : 7;
+  if (rowOf(move.to) !== browRow || rowOf(move.from) === browRow) return null;
+  if (pieces(after, opp, "nc").length < 2) return { ok: false, layer: 1, reason: "Đối phương không còn đủ Mã Pháo để kiềm chế" };
+
+  const victim = before[move.to];
+  if (victim && isMajor(victim)) return { ok: false, layer: 2, reason: `Nước này ăn ${nameOf(victim)} — mục đích là ăn quân` };
+  const line = engineLine(before, move, options);
+  if (!line || line.plies.length <= HOLD_PLIES) return { ok: false, layer: 3, reason: "Biến engine quá ngắn để thấy thế kiềm chế còn giữ" };
+
+  const minorMoves = (board: Board) => pieces(board, opp, "nc").reduce((n, s) => n + safeMoves(board, s, mover), 0);
+  const boards = lineBoards(before, line);
+  const last = line.plies.length - 1;
+  const [m0, m1, mEnd] = [minorMoves(before), minorMoves(after), minorMoves(boards[last])];
+  if (m0 - m1 < 3 || m1 > 0.7 * m0) return { ok: false, layer: 3, reason: `Mã Pháo đối phương từ ${m0} còn ${m1} ô đi an toàn — chưa bị kiềm chế` };
+  const at = squareInLine(line, move.from, last);
+  if (at < 0 || rowOf(at) !== browRow) return { ok: false, layer: 3, reason: "Quân kiềm chế bị đuổi khỏi hàng đỉnh cung hoặc bị ăn trong biến" };
+  if (mEnd > 0.7 * m0) return { ok: false, layer: 3, reason: `Tới cuối biến Mã Pháo đối phương đã gỡ lại ${mEnd}/${m0} ô đi` };
+  if (!soundMove(options)) return { ok: false, layer: 4, reason: `Nước đi hớ ${options?.loss ?? "?"} điểm so với nước tốt nhất` };
+  if (!line.moverMates && line.scoreForMover < 100) return { ok: false, layer: 4, reason: `Engine chỉ chấm bên đi +${line.scoreForMover}` };
+  return {
+    ok: true,
+    mechanism: "kiềm chế Mã Pháo",
+    summary: `Mã Pháo ${SIDE_NAME[opp]} từ ${m0} còn ${m1} ô đi an toàn, sau ${last} nửa nước vẫn chỉ ${mEnd}; ${nameOf(piece)} đứng vững trên hàng đỉnh cung`,
+  };
+}
+
 export function detectKiemCheDinhCung(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
 ): ZhaoMiddlegameFact | null {
-  const piece = before[move.from];
-  if (!piece) return null;
-  const mover = sideOf(piece);
-  const opp = opponent(mover);
-  if (!soundMove(options)) return null;
-
-  const pt = typeOf(piece);
-  if (pt !== "c" && pt !== "r") return null;
-
-  const browRow = mover === "r" ? 2 : 7;
-  const tr = rowOf(move.to);
-  if (tr !== browRow) return null;
-
-  const fr = rowOf(move.from);
-  if (fr === browRow) return null;
-
-  let oppMinors = 0;
-  for (const p of after) {
-    if (p && sideOf(p) === opp && (typeOf(p) === "n" || typeOf(p) === "c")) {
-      oppMinors++;
-    }
-  }
-  if (oppMinors < 2) return null;
-
+  const r = checkKiemCheDinhCung(before, move, after, options);
+  if (!r?.ok) return null;
   return fact(
     before,
     move,
     "kiemCheDinhCung",
-    "Kiềm chế tuyến đỉnh cung: Khống chế hàng ngang đỉnh cung đối phương, phong tỏa diện rộng và đóng băng toàn bộ Song Mã Song Pháo đối thủ.",
+    `Kiềm chế tuyến đỉnh cung: ${nameOf(before[move.from]!)} vào hàng đỉnh cung (${moveNotation(before, move)}); theo biến: ${r.summary}.`,
     "Kiềm chế tuyến đỉnh cung",
   );
 }
@@ -2198,38 +2232,82 @@ export function detectKiemCheDinhCung(
 // ============================================================================
 
 /**
- * Chiếm tuyến tốt (Triệu Hâm Hâm Bài 19):
- * Xe tiến qua sông chiếm giữ tuyến Tốt đối phương (hàng 3 đối với Đỏ, hàng 6 đối với Đen)
- * nhằm càn quét binh, áp chế Mã và yểm trợ bộ binh/Mã ta tiến công.
+ * Chiếm tuyến Tốt (Triệu Hâm Hâm Bài 19), kiểm 4 tầng:
+ * 1. Hình: Xe từ hàng khác tiến vào tuyến Tốt đối phương (hàng 3 với Đỏ / hàng 6 với Đen).
+ * 2. Mục đích: không tự ăn quân lớn.
+ * 3. Cơ chế — bài giảng nêu ba mục đích "càn quét binh, áp chế Mã, yểm trợ Mã phe mình tiến lên"; biến engine phải
+ *    cho thấy ít nhất một:
+ *    - càn quét binh: chính Xe đó ăn Tốt trong biến và không bị ăn mất, kết thúc lời vật chất;
+ *    - áp chế Mã: Mã đối phương mất ít nhất 2 ô nhảy an toàn ngay sau nước Xe, và Xe còn đứng trên tuyến Tốt hết biến;
+ *    - yểm trợ Mã: Mã bên đi nhảy được vào ô ngọa tào trong biến.
+ * 4. Kết quả: không hớ, engine chấm bên đi từ +100.
  */
+export function checkChiemTuyenTot(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): PrincipleCheck | null {
+  const piece = before[move.from];
+  if (!piece || typeOf(piece) !== "r") return null;
+  const mover = sideOf(piece);
+  const opp = opponent(mover);
+  const pawnRow = mover === "r" ? 3 : 6;
+  if (rowOf(move.to) !== pawnRow || rowOf(move.from) === pawnRow) return null;
+
+  const victim = before[move.to];
+  if (victim && isMajor(victim)) return { ok: false, layer: 2, reason: `Nước này ăn ${nameOf(victim)} — mục đích là ăn quân` };
+  const line = engineLine(before, move, options);
+  if (!line) return { ok: false, layer: 3, reason: "Không có biến engine đủ dài để kiểm" };
+
+  // Vị trí của Xe qua biến (theo danh tính); -1 khi Xe bị ăn
+  let rookAt = move.to;
+  let pawnsWon = 0;
+  let lastPawn = -1;
+  for (const e of line.plies) {
+    if (e.origin === move.from) {
+      rookAt = e.move.to;
+      if (e.victim === "p") {
+        pawnsWon++;
+        lastPawn = e.ply;
+      }
+    } else if (e.move.to === rookAt) {
+      rookAt = -1;
+    }
+  }
+  // Ô nhảy an toàn của Mã đối phương (bên đi không khống chế) — không dùng nước hợp lệ vì nước chiếu làm Mã "không đi được"
+  const knightMoves = (board: Board) =>
+    pieces(board, opp, "n").reduce((n, s) => n + pseudoMoves(board, s).filter((t) => attackersOf(board, t, mover).length === 0).length, 0);
+  const ngoaTao = mover === "r" ? [sq(1, 2), sq(1, 6)] : [sq(8, 2), sq(8, 6)];
+  const ngoaTaoAt = line.plies.find((e) => e.side === mover && e.type === "n" && ngoaTao.includes(e.move.to))?.ply ?? -1;
+  const [knightsBefore, knightsAfter] = [knightMoves(before), knightMoves(after)];
+
+  let mechanism: string;
+  let summary: string;
+  if (pawnsWon > 0 && rookAt >= 0 && line.outcome.materialSettled >= 100) {
+    mechanism = "càn quét binh";
+    summary = `${narrate(line, lastPawn)} — Xe lời ${pawnsWon > 1 ? `${pawnsWon} Tốt` : "Tốt"}, không bị bắt lại`;
+  } else if (rookAt >= 0 && rowOf(rookAt) === pawnRow && knightsBefore - knightsAfter >= 2) {
+    mechanism = "áp chế Mã";
+    summary = `Mã ${SIDE_NAME[opp]} từ ${knightsBefore} còn ${knightsAfter} ô nhảy an toàn, Xe đứng vững trên tuyến Tốt hết biến`;
+  } else if (ngoaTaoAt >= 0) {
+    mechanism = "yểm trợ Mã ngọa tào";
+    summary = `${narrate(line, ngoaTaoAt)} — Mã vào ô ngọa tào`;
+  } else {
+    return { ok: false, layer: 3, reason: "Biến không cho thấy Xe quét Tốt, ghìm Mã hay mở đường cho Mã" };
+  }
+  if (!soundMove(options)) return { ok: false, layer: 4, reason: `Nước đi hớ ${options?.loss ?? "?"} điểm so với nước tốt nhất` };
+  if (!line.moverMates && line.scoreForMover < 100) return { ok: false, layer: 4, reason: `Engine chỉ chấm bên đi +${line.scoreForMover}` };
+  return { ok: true, mechanism, summary };
+}
+
 export function detectChiemTuyenTot(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
 ): ZhaoMiddlegameFact | null {
-  const piece = before[move.from];
-  if (!piece) return null;
-  const mover = sideOf(piece);
-  if (!soundMove(options)) return null;
-
-  if (typeOf(piece) !== "r") return null;
-
-  const pawnRow = mover === "r" ? 3 : 6;
-  const tr = rowOf(move.to);
-  if (tr !== pawnRow) return null;
-
-  const fr = rowOf(move.from);
-  if (fr === pawnRow) return null;
-
-  // Chiếm tuyến Tốt để quét Tốt: phải nhắm được >= 2 Tốt đối phương trên tuyến (tính cả Tốt vừa ăn).
-  const opp = opponent(mover);
-  const pawnsHit = pieces(after, opp, "p").filter((sq) => rowOf(sq) === tr && attackersOf(after, sq, mover).includes(move.to)).length
-    + (before[move.to] && typeOf(before[move.to]!) === "p" ? 1 : 0);
-  if (pawnsHit < 2) return null;
-
+  const r = checkChiemTuyenTot(before, move, after, options);
+  if (!r?.ok) return null;
   return fact(
     before,
     move,
     "chiemTuyenTot",
-    "Chiếm tuyến tốt: Xe quá hà chiếm lĩnh tuyến tốt đối phương nhằm càn quét binh, đè Mã và mở đường cho quân ta đột kích.",
+    `Chiếm tuyến Tốt: Xe vào tuyến Tốt đối phương (${moveNotation(before, move)}) để ${r.mechanism}; theo biến: ${r.summary}.`,
     "Chiếm tuyến tốt",
   );
 }
@@ -2239,36 +2317,55 @@ export function detectChiemTuyenTot(
 // ============================================================================
 
 /**
- * Khống chế tuyến kỵ hà (Triệu Hâm Hâm Bài 20):
- * Xe tiến sang bờ sông đối phương (kỵ hà: hàng 4 đối với Đỏ, hàng 5 đối với Đen)
- * nhằm phong tỏa tuyến sông, ngăn cản quân địch tràn qua và yểm trợ quân ta tiến công.
+ * Khống chế tuyến kỵ hà — kỵ hà xa (Triệu Hâm Hâm Bài 20), kiểm 4 tầng:
+ * 1. Hình: Xe tiến (không phải lùi) tới bờ sông đối phương (hàng 4 với Đỏ / hàng 5 với Đen).
+ * 2. Mục đích: không tự ăn quân lớn.
+ * 3. Cơ chế — "chiếm giữ tuyến sông, ngăn cản quân địch qua sông": Xe đứng trên tuyến kỵ hà suốt biến (ít nhất
+ *    HOLD_PLIES nửa nước, không bị ăn), và trong biến đối phương không đưa thêm được quân nào qua sông.
+ * 4. Kết quả: không hớ, engine chấm bên đi từ +100.
  */
+export function checkKhongCheKyHa(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): PrincipleCheck | null {
+  const piece = before[move.from];
+  if (!piece || typeOf(piece) !== "r") return null;
+  const mover = sideOf(piece);
+  const opp = opponent(mover);
+  const kyHaRow = mover === "r" ? 4 : 5;
+  const fr = rowOf(move.from);
+  if (rowOf(move.to) !== kyHaRow || fr === kyHaRow || (mover === "r" ? fr < 4 : fr > 5)) return null;
+
+  const victim = before[move.to];
+  if (victim && isMajor(victim)) return { ok: false, layer: 2, reason: `Nước này ăn ${nameOf(victim)} — mục đích là ăn quân` };
+  const line = engineLine(before, move, options);
+  if (!line || line.plies.length <= HOLD_PLIES) return { ok: false, layer: 3, reason: "Biến engine quá ngắn để thấy Xe giữ tuyến sông" };
+
+  const last = line.plies.length - 1;
+  const at = squareInLine(line, move.from, last);
+  if (at < 0 || rowOf(at) !== kyHaRow) return { ok: false, layer: 3, reason: "Xe bị đuổi khỏi tuyến kỵ hà hoặc bị ăn trong biến" };
+  const crossed = (board: Board) => board.filter((p, i) => p && sideOf(p) === opp && crossedRiver(rowOf(i), opp)).length;
+  const boards = lineBoards(before, line);
+  const [c1, cEnd] = [crossed(after), Math.max(...boards.map(crossed))];
+  if (cEnd > c1) return { ok: false, layer: 3, reason: `Đối phương vẫn đưa thêm quân qua sông trong biến (${c1} → ${cEnd})` };
+  if (!soundMove(options)) return { ok: false, layer: 4, reason: `Nước đi hớ ${options?.loss ?? "?"} điểm so với nước tốt nhất` };
+  if (!line.moverMates && line.scoreForMover < 100) return { ok: false, layer: 4, reason: `Engine chỉ chấm bên đi +${line.scoreForMover}` };
+  return {
+    ok: true,
+    mechanism: "giữ tuyến sông",
+    summary: `Xe đứng vững trên tuyến kỵ hà ${last} nửa nước, ${SIDE_NAME[opp]} không đưa thêm được quân nào qua sông`,
+  };
+}
+
 export function detectKhongCheKyHa(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
 ): ZhaoMiddlegameFact | null {
-  const piece = before[move.from];
-  if (!piece) return null;
-  const mover = sideOf(piece);
-  if (!soundMove(options)) return null;
-
-  if (typeOf(piece) !== "r") return null;
-
-  const kyHaRow = mover === "r" ? 4 : 5;
-  const tr = rowOf(move.to);
-  if (tr !== kyHaRow) return null;
-
-  const fr = rowOf(move.from);
-  if (fr === kyHaRow) return null;
-
-  // Phải là nước tiến sang sông (không phải lùi từ sâu trong trận địa về)
-  if (mover === "r" && fr < 4) return null;
-  if (mover === "b" && fr > 5) return null;
-
+  const r = checkKhongCheKyHa(before, move, after, options);
+  if (!r?.ok) return null;
   return fact(
     before,
     move,
     "khongCheKyHa",
-    "Khống chế tuyến kỵ hà: Xe tiến sang bờ sông đối phương (kỵ hà xa) phong tỏa tuyến sông, ngăn cản quân địch tràn qua và yểm trợ bộ binh xuất trận.",
+    `Kỵ hà xa: Xe tới bờ sông đối phương (${moveNotation(before, move)}); theo biến: ${r.summary}.`,
     "Khống chế kỵ hà",
   );
 }
@@ -2326,42 +2423,87 @@ export function detectTranhDoatLo3Lo7(
 // 31. PHONG TỎA & PHẢN PHONG TỎA LỘ XE (Triệu Hâm Hâm Bài 22)
 // ============================================================================
 
+/** Xe của bên `side` còn ở góc nhà cánh lộ 2/8 (cột 0–1 hoặc 7–8, ba hàng cuối nhà mình). */
+function cornerRooks(board: Board, side: Side, wingCols: number[]): number[] {
+  const home = side === "b" ? [0, 1, 2] : [7, 8, 9];
+  return pieces(board, side, "r").filter((s) => wingCols.includes(colOf(s)) && home.includes(rowOf(s)));
+}
+
 /**
- * Phong tỏa & phản phong tỏa lộ Xe (Triệu Hâm Hâm Bài 22):
- * Cuộc chiến sinh tử ở lộ 2 và lộ 8 (cột 1 hoặc 7) —
- * bên dùng Pháo/Mã phong tỏa, bên xuất Xe phản phong tỏa giành quyền kiểm soát đường Xe huyết mạch.
+ * Phong tỏa & phản phong tỏa lộ Xe (Triệu Hâm Hâm Bài 22), kiểm 4 tầng:
+ * 1. Hình — phong tỏa: Pháo hoặc Mã vào lộ 2/8 (cột 1/7) làm Xe đối phương ở góc cánh đó còn ≤ 2 ô đi (mất ít nhất 3);
+ *    phản phong tỏa: Pháo/Mã đối phương đang đứng trên lộ 2/8 cánh đó, và Xe nhà ở góc từ ≤ 2 ô đi được giải phóng lên
+ *    ≥ 5 ô ngay sau nước đi.
+ * 2. Mục đích: không tự ăn quân lớn.
+ * 3. Cơ chế — "cuộc chiến giành đường Xe": phong tỏa thì Xe đối phương suốt biến (ít nhất HOLD_PLIES nửa nước) không
+ *    lúc nào quá 2 ô đi và không ra khỏi góc; phản phong tỏa thì tới cuối biến Xe nhà vẫn còn và đi được ≥ 5 ô.
+ * 4. Kết quả: không hớ, engine chấm bên đi từ +100.
  */
-export function detectPhongToaLoXe(
+export function checkPhongToaLoXe(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
-): ZhaoMiddlegameFact | null {
+): PrincipleCheck | null {
   const piece = before[move.from];
   if (!piece) return null;
   const mover = sideOf(piece);
   const opp = opponent(mover);
-  if (!soundMove(options)) return null;
+  const wings = [[0, 1], [7, 8]];
 
-  // Xuất Xe từ góc (X1-2, X9-8) là nước khai cuộc thường lệ, không phải phong tỏa — chỉ xét Pháo.
-  if (typeOf(piece) !== "c") return null;
+  // Phong tỏa: Pháo/Mã vào cột 1/7, Xe đối phương ở góc cánh đó (không phải quân vừa bị ăn) bị chặn
   const tc = colOf(move.to);
-  if (tc !== 1 && tc !== 7) return null;
+  const wing = tc === 1 ? wings[0] : tc === 7 ? wings[1] : null;
+  const blocked = wing && "cn".includes(typeOf(piece))
+    ? cornerRooks(after, opp, wing).find((s) => pseudoMoves(after, s).length <= 2 && pseudoMoves(before, s).length - pseudoMoves(after, s).length >= 3)
+    : undefined;
+  // Phản phong tỏa: Xe nhà ở góc được giải phóng (kể cả khi chính Xe đi ra), và phải đang có Pháo/Mã đối phương
+  // phong tỏa lộ 2/8 cánh đó — Xe chỉ bị quân nhà chắn rồi quân nhà tránh đi là xuất Xe thường, không phải phản phong tỏa
+  const enemyOnFile = (w: number[]) => pieces(before, opp, "cn").some((s) => colOf(s) === (w[0] === 0 ? 1 : 7));
+  const freed = blocked === undefined
+    ? wings.filter(enemyOnFile).flatMap((w) => cornerRooks(before, mover, w)).find((s) => {
+      const now = s === move.from ? move.to : s;
+      return pseudoMoves(before, s).length <= 2 && pseudoMoves(after, now).length >= 5;
+    })
+    : undefined;
+  if (blocked === undefined && freed === undefined) return null;
 
-  // Phong tỏa thật: Xe đối phương ở góc cánh đó mất hẳn đường ra (cơ động giảm >= 3 ô so với trước nước đi).
-  const oppCornerCols = tc === 1 ? [0, 1] : [7, 8];
-  const oppHomeRows = opp === "b" ? [0, 1, 2] : [7, 8, 9];
-  const blocked = pieces(after, opp, "r").some(
-    (sq) =>
-      oppCornerCols.includes(colOf(sq)) &&
-      oppHomeRows.includes(rowOf(sq)) &&
-      before[sq] === after[sq] &&
-      pseudoMoves(before, sq).length - pseudoMoves(after, sq).length >= 3,
-  );
-  if (!blocked) return null;
+  const victim = before[move.to];
+  if (victim && isMajor(victim)) return { ok: false, layer: 2, reason: `Nước này ăn ${nameOf(victim)} — mục đích là ăn quân` };
+  const line = engineLine(before, move, options);
+  if (!line || line.plies.length <= HOLD_PLIES) return { ok: false, layer: 3, reason: "Biến engine quá ngắn để thấy đường Xe còn bị khóa / đã mở" };
+  const boards = lineBoards(before, line);
+  const last = line.plies.length - 1;
 
+  let mechanism: string;
+  let summary: string;
+  if (blocked !== undefined) {
+    const stuck = boards.every((board, i) => {
+      const at = squareInLine(line, blocked, i);
+      return at >= 0 && cornerRooks(board, opp, wing!).includes(at) && pseudoMoves(board, at).length <= 2;
+    });
+    if (!stuck) return { ok: false, layer: 3, reason: "Xe đối phương thoát được khỏi thế phong tỏa trong biến" };
+    mechanism = "phong tỏa";
+    summary = `Xe ${SIDE_NAME[opp]} ở góc suốt ${last} nửa nước không lúc nào đi được quá 2 ô`;
+  } else {
+    const at = squareInLine(line, freed!, last);
+    const n = at >= 0 ? pseudoMoves(boards[last], at).length : 0;
+    if (n < 5) return { ok: false, layer: 3, reason: "Tới cuối biến Xe nhà lại bị khóa hoặc bị ăn" };
+    mechanism = "phản phong tỏa";
+    summary = `Xe từ ${pseudoMoves(before, freed!).length} ô đi được giải phóng, cuối biến vẫn đi được ${n} ô`;
+  }
+  if (!soundMove(options)) return { ok: false, layer: 4, reason: `Nước đi hớ ${options?.loss ?? "?"} điểm so với nước tốt nhất` };
+  if (!line.moverMates && line.scoreForMover < 100) return { ok: false, layer: 4, reason: `Engine chỉ chấm bên đi +${line.scoreForMover}` };
+  return { ok: true, mechanism, summary };
+}
+
+export function detectPhongToaLoXe(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const r = checkPhongToaLoXe(before, move, after, options);
+  if (!r?.ok) return null;
   return fact(
     before,
     move,
     "phongToaLoXe",
-    "Phong tỏa lộ Xe: Tranh chấp quyết liệt ở lộ 2 và 8 — dùng Pháo kiềm tỏa hoặc xuất Xe chiếm lộ huyết mạch nhằm đoạt quyền chủ động toàn cục.",
+    `${r.mechanism === "phong tỏa" ? "Phong tỏa lộ Xe" : "Phản phong tỏa lộ Xe"} (${moveNotation(before, move)}); theo biến: ${r.summary}.`,
     "Phong tỏa lộ Xe",
   );
 }
@@ -2371,45 +2513,41 @@ export function detectPhongToaLoXe(
 // ============================================================================
 
 /**
- * Tập kích đường biên - Tốt biên đại náo (Triệu Hâm Hâm Bài 23):
- * Đột kích bất ngờ từ cánh biên bằng cách thúc Tốt biên qua sông thọc sâu vào lãnh thổ đối phương.
+ * Tốt biên đại náo (Triệu Hâm Hâm Bài 23), kiểm 4 tầng:
+ * 1. Hình: Tốt biên (lộ 1/9) đã qua sông, thọc sâu (hàng 3 với Đỏ / hàng 6 với Đen trở vào) hoặc rẽ ngang thọc sườn.
+ * 2–4. `checkAttackLine` với chính con Tốt đó: bài giảng nói "nhân vật then chốt mang lại chiến thắng là quân Tốt biên",
+ *    nên Tốt phải chiếu hoặc ăn quân trước hoặc ở đòn quyết định.
  */
-export function detectTotBienDaiNao(
+export function checkTotBienDaiNao(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
-): ZhaoMiddlegameFact | null {
+): PrincipleCheck | null {
   const piece = before[move.from];
-  if (!piece) return null;
+  if (!piece || typeOf(piece) !== "p") return null;
   const mover = sideOf(piece);
-  if (!soundMove(options)) return null;
-
-  if (typeOf(piece) !== "p") return null;
-
   const fc = colOf(move.from);
   const tc = colOf(move.to);
   const tr = rowOf(move.to);
-
-  // Phải liên quan đến cánh biên (lộ 1 hoặc 9: col 0 hoặc col 8)
-  const isEdgePawn = fc === 0 || fc === 8 || tc === 0 || tc === 8;
-  if (!isEdgePawn) return null;
-
-  // Phải đã qua sông
-  if (!crossedRiver(tr, mover)) return null;
-
-  // Thọc sâu vào đất địch:
-  // Đỏ tiến sâu (hàng <= 3) hoặc rẽ ngang thọc sườn (vào cột 1 hoặc 7)
-  // Đen tiến sâu (hàng >= 6) hoặc rẽ ngang thọc sườn (vào cột 1 hoặc 7)
+  if (!(fc === 0 || fc === 8 || tc === 0 || tc === 8) || !crossedRiver(tr, mover)) return null;
   const isDeep = mover === "r" ? tr <= 3 : tr >= 6;
   const isFlankTurn = (fc === 0 && tc === 1) || (fc === 8 && tc === 7);
-  if (!isDeep && !isFlankTurn) return null;
+  if (!isDeep && !isFlankTurn) return { ok: false, layer: 1, reason: "Tốt biên chưa thọc sâu vào trận địa đối phương" };
+  return checkAttackLine(before, move, options, [move.from], 1);
+}
 
+export function detectTotBienDaiNao(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const r = checkTotBienDaiNao(before, move, after, options);
+  if (!r?.ok) return null;
   return fact(
     before,
     move,
     "totBienDaiNao",
-    "Tốt biên đại náo: Thúc Tốt biên thọc sâu qua sông tập kích bất ngờ vào cánh biên đối phương, xé rách tuyến phòng thủ và mở đường cho đại quân đột kích.",
+    `Tốt biên đại náo: Tốt biên thọc sâu (${moveNotation(before, move)}) và chính nó ra tay; theo biến: ${r.summary}.`,
     "Tốt biên đại náo",
   );
 }
+
 
 
 // ============================================================================
@@ -3124,117 +3262,64 @@ export function detectVayMaGiac(
 }
 
 // ============================================================================
-// 46. VŨ KHÍ TẦM NGẮN THẮNG TẦM XA - XE SONG MÃ (Triệu Hâm Hâm Bài 38)
+// 46–47. XE SONG MÃ ĐỐI XE SONG PHÁO (Triệu Hâm Hâm Bài 38 & 39)
 // ============================================================================
 
+/** Bên có Xe Song Mã (đúng 1 Xe, 2 Mã, không Pháo) khi bên kia có Xe Song Pháo (1 Xe, 2 Pháo, không Mã); null nếu không khớp. */
+function xeMaDoiXePhao(board: Board): Side | null {
+  const has = (s: Side, r: number, n: number, c: number) =>
+    pieces(board, s, "r").length === r && pieces(board, s, "n").length === n && pieces(board, s, "c").length === c;
+  for (const s of ["r", "b"] as const) if (has(s, 1, 2, 0) && has(opponent(s), 1, 0, 2)) return s;
+  return null;
+}
+
 /**
- * Vũ khí tầm ngắn thắng tầm xa (Triệu Hâm Hâm Bài 38):
- * Xe Song Mã phát huy uy lực cận chiến, kiên nhẫn kiểm soát các điểm then chốt
- * và bóp nghẹt Pháo tầm xa đối phương.
+ * Xe Song Mã đối Xe Song Pháo (bài 38 "tầm ngắn thắng tầm xa" / bài 39 "tầm xa thắng tầm ngắn") là bài đánh giá
+ * thế quân, không phải đòn: ghi chú một lần khi ván vừa vào cấu hình này (thế sau khớp, thế trước không), và chỉ khi
+ * engine chấm một bên hơn rõ (từ +100) — bên nào hơn thì dẫn bài của bên đó. Thế cân bằng thì im.
  */
-export function detectTamNganThangTamXa(
+export function checkXeMaDoiXePhao(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
-): ZhaoMiddlegameFact | null {
+): { knights: Side; favored: Side; score: number } | null {
   const piece = before[move.from];
-  if (!piece) return null;
-  const mover = sideOf(piece);
-  const opp = opponent(mover);
-  if (!soundMove(options)) return null;
+  if (!piece || !options?.evalAfter) return null;
+  const knights = xeMaDoiXePhao(after);
+  if (!knights || xeMaDoiXePhao(before) === knights) return null;
+  const forMover = -options.evalAfter.score;
+  const forKnights = sideOf(piece) === knights ? forMover : -forMover;
+  if (Math.abs(forKnights) < 100) return null;
+  return { knights, favored: forKnights > 0 ? knights : opponent(knights), score: Math.abs(forKnights) };
+}
 
-  const pt = typeOf(piece);
-  if (pt !== "n" && pt !== "r") return null;
-
-  let moverKnights = 0;
-  let moverCannons = 0;
-  let moverRooks = 0;
-  let oppKnights = 0;
-  let oppCannons = 0;
-  let oppRooks = 0;
-
-  for (const p of after) {
-    if (!p) continue;
-    if (sideOf(p) === mover) {
-      if (typeOf(p) === "n") moverKnights++;
-      else if (typeOf(p) === "c") moverCannons++;
-      else if (typeOf(p) === "r") moverRooks++;
-    } else {
-      if (typeOf(p) === "n") oppKnights++;
-      else if (typeOf(p) === "c") oppCannons++;
-      else if (typeOf(p) === "r") oppRooks++;
-    }
-  }
-
-  // Cấu hình kinh điển: Phe ta Xe Song Mã (không còn Pháo), đối phương Xe Song Pháo (không còn Mã)
-  if (moverKnights < 2 || moverRooks < 1 || moverCannons > 0) return null;
-  if (oppCannons < 2 || oppRooks < 1 || oppKnights > 0) return null;
-
-  // Nước đi tạo đòn tấn công áp chế hoặc bắt quân
-  if (!inCheck(after, opp) && attackPressure(after, opp) < 1 && !before[move.to]) return null;
-
+function xeMaDoiXePhaoNote(
+  before: Board, move: Move, after: Board, options: ZhaoTacticsOptions | undefined, want: "n" | "c",
+): ZhaoMiddlegameFact | null {
+  const r = checkXeMaDoiXePhao(before, move, after, options);
+  if (!r || (r.favored === r.knights) !== (want === "n")) return null;
+  const tactic = want === "n" ? "tamNganThangTamXa" : "tamXaThangTamNgan";
+  const card = Object.values(ZHAO_LESSONS).find((c) => c.tacticId === tactic)!;
+  const score = Math.abs(r.score) >= MATE_THRESHOLD ? "thắng" : `+${r.score}`;
   return fact(
     before,
     move,
-    "tamNganThangTamXa",
-    "Vũ khí tầm ngắn thắng tầm xa: Xe Song Mã phát huy uy lực cận chiến, kiên nhẫn kiểm soát các điểm then chốt và bóp nghẹt Pháo tầm xa đối phương.",
-    "Vũ khí tầm ngắn thắng tầm xa",
+    tactic,
+    `Ván cờ bước vào thế Xe Song Mã (${SIDE_NAME[r.knights]}) đối Xe Song Pháo (${SIDE_NAME[opponent(r.knights)]}); ` +
+      `engine chấm ${SIDE_NAME[r.favored]} ${score}. ${card.principle.slice(card.principle.indexOf(":") + 1).trim()}`,
+    card.title,
+    "note",
   );
 }
 
-// ============================================================================
-// 47. VŨ KHÍ TẦM XA THẮNG TẦM NGẮN - XE SONG PHÁO (Triệu Hâm Hâm Bài 39)
-// ============================================================================
+export function detectTamNganThangTamXa(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  return xeMaDoiXePhaoNote(before, move, after, options, "n");
+}
 
-/**
- * Vũ khí tầm xa thắng tầm ngắn (Triệu Hâm Hâm Bài 39):
- * Xe Song Pháo phát huy ưu thế hỏa lực tầm xa và độ cơ động cao,
- * liên tục dội bom từ xa áp đảo Song Mã đối phương.
- */
 export function detectTamXaThangTamNgan(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
 ): ZhaoMiddlegameFact | null {
-  const piece = before[move.from];
-  if (!piece) return null;
-  const mover = sideOf(piece);
-  const opp = opponent(mover);
-  if (!soundMove(options)) return null;
-
-  const pt = typeOf(piece);
-  if (pt !== "c" && pt !== "r") return null;
-
-  let moverKnights = 0;
-  let moverCannons = 0;
-  let moverRooks = 0;
-  let oppKnights = 0;
-  let oppCannons = 0;
-  let oppRooks = 0;
-
-  for (const p of after) {
-    if (!p) continue;
-    if (sideOf(p) === mover) {
-      if (typeOf(p) === "c") moverCannons++;
-      else if (typeOf(p) === "n") moverKnights++;
-      else if (typeOf(p) === "r") moverRooks++;
-    } else {
-      if (typeOf(p) === "n") oppKnights++;
-      else if (typeOf(p) === "c") oppCannons++;
-      else if (typeOf(p) === "r") oppRooks++;
-    }
-  }
-
-  // Cấu hình kinh điển: Phe ta Xe Song Pháo (không còn Mã), đối phương Xe Song Mã (không còn Pháo)
-  if (moverCannons < 2 || moverRooks < 1 || moverKnights > 0) return null;
-  if (oppKnights < 2 || oppRooks < 1 || oppCannons > 0) return null;
-
-  // Nước đi tạo đòn tấn công áp chế hoặc bắt quân
-  if (!inCheck(after, opp) && attackPressure(after, opp) < 1 && !before[move.to]) return null;
-
-  return fact(
-    before,
-    move,
-    "tamXaThangTamNgan",
-    "Vũ khí tầm xa thắng tầm ngắn: Xe Song Pháo phát huy ưu thế hỏa lực tầm xa và độ cơ động cao, liên tục dội bom từ xa áp đảo Song Mã đối phương.",
-    "Vũ khí tầm xa thắng tầm ngắn",
-  );
+  return xeMaDoiXePhaoNote(before, move, after, options, "c");
 }
 
 // ============================================================================
@@ -3502,36 +3587,38 @@ export function detectMotXeDoiBa(
 // ============================================================================
 
 /**
- * Mã vận như long (Triệu Hâm Hâm Bài 42):
- * Hồi mã kim thương nén chặt không gian, kiểm soát bát phương
- * và đột kích mở đường cho toàn quân thắng thế.
+ * Mã vận như long — hồi Mã kim thương (Triệu Hâm Hâm Bài 42), kiểm 4 tầng:
+ * 1. Hình: Mã thoái về, sau nước đi khống chế được ít nhất 5 ô.
+ * 2. Mục đích: không phải chạy Mã đang bị dọa mà không có quân bảo vệ.
+ * 3–4. `checkAttackLine` với chính con Mã đó: Mã thoái để rồi tung đòn — Mã phải chiếu hoặc ăn quân trước hoặc ở đòn
+ *    quyết định trong biến.
  */
+export function checkMaVanNhuLong(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): PrincipleCheck | null {
+  const piece = before[move.from];
+  if (!piece || typeOf(piece) !== "n") return null;
+  const mover = sideOf(piece);
+  const fr = rowOf(move.from);
+  const tr = rowOf(move.to);
+  if (!(mover === "r" ? tr > fr : tr < fr)) return null;
+  if (pseudoMoves(after, move.to).length < 5) return { ok: false, layer: 1, reason: "Mã thoái về ô chật, không khống chế được bát phương" };
+  if (attackersOf(before, move.from, opponent(mover)).length > 0 && !isDefended(before, move.from, mover)) {
+    return { ok: false, layer: 2, reason: "Mã đang bị dọa mà không có quân bảo vệ — nước này là chạy quân" };
+  }
+  return checkAttackLine(before, move, options, [move.from], 1);
+}
+
 export function detectMaVanNhuLong(
   before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
 ): ZhaoMiddlegameFact | null {
-  const piece = before[move.from];
-  if (!piece) return null;
-  const mover = sideOf(piece);
-  if (!soundMove(options)) return null;
-
-  if (typeOf(piece) !== "n") return null;
-
-  const fr = rowOf(move.from);
-  const tr = rowOf(move.to);
-
-  // Hồi mã: Mã thoái lui về vị trí then chốt
-  const isRetreat = mover === "r" ? tr > fr : tr < fr;
-  if (!isRetreat) return null;
-
-  // Tầm kiểm soát rộng sau khi thoái lui
-  const mobility = pseudoMoves(after, move.to).length;
-  if (mobility < 5) return null;
-
+  const r = checkMaVanNhuLong(before, move, after, options);
+  if (!r?.ok) return null;
   return fact(
     before,
     move,
     "maVanNhuLong",
-    "Mã vận như long: Hồi mã kim thương nén chặt không gian, kiểm soát bát phương và đột kích mở đường cho toàn quân thắng thế.",
+    `Hồi Mã kim thương: Mã thoái về (${moveNotation(before, move)}) rồi chính Mã tung đòn; theo biến: ${r.summary}.`,
     "Mã vận như long",
   );
 }
@@ -3998,8 +4085,13 @@ const PRIORITY: Detector[] = [
   detectNgoaTaoKnight,
   detectDeepCannonBottom,
   detectPhaoDayKhoaXe,
-  detectManhCongTuyenApDay,
+  // Tổ hợp nhiều quân cụ thể hơn một quân vào hàng 2: cùng kể một biến chiếu thì gọi tên tổ hợp
   detectOanhTacLoSuon,
+  detectSongXePhoiHop,
+  detectXeMaPhaoTamTu,
+  detectXeSongPhao,
+  detectXeSongMa,
+  detectManhCongTuyenApDay,
   detectKhuyetSiSongXe,
   detectNhatMaHoanLuongTuong,
   detectDoatTrungBinh,
@@ -4012,10 +4104,6 @@ const PRIORITY: Detector[] = [
   detectCounterThreat,
   detectTempoExchange,
   detectTempoChase,
-  detectSongXePhoiHop,
-  detectXeMaPhaoTamTu,
-  detectXeSongPhao,
-  detectXeSongMa,
   detectLienHoanMa,
   detectPheQuanPhaSiTuong,
   detectXeMaLanhChieu,

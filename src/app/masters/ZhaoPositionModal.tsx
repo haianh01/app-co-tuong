@@ -102,7 +102,9 @@ export function ZhaoPositionModal({
     let cancelled = false;
     think(pendingFen, 3, FALLBACK, "analysis")
       .then((res) => {
-        if (!cancelled) setEvals((c) => ({ ...c, [pendingFen]: { score: res.score, best: res.move, pv: res.pvMoves } }));
+        // Giữ cả MultiPV như màn phân tích ván: reviewMove dựa vào đó mới nhận ra nước duy nhất / nước hay
+        const lines = res.lines?.map((l) => ({ best: l.move, score: l.score, depth: l.depth, pv: l.pvMoves, wdl: l.wdl }));
+        if (!cancelled) setEvals((c) => ({ ...c, [pendingFen]: { score: res.score, best: res.move, pv: res.pvMoves, lines, wdl: res.wdl } }));
       })
       .catch(() => {});
     return () => {
@@ -206,9 +208,10 @@ export function ZhaoPositionModal({
     ? fmtScore(scoreAfter)
     : "Đang tính…";
 
-  // Bài tàn cuộc loại "đánh giá" chỉ ghi chú khi ván bước vào loại tàn cuộc đó, không khen chê nước đi
+  // Bài loại "đánh giá" chỉ ghi chú khi ván bước vào loại tàn cuộc / thế quân đó, không khen chê nước đi
   const matchedNote = zhaoFacts.some(
-    (f) => f.kind === "endgamePrinciple" && f.tone === "note" && f.lesson === benchmarkItem.lesson && benchmarkItem.book === "endgame",
+    (f) => f.tone === "note" && f.lesson === benchmarkItem.lesson &&
+      (benchmarkItem.book === "endgame" ? f.kind === "endgamePrinciple" : f.kind === "zhaoMiddlegame"),
   );
   const verdictText =
     verdict === "invalid"
@@ -217,7 +220,7 @@ export function ZhaoPositionModal({
       ? "Đang chờ engine chấm thế cờ…"
       : verdict === "matched"
       ? matchedNote
-        ? `AI ghi chú: nước này đưa ván vào loại tàn cuộc của ${lessonLabel}`
+        ? `AI ghi chú: nước này đưa ván vào ${benchmarkItem.book === "endgame" ? "loại tàn cuộc" : "thế quân"} của ${lessonLabel}`
         : `Engine xác nhận kỳ lý của ${lessonLabel}`
       : verdict === "other"
       ? `AI gắn kỳ lý khác, không phải ${lessonLabel}`

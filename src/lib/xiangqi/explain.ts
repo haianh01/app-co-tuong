@@ -1378,6 +1378,9 @@ export function explainText(
     if (hasZhao && zhaoFacts.every((f) => f.tone === "critique")) {
       return `[Triệu Hâm Hâm - Cảnh tỉnh]${lessonTag}: ${base}${quoteSuffix}`;
     }
+    if (hasZhao && zhaoFacts.every((f) => f.tone === "note")) {
+      return `[Triệu Hâm Hâm - Thế quân]${lessonTag}: ${base}${quoteSuffix}`;
+    }
     if (lessonFact?.kind === "endgamePrinciple") {
       return `[Triệu Hâm Hâm - Tàn cuộc]${lessonTag}: ${base}${quoteSuffix}`;
     }

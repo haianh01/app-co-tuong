@@ -493,8 +493,8 @@ export interface ZhaoMiddlegameFact {
   move: string;
   summary: string;
   details?: string;
-  /** "critique" = nguyên lý bị vi phạm (nước lỗi); mặc định là khen. */
-  tone?: "praise" | "critique";
+  /** "critique" = nguyên lý bị vi phạm (nước lỗi); "note" = ghi chú thế quân, không khen chê nước đi; mặc định là khen. */
+  tone?: "praise" | "critique" | "note";
   /** Đoạn kể lại biến engine trong lời bình (nếu có) — để hai kỳ lý cùng kể một biến thì chỉ nói một lần. */
   line?: string;
   lesson?: number;

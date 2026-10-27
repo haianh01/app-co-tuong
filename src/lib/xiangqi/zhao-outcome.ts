@@ -65,12 +65,26 @@ const RULES: Record<string, Rule> = {
   xeMaPhaoTamTu: attackPaysOff,
   xeSongMa: attackPaysOff,
   xeSongPhao: attackPaysOff,
-  xeMaLanhChieu: attackPaysOff,
+  // Nước chém Sĩ tự nó ăn quân nên attackPaysOff không bao giờ qua; bài giảng là dứt điểm: sát, hoặc lời Sĩ cộng một quân nhẹ
+  xeMaLanhChieu: (o) => o.kind === "mate" || o.materialSettled >= 600,
   giaPhao: attackPaysOff,
   tranhNuoc: (o) => o.kind === "mate" || o.kind === "winsMaterial" || o.materialSettled >= 200,
   diCongViThu: attackPaysOff,
   tuBinhDotKich: attackPaysOff,
   tranhDoatLo3Lo7: attackPaysOff,
+  // Thế trận đã có bộ kiểm 4 tầng (checkMayUiTrungLo, checkTotBienDaiNao, checkMaVanNhuLong, checkChiemTuyenTot)
+  mayUiTrungLo: (o) => o.kind === "mate" || o.materialSettled >= 150,
+  totBienDaiNao: (o) => o.kind === "mate" || o.materialSettled >= 150,
+  maVanNhuLong: (o) => o.kind === "mate" || o.materialSettled >= 150,
+  chiemTuyenTot: (o) => o.kind === "mate" || (o.kind !== "losesMaterial" && o.materialSettled >= 0),
+  // Kiềm chế / giữ tuyến (checkKiemCheDinhCung, checkKhongCheKyHa, checkPhongToaLoXe): chỉ chặn biến lỗ vật chất
+  kiemCheDinhCung: (o) => o.kind === "mate" || (o.kind !== "losesMaterial" && o.materialSettled >= 0),
+  khongCheKyHa: (o) => o.kind === "mate" || (o.kind !== "losesMaterial" && o.materialSettled >= 0),
+  phongToaLoXe: (o) => o.kind === "mate" || (o.kind !== "losesMaterial" && o.materialSettled >= 0),
+  // Cố ý KHÔNG có trong bảng (để tắt), vì một biến engine không đo được điều bài giảng nói:
+  //  - voSuTienTotBien (bài 7): giá trị của nước là chờ đối phương tự phá thế giằng co, không hiện ra trong vài nửa nước.
+  //  - phaoGanh (bài 26), lienHoanMa (bài 27): kỳ lý phòng thủ — muốn biết nước có dập được đe dọa không phải chấm thêm
+  //    thế "bỏ lượt" (null-move); chỉ dựa vào "đối phương không thắng quân trong biến" thì nước nào cũng qua.
   // Phê bình: nước sai thật sự dẫn tới mất quân hoặc bị chiếu bí
   khongThamAn: (o) => o.kind === "losesMaterial",
   oaTamMa: (o) => o.kind === "losesMaterial",

@@ -309,7 +309,10 @@ export function isSignificantMove(before: Board, move: Move, after: Board, cls: 
  */
 function keepZhaoFact(f: Fact, cls: MoveClass | null, isFault: boolean, before: Board, move: Move, after: Board, outcome: MoveOutcome | null): boolean {
   if (f.kind !== "zhaoMiddlegame") return true;
-  if (cls === "book" || !outcome) return false;
+  if (cls === "book") return false;
+  // Ghi chú thế quân (bộ nhận diện đã lấy điểm engine nói bên nào hơn) không khen chê nước đi nên không qua RULES
+  if (f.tone === "note") return true;
+  if (!outcome) return false;
   if (!zhaoOutcomeAllows(f.tactic, outcome, f.side)) return false;
   if (f.tone === "critique") return isFault;
   return !isFault && isSignificantMove(before, move, after, cls);
@@ -338,7 +341,7 @@ export function moveOutcomeFromEval(before: Board, move: Move, afterEval: Positi
 /**
  * Bỏ kỳ lý lặp lại: cùng một kỳ lý (trung cuộc hoặc tàn cuộc) cho cùng một bên trong vòng `window` nửa nước gần nhất
  * chỉ nói một lần (thế trận giữ nguyên thì bộ nhận diện khớp liên tục, nhắc lại mỗi nước thành nhiễu).
- * Ghi chú loại tàn cuộc chỉ nói một lần cho cả ván.
+ * Ghi chú loại tàn cuộc và ghi chú thế quân trung cuộc chỉ nói một lần cho cả ván.
  */
 export function suppressRepeatedZhaoFacts(reviews: MoveReview[], window = 12): void {
   const lastSeen = new Map<string, number>();
@@ -347,7 +350,8 @@ export function suppressRepeatedZhaoFacts(reviews: MoveReview[], window = 12): v
       let key: string;
       let span = window;
       if (f.kind === "zhaoMiddlegame") {
-        key = `${f.side}:${f.tactic}`;
+        key = f.tone === "note" ? `note:${f.tactic}` : `${f.side}:${f.tactic}`;
+        if (f.tone === "note") span = Infinity;
       } else if (f.kind === "endgamePrinciple") {
         key = f.tone === "note" ? `note:${f.principle}` : `${f.side}:${f.principle}`;
         if (f.tone === "note") span = Infinity;

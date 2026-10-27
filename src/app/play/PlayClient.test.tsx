@@ -9,9 +9,12 @@ import { PlayClient } from "./PlayClient";
 vi.mock("@/components/session/SessionProvider", () => ({ useSession: () => ({ user: undefined, setUser: () => {}, refresh: () => {} }) }));
 vi.mock("@/hooks/useGameSounds", () => ({ useMoveSounds: () => {}, useResultSound: () => {} }));
 // AI thật chạy trong luồng test thay cho Web Worker, độ sâu giới hạn để test nhẹ.
+const levelsAsked = vi.hoisted(() => [] as number[]);
 vi.mock("@/hooks/useEngine", () => ({
-  useEngine: () => async (fen: string, level: AiLevel, overrides?: SearchOverrides) =>
-    findBestMove(parseFen(fen), level, () => 0, { depth: 2, ...overrides, timeMs: 60_000 }),
+  useEngine: () => async (fen: string, level: AiLevel, overrides?: SearchOverrides) => {
+    levelsAsked.push(level);
+    return findBestMove(parseFen(fen), level, () => 0, { depth: 2, ...overrides, timeMs: 60_000 });
+  },
 }));
 
 function tap(r: number, c: number) {
@@ -36,6 +39,45 @@ describe("PlayClient – phân tích sau ván", () => {
     fireEvent.click(screen.getByRole("button", { name: "Xin thua" }));
     fireEvent.click(screen.getByRole("button", { name: "Phân tích ván" }));
     await screen.findByText(/Độ chính xác Đỏ/, {}, { timeout: 10_000 });
+  });
+});
+
+describe("PlayClient – gợi ý", () => {
+  const START = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w";
+
+  it("ván thường: gợi ý ở cấp Khó (4)", () => {
+    levelsAsked.length = 0;
+    render(<PlayClient initial={{ level: 1, side: "r", minutes: 0 }} />);
+    const before = levelsAsked.length; // trang có thể tự hỏi engine (huấn luyện viên), chỉ xét lời gọi của nút
+    fireEvent.click(screen.getByRole("button", { name: "Gợi ý" }));
+    expect(levelsAsked.slice(before)).toEqual([4]);
+  });
+
+  it("luyện thế từ bài giảng: gợi ý ở cấp mạnh nhất (5) dù đánh với máy cấp thấp", () => {
+    levelsAsked.length = 0;
+    render(<PlayClient initial={{ level: 1, side: "r", minutes: 0, fen: START, lesson: 1 }} />);
+    const before = levelsAsked.length;
+    fireEvent.click(screen.getByRole("button", { name: "Gợi ý" }));
+    expect(levelsAsked.slice(before)).toEqual([5]);
+  });
+});
+
+describe("PlayClient – quay lại trang với thế khác", () => {
+  it("trang được giữ (Activity) nhưng URL nạp thế bài giảng mới thì bày ván mới theo thế đó", async () => {
+    const { rerender } = render(<PlayClient initial={{ level: 1, side: "r", minutes: 0 }} />);
+    tap(7, 7); // Pháo 2
+    tap(7, 4); // bình 5: ván cũ có nước đi
+    await screen.findByText("Đến lượt bạn", {}, { timeout: 10_000 });
+    const label = (r: number, c: number) => document.querySelector(`button[data-square="${sq(r, c)}"]`)?.getAttribute("aria-label");
+    expect(label(7, 4)).toBe("Pháo đỏ");
+    expect(screen.queryByText(/Bài 1:/)).toBeNull();
+
+    const fen = "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w";
+    rerender(<PlayClient initial={{ level: 1, side: "r", minutes: 0, fen, lesson: 1 }} />);
+    expect(screen.getByText(/Bài 1:/)).toBeTruthy();
+    // Ván mới từ thế bài giảng: Pháo đỏ về lại h3, không còn nước Pháo bình 5 của ván cũ
+    expect(label(7, 7)).toBe("Pháo đỏ");
+    expect(label(7, 4)).toBeUndefined();
   });
 });
 

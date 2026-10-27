@@ -27,7 +27,7 @@ import { StagePanel, useStageLink, useStageSettings } from "../StagePanel";
 import { changeResult, nextRound, resultOnBoard, type StageResult } from "../stage-round";
 import { useStageArchive } from "../useStageArchive";
 import { clockAfterMove, readClock, startClock, stopClock, type GameClock } from "../game-clock";
-import { buildStageState, canReview, type StageClocks, type StagePuzzleState, type StageReviewState } from "../stage-sync";
+import { buildStageState, canReview, type StageClocks, type StagePlayer, type StageSettings, type StagePuzzleState, type StageReviewState } from "../stage-sync";
 import { TrialBar, useTrialMoves } from "../trial";
 import { scrollMoveIntoBox } from "../scroll-moves";
 import { generateTampermonkeyScript } from "@/lib/ziga/tampermonkey-script";
@@ -62,6 +62,31 @@ function seatLabel(seat: number, seats: { red: number; black: number } | null, m
   if (mySeat !== null) return seat === mySeat ? "Bạn" : "Đối thủ";
   if (seats) return seat === seats.red ? "Đỏ" : "Đen";
   return `Ghế ${seat}`;
+}
+
+/**
+ * Kỳ thủ theo danh sách bàn Ziga. Elo của Ziga là chuẩn: bỏ cấp, sao và ảnh theo cấp còn lưu (của người ngồi trước hay
+ * giá trị mặc định) để sân khấu tính lại từ elo. Đổi người thì không mang theo gì của người cũ.
+ */
+function zigaStagePlayer(prev: StagePlayer, p: ZigaPlayer): StagePlayer {
+  const avatarUrl = prev.name === p.name && !prev.avatarUrl?.startsWith("/stage/avatar_") ? prev.avatarUrl : undefined;
+  return { name: p.name, points: String(p.elo), ...(avatarUrl ? { avatarUrl } : {}) };
+}
+
+/**
+ * Sang ván sau nhưng giữ đối thủ đang ngồi bàn: Ziga gửi thông tin bàn (tên, elo) trước gói bắt đầu ván, nên xoá
+ * đối thủ như `nextRound` làm sẽ mất elo của người đang đánh.
+ */
+function nextZigaRound(
+  s: StageSettings,
+  chosen: StageResult | null,
+  onBoard: StageResult | null,
+  roster: Record<number, ZigaPlayer>,
+  seat: number | null,
+): StageSettings {
+  const next = nextRound(s, chosen, onBoard);
+  const opp = seat === null ? undefined : roster[1 - seat];
+  return opp ? { ...next, opponent: zigaStagePlayer(s.opponent, opp) } : next;
 }
 
 function broadcastReducer(state: GameState, action: BroadcastAction): GameState {
@@ -296,8 +321,8 @@ export function ZigaBroadcastClient() {
           const opp = roster[1 - seat];
           setStageSettings((st) => ({
             ...st,
-            me: me ? { ...st.me, name: me.name, points: String(me.elo) } : st.me,
-            opponent: opp ? { ...st.opponent, name: opp.name, points: String(opp.elo) } : { name: "Đối thủ" },
+            me: me ? zigaStagePlayer(st.me, me) : st.me,
+            opponent: opp ? zigaStagePlayer(st.opponent, opp) : { name: "Đối thủ" },
           }));
         }
       }
@@ -355,7 +380,8 @@ export function ZigaBroadcastClient() {
         // Ván trước đã có nước → sang ván kế (tăng số ván, xoá tên đối thủ cũ)
         if (gameRef.current.moves.length > 0) {
           void archiveRef.current?.saveNow(roundResultRef.current, roundResultRef.current ? "manual" : null);
-          setStageSettings((s) => nextRound(s, roundResultRef.current, null));
+          const chosen = roundResultRef.current;
+          setStageSettings((s) => nextZigaRound(s, chosen, null, rosterRef.current, mySeatRef.current));
           archiveRef.current?.newGame();
         }
         applyGameAction({ type: "reset" });
@@ -687,7 +713,7 @@ export function ZigaBroadcastClient() {
     if (game.moves.length === 0) return;
     const currentOnBoard = resultOnBoard(game.history[game.moves.length], mySide);
     void archive.saveNow(roundResult ?? currentOnBoard, roundResult ? "manual" : currentOnBoard ? "board" : null);
-    setStageSettings((s) => nextRound(s, roundResult, currentOnBoard));
+    setStageSettings((s) => nextZigaRound(s, roundResult, currentOnBoard, rosterRef.current, mySeatRef.current));
     setRoundResult(null);
   };
 

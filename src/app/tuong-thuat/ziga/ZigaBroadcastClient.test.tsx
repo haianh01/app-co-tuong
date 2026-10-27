@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { ZigaBroadcastClient } from "./ZigaBroadcastClient";
 import { uciToMove, type ZigaParsedMessage } from "@/lib/ziga/ziga-parser";
 import { parseFen } from "@/lib/xiangqi/engine";
@@ -206,6 +206,43 @@ describe("ZigaBroadcastClient", () => {
 
     act(() => es.emit(framePacket(3, "in", { eventType: "elo_update", eloUpdate: { seat: 1, elo: 930 } })));
     expect(screen.getByDisplayValue("930")).toBeDefined();
+  });
+
+  it("cấp và sao hai bên tính lại từ elo Ziga, không giữ cấp cũ đã lưu", () => {
+    render(<ZigaBroadcastClient />);
+    const es = FakeEventSource.instances[0];
+    const levels = () => screen.getAllByPlaceholderText("Tập Sự") as HTMLInputElement[];
+    for (const input of levels()) fireEvent.change(input, { target: { value: "Kỳ Thủ" } });
+    act(() => {
+      es.emitInit(0);
+      es.emit(framePacket(1, "in", { eventType: "login", login: { userName: "W43604711" } }));
+      es.emit(
+        framePacket(2, "in", {
+          eventType: "table_info",
+          roster: { replace: true, list: [{ seat: 0, name: "A81612544", elo: 907 }, { seat: 1, name: "W43604711", elo: 916 }] },
+        }),
+      );
+    });
+    expect(levels().map((i) => i.value)).toEqual(["", ""]);
+  });
+
+  it("sang ván mới: giữ tên + elo đối thủ Ziga vừa gửi trong thông tin bàn (gói tới trước gói bắt đầu ván)", () => {
+    render(<ZigaBroadcastClient />);
+    const es = FakeEventSource.instances[0];
+    const roster = (seq: number, list: { seat: number; name: string; elo: number }[]) =>
+      framePacket(seq, "in", { eventType: "table_info", roster: { replace: true, list } });
+    act(() => {
+      es.emitInit(0);
+      es.emit(framePacket(1, "in", { eventType: "login", login: { userName: "W43604711" } }));
+      es.emit(roster(2, [{ seat: 0, name: "A52660019", elo: 1001 }, { seat: 1, name: "W43604711", elo: 894 }]));
+      es.emit(framePacket(3, "in", { eventType: "game_start", gameStart: { redSeat: 0, blackSeat: 1 } }));
+      es.emit(movePacket(4, "h2e2"));
+      // Ván 1 xong, đối thủ mới vào bàn rồi mới bắt đầu ván 2
+      es.emit(roster(5, [{ seat: 0, name: "A81612544", elo: 907 }, { seat: 1, name: "W43604711", elo: 916 }]));
+      es.emit(framePacket(6, "in", { eventType: "game_start", gameStart: { redSeat: 1, blackSeat: 0 } }));
+    });
+    expect(screen.getByDisplayValue("A81612544")).toBeDefined();
+    expect(screen.getByDisplayValue("907")).toBeDefined();
   });
 
   it("vào bàn giữa ván: bày lại đúng thế cờ Ziga gửi", () => {

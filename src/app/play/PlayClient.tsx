@@ -26,10 +26,21 @@ export function PlayClient({ initial }: { initial: PlaySettings }) {
   const [settings, setSettings] = useState(initial);
   const [draft, setDraft] = useState(initial);
   const [session, setSession] = useState(0);
+  // cacheComponents giữ trang trong <Activity> ẩn thay vì gỡ: quay lại /play với tham số khác (vd. "Luyện tập cờ"
+  // nạp thế bài giảng) thì state cũ vẫn còn. Tham số URL đổi thì bày ván mới theo tham số đó.
+  const initialHref = settingsHref(initial);
+  const [appliedHref, setAppliedHref] = useState(initialHref);
+  if (appliedHref !== initialHref) {
+    setAppliedHref(initialHref);
+    setSettings(initial);
+    setDraft(initial);
+    setSession((s) => s + 1);
+  }
 
   const startNew = () => {
     setSettings(draft);
     setSession((s) => s + 1);
+    setAppliedHref(settingsHref(draft));
     window.history.replaceState(null, "", settingsHref(draft));
   };
 
@@ -178,7 +189,9 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
     if (!canAct) return;
     const atPly = ply;
     const avoid: Move[] = JSON.parse(avoidKey);
-    think(fen, 4, avoid.length ? { avoid } : undefined).then((res) => {
+    // Luyện thế từ bài giảng: gợi ý dùng cấp mạnh nhất (Pikafish 1,5 giây) để người học thấy nước chuẩn
+    const hintLevel: AiLevel = lessonCard ? 5 : 4;
+    think(fen, hintLevel, avoid.length ? { avoid } : undefined).then((res) => {
       if (res.move) {
         setHint({ ply: atPly, move: res.move });
         setSelection({ ply: atPly, square: res.move.from });

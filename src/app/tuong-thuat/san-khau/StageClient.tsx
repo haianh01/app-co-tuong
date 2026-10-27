@@ -530,7 +530,8 @@ function PlayerCard({
           {perMove && <span className={styles.avatarSeconds}>{perMove.seconds}</span>}
         </div>
 
-        <RankBadge title={title} tier={rankInfo.tier} stars={stars} />
+        {/* Ghế trống / chưa biết elo: không đoán cấp theo phe */}
+        {(player.points || player.title) && <RankBadge title={title} tier={rankInfo.tier} stars={stars} />}
       </div>
 
       <div className={styles.zigaMetaGroup}>

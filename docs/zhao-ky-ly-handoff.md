@@ -131,9 +131,22 @@ Thứ tự `PRIORITY` mới: Oanh tạc lộ sườn → Song Xe → Xe Mã Phá
 khác màn phân tích ván (batch route có MultiPV). Đã cho modal giữ `lines` + `wdl`; builder bước 2 làm y hệt, bước 1 gom thêm nước
 lặng có kỳ lý khen đã qua `RULES` (xếp sau ứng viên thường).
 
-Kết quả sinh lại (`--per-lesson 3`): 105 → 109 thế. Thêm bài 25 (7261 #61), 30 (1266 #78), thêm thế cho 17, 19, 22;
-bài 28 dời 1211 #72 → #62. Tàn cuộc không đổi. Trung cuộc còn trống: 2, 4, 7, 9, 10, 12, 15, 18, 20, 23, 26, 27, 31, 33, 34, 37
-(37: 2 nước lặng đều rớt khi chấm lại; 2, 10: ứng viên duy nhất vẫn rớt khi chấm lại).
+Kết quả sinh lại sau khi mở rộng thêm 32 ván đại sư vào MASTER_GAMES (tổng 235 ván, `--per-lesson 3`): 109 → 151 thế.
+- Thêm **Bài 2 Muộn cung sát** (8361 #62): sửa `afterEval` cho nước chiếu bí trong modal và builder.
+- Thêm **Bài 10 Nhất Mã hoán Lưỡng Tượng** (1087 #35, 1642 #58): Mã ăn Tượng thật sự trong ván đấu.
+- Thêm **Bài 20 Kỵ hà xa** (7747 #32): Xe tuần hà khống chế bờ sông.
+- Bổ sung nhiều thế cờ 2–3 thế/bài cho các bài trung cuộc và tàn cuộc.
+- 16 thế cũ bị thay (bài TC 5, 21, 42, 46; TàC 5, 7, 14, 16, 21, 27, 32) chỉ vì ván mới chen vào trước trong thứ tự ứng viên và
+  chiếm suất 3 thế/bài — không bài nào mất hẳn thế.
+- Đã đọc lời bình 58 thế mới. Sửa: "Phế Tốt phản công" từng nhận nước Tốt ăn Pháo (1642 #21) — giờ loại mọi nước Tốt tự ăn quân
+  (test thế thật). Nước kết thúc ván: chỉ coi là sát khi bên đi thắng, hòa thì chấm 0 (modal + builder).
+- Siết thêm hai luật tàn cuộc (test thế thật): "Đổi về tàn cuộc thắng" đòi engine chấm ≥ +200 khi có điểm (8080 #137 bảng xếp
+  Đơn Xe thắng Đơn Pháo nhưng Pikafish chỉ +36); "Tướng trợ công" đòi bên đi còn Xe/Mã/Pháo/Tốt (2937 #179 chỉ còn Song Tượng
+  giữ hòa). Sinh lại: 150 thế; tàn cuộc bài 2 thành trống, bài 16 lấy lại 3191 #50.
+- Cố ý giữ: TC 40 và 41 cùng gắn thế 162 #100 (Xe đổi Mã Pháo Tốt) — test cũ ("Lỗi 7" và thế chuẩn bài 41) chốt rằng cuộc đổi
+  này thuộc cả hai bài.
+- Trung cuộc còn trống: 4, 7, 9, 12, 15, 18, 23, 26, 27, 31, 33, 34, 37 (trong đó 7, 26, 27 để tắt).
+- Tàn cuộc còn trống: 2, 3, 17, 19, 29, 33, 34, 36, 39, 40, 41.
 
 ## 5. Cách làm và kiểm
 
@@ -167,6 +180,73 @@ bài 28 dời 1211 #72 → #62. Tàn cuộc không đổi. Trung cuộc còn tr�
 - Kỳ lý bẫy / vây bắt phải loại nước chiếu (quân "không đi được" chỉ vì đang bị chiếu) và nước tự ăn quân lớn.
 - "Khí tử tranh tiên" phải loại ăn lại ngay (đó là đổi quân).
 - Ở tàn cuộc ít quân, gần như nước chiếu nào cũng chỉ còn ≤ 2 nước đỡ — đỡ chiếu là chuyện thường, không phải kỹ thuật.
-- Máy này không có `.data/expert-commentary` (bản ghi video ở máy khác) nên test đối chiếu trích dẫn tự skip — bình thường.
+- Thư mục `.data/expert-commentary` hiện đã có trên máy; các ván có bình luận chuyên gia này có thể tận dụng làm kho thứ ba sau khi hoàn thành xqbase.
 - Muốn có số "trước" mà không đụng cây làm việc: `git worktree` + junction tới `node_modules`, `engine`, `.data`; gỡ junction bằng
   `rmdir` trước khi `git worktree remove`.
+
+## 7. Kế hoạch tiếp: mở rộng nguồn ván cho các bài trung cuộc còn trống
+
+Viết 2026-10-27 cho AI làm tiếp. Mục tiêu: các bài trung cuộc chưa có thế đối chiếu (2, 4, 9, 10, 12, 15, 18, 20, 23, 31, 33,
+34, 37) có thế **thật** trong ván đại sư, được engine xác nhận như modal chấm. Bài 7, 26, 27 để tắt (mục 4.2), không làm.
+
+**Không làm**: nới bộ nhận diện / `RULES` cho bài hiện ra. Phễu ở mục 4.3 cho thấy các bài này trống vì 203 ván không có thế đúng
+đòn (vd. 11 ca "Vây Xe" đều là Xe đổi Xe). Chỉ nới khi đọc được một nước bị bỏ sót là đòn thật — và thêm chính thế đó vào test.
+
+### Bước 0 — Hỏi người dùng trước khi bắt đầu (quyết định của họ)
+
+1. **Ván mới để ở đâu.** `master-games.generated.ts` (636K, 203 ván) được app dùng cho trang `/masters` và `/masters/[id]`;
+   test `zhao-benchmark-data.test.ts` đòi ván của mỗi thế đối chiếu phải nằm trong `MASTER_GAMES`. Đề xuất:
+   kho tìm kiếm riêng **không ship** (`.data/master-games-extra/`), builder quét cả hai kho, và **chỉ ván có thế được giữ**
+   mới thêm vào `.data/master-games/` (→ `MASTER_GAMES`). Như vậy trang `/masters` chỉ thêm vài chục ván, không phình bundle.
+2. **Bao nhiêu ván.** Đề xuất thử 300 ván trước, đo tỉ lệ ra thế mới, rồi mới lấy tới ~1000.
+   Chi phí (máy 8 CPU / 16 GB): tải 2 s/ván; chấm ~100 thế/ván ở 30k nodes, 2 luồng.
+
+### Bước 1 — Tải ván vào kho riêng
+
+- `scripts/fetch-master-games.py` ghi cứng `OUTPUT_DIR = .data/master-games` và chọn `gameid` cách đều trên 1..11150
+  (`step = 11150 // count`). Thêm tham số `--out <dir>` (mặc định giữ như cũ) và `--offset k` để lệch lưới khỏi 203 id đã có;
+  hoặc `--resume` kèm loại id đã có ở cả hai thư mục.
+- Chạy nền: `python3 scripts/fetch-master-games.py --count 300 --out .data/master-games-extra --resume`. Giữ `--delay 2`.
+- `.data/` không commit. Không sửa `generate-master-games-data.ts` ở bước này.
+
+### Bước 2 — Builder và audit đọc được kho riêng
+
+- `scripts/build-zhao-benchmark.ts` và `scripts/audit-zhao-lessons.ts` hiện lấy ván từ `MASTER_GAMES`. Thêm tham số
+  `--extra .data/master-games-extra`: đọc `game_*.json`, đổi `moves_chinese` bằng `convertChineseGame` (bỏ ván `!success` hoặc
+  < 6 nước, như `generate-master-games-data.ts`), gộp vào danh sách ván (id không trùng). Metadata (`red`, `black`, …) lấy từ file.
+- Cache engine dùng chung `.data/audit-cache/master-all-30000.json` (khóa FEN) — ván mới chỉ chấm phần thiếu. Lưu cache định kỳ
+  (audit-zhao-lessons đã `save()` mỗi 500 thế; builder hiện chỉ ghi một lần cuối — thêm lưu định kỳ để không mất khi bị ngắt).
+- Builder đã có bước 1b gom nước lặng và bước 2 chấm lại kèm MultiPV (mục 4.3) — giữ nguyên.
+
+### Bước 3 — Đo và đọc mẫu (bắt buộc trước khi giữ thế nào)
+
+- `npx tsx scripts/audit-zhao-lessons.ts --extra … --only <tactic,…>`: đếm mỗi kỳ lý được gắn trên kho mở rộng, in mẫu.
+- **Đọc từng lời bình bằng mắt** cho các bài đang trống: biến có đúng cơ chế bài giảng không (thẻ bài trong
+  `zhao48-lessons.ts`: `principle`, `signals`), có khen bên thua không, quân được kể có đúng là quân làm nên hình không.
+- Với bài vẫn 0, làm phễu như mục 4.3 (bộ nhận diện khớp → RULES → khen/chê + đáng bình → ưu tiên/bỏ lặp) để biết rớt ở đâu.
+  Script phễu đã xóa; viết lại ở `scripts/.tmp-*`, xóa khi xong.
+- Lỗi thật (như bài 31 từng có luật tự mâu thuẫn) thì sửa code + test thế thật, báo người dùng. Không phải lỗi thì ghi lý do.
+
+### Bước 4 — Đưa ván có thế vào app và sinh lại
+
+- Chép đúng các file `game_XXXXX.json` có thế được builder giữ từ kho riêng sang `.data/master-games/`, chạy
+  `npx tsx scripts/generate-master-games-data.ts` để sinh lại `master-games.generated.ts`, rồi chạy builder lần cuối
+  **không** `--extra` để chắc thế chỉ dựa trên `MASTER_GAMES`: `npx tsx scripts/build-zhao-benchmark.ts --per-lesson 3`.
+- **Luôn `--per-lesson 3`** (mặc định 1 làm file co lại còn ~46 thế). Sao lưu `zhao-benchmark.generated.ts` trước khi chạy và so
+  từng dòng trước/sau (bài nào mất thế phải giải thích được).
+
+### Bước 5 — Kiểm
+
+- `npx vitest run --project unit src/lib/xiangqi/zhao-benchmark-data.test.ts src/lib/xiangqi/zhao-principles.test.ts
+  src/lib/xiangqi/move-outcome.test.ts src/lib/xiangqi/middlegame.test.ts src/lib/xiangqi/analysis.test.ts`
+  (chỉ file liên quan; máy yếu). `npm run typecheck`. `npx eslint` trên file đã sửa — lỗi `prefer-const` `endPly` trong
+  `checkOaTamKnight` có từ trước.
+- Mở `/masters`, chọn vài bài mới trong modal "So sánh AI & Bài giảng": thế hiện đúng, kỳ lý được gắn khi đi nước của ván.
+- Cập nhật mục 4.3 (số thế, bài còn trống, lý do).
+
+### Việc phụ, độc lập
+
+- **Bài 2, 10**: mỗi bài có 1 ứng viên trên 203 ván nhưng rớt khi chấm lại như modal (60k nodes, MultiPV 3, không lịch sử).
+  Tìm vì sao (PV live ngắn hơn? cls khác? `playedNotationsOverride` — modal truyền `[]`, mục 6 khuyên `["—"]`) trước khi kết luận.
+- **Ván có bình luận** ở `.data/expert-commentary/tlkd_*.json` (dạng `movesCoords`, không phải `moves_chinese`) có thể làm kho
+  thứ ba, nhưng cần bộ đổi `movesCoords` → `Move` và metadata riêng; làm sau xqbase.

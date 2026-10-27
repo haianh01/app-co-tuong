@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { XiangqiBoard, type BoardArrow } from "@/components/board/XiangqiBoard";
 import { legalMovesFrom, sideOf, toFen, type Move } from "@/lib/xiangqi/engine";
-import { uciToMove } from "@/lib/xiangqi/uci";
+import { MATE_SCORE, uciToMove } from "@/lib/xiangqi/uci";
 import { moveNotation } from "@/lib/xiangqi/notation";
 import { reviewMove, type PositionEval } from "@/lib/xiangqi/analysis";
 import { explainText } from "@/lib/xiangqi/explain";
@@ -115,14 +115,17 @@ export function ZhaoPositionModal({
   // Kỳ lý chỉ được gắn khi biến engine xác nhận — cùng đường với màn phân tích ván (reviewMove)
   const { verdict, zhaoFacts, commentary, scoreAfter } = useMemo(() => {
     const beforeEval = evals[fenBefore] ?? null;
-    const afterEval = fenAfter ? evals[fenAfter] ?? null : null;
+    // Nước kết thúc ván không có thế để chấm: thắng thì đối phương bị sát, hòa (vd. hết quân sát) thì cân bằng
+    const afterEval: PositionEval | null = terminal
+      ? { score: moveState?.result?.winner === initialPos.turn ? -MATE_SCORE : 0, best: null, pv: [] }
+      : fenAfter ? evals[fenAfter] ?? null : null;
     if (!moveState) {
       return { verdict: "invalid" as Verdict, zhaoFacts: [] as LessonFact[], commentary: "", scoreAfter: null };
     }
     if (!beforeEval || (!afterEval && !terminal)) {
       return { verdict: "pending" as Verdict, zhaoFacts: [] as LessonFact[], commentary: "", scoreAfter: null };
     }
-    const { review } = reviewMove(moveState.moves[0], 0, moveState, beforeEval, afterEval, undefined, [], []);
+    const { review } = reviewMove(moveState.moves[0], 0, moveState, beforeEval, afterEval, undefined, [], ["—"]);
     const facts = review.facts.filter(
       (f): f is LessonFact => (f.kind === "zhaoMiddlegame" || f.kind === "endgamePrinciple") && !!f.lesson,
     );

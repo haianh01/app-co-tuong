@@ -284,7 +284,9 @@ export function detectEndgameTrade(
   const { outcome, eg } = res;
   const score = options?.evalBefore?.score;
 
-  if (outcome === "win" && soundMove(options)) {
+  // Có điểm engine thì engine phải thấy thắng: bảng lý thuyết không phân biệt đủ các biến thể thiếu Sĩ Tượng
+  const engineAgrees = !options?.evalAfter || -options.evalAfter.score >= 200;
+  if (outcome === "win" && soundMove(options) && engineAgrees) {
     return fact(before, move, "doiVeTanCuocThang",
       `Đưa ván cờ về tàn cuộc thắng lý thuyết "${eg.name}": ${eg.description}`,
       { endgame: eg.name });
@@ -401,6 +403,8 @@ export function detectKingActivity(
   const mover = sideOf(piece);
   const opp = opponent(mover);
   if (inCheck(before, mover)) return null; // né chiếu không phải Tướng trợ công
+  // Chỉ còn Sĩ Tượng thì không có đòn nào để Tướng "trợ công" — đó là giữ thủ
+  if (!before.some((p) => p && sideOf(p) === mover && "rncp".includes(typeOf(p)))) return null;
   const lockedBefore = facedPalaceSquares(before, opp);
   const lockedAfter = facedPalaceSquares(after, opp);
   if (lockedAfter <= lockedBefore) return null;

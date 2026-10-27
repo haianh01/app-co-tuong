@@ -58,24 +58,70 @@ interface Candidate {
   notation: string;
 }
 
+function loadExtraGames(dirPath: string): typeof MASTER_GAMES {
+  if (!fs.existsSync(dirPath)) return [];
+  const files = fs.readdirSync(dirPath).filter((f) => f.startsWith("game_") && f.endsWith(".json"));
+  const extra: typeof MASTER_GAMES = [];
+  for (const file of files) {
+    try {
+      const content = JSON.parse(fs.readFileSync(path.join(dirPath, file), "utf-8"));
+      const rawMoves: string[] = content.moves_chinese ?? [];
+      const conv = convertChineseGame(rawMoves);
+      if (!conv.success || conv.moves.length < 6) continue;
+      extra.push({
+        id: content.gameid,
+        red: content.red_player,
+        black: content.black_player,
+        result: content.result,
+        tournament: content.tournament || "",
+        date: content.date || "",
+        eccoCode: content.ecco_code || "",
+        eccoName: content.ecco_name || "",
+        masterRed: content.master_red || null,
+        masterBlack: content.master_black || null,
+        moveCount: conv.notations.length,
+        movesVN: conv.notations,
+        movesCN: rawMoves,
+      });
+    } catch {
+      // bỏ qua file đang ghi dở
+    }
+  }
+  return extra;
+}
+
 async function main() {
   const pool = getEnginePool();
   if (!pool) throw new Error("Không tìm thấy engine Pikafish (thư mục engine/)");
 
-  // 1. Ứng viên từ reviewGame trên ván đại sư
-  const games = MASTER_GAMES.map((g) => ({ g, state: replayMoves(convertChineseGame(g.movesCN).moves) }));
+  // 1. Ứng viên từ reviewGame trên ván đại sư (+ kho phụ nếu có)
+  const extraDir = arg("--extra", "");
+  const extraGames = extraDir ? loadExtraGames(path.resolve(process.cwd(), extraDir)) : [];
+  const seenIds = new Set(MASTER_GAMES.map((g) => g.id));
+  const combinedGames = [...MASTER_GAMES, ...extraGames.filter((g) => !seenIds.has(g.id))];
+  if (extraGames.length) {
+    console.error(`Nạp thêm ${extraGames.length} ván từ ${extraDir} (tổng ${combinedGames.length} ván)`);
+  }
+  const games = combinedGames.map((g) => ({ g, state: replayMoves(convertChineseGame(g.movesCN).moves) }));
   const missing = [...new Set(games.flatMap(({ state }) => state.history.map((p) => toFen(p))))]
     .filter((f) => !cache[f] && legalMoves(parseFen(f)).length > 0);
   if (missing.length) {
-    console.error(`Cần chấm ${missing.length} thế cờ (${NODES} nodes)...`);
+    const totalMissing = missing.length;
+    console.error(`Cần chấm ${totalMissing} thế cờ (${NODES} nodes)...`);
+    fs.mkdirSync(cacheDir, { recursive: true });
+    const save = () => fs.writeFileSync(cacheFile, JSON.stringify(cache));
+    let done = 0;
     await Promise.all(Array.from({ length: 2 }, async () => {
       for (let f = missing.pop(); f; f = missing.pop()) {
         const r = await pool.search(f, { nodes: NODES });
         cache[f] = { cp: r.cp, mate: r.mate, pv: r.pv ?? [] };
+        if (++done % 500 === 0) {
+          console.error(`  đã chấm ${done}/${totalMissing}...`);
+          save();
+        }
       }
     }));
-    fs.mkdirSync(cacheDir, { recursive: true });
-    fs.writeFileSync(cacheFile, JSON.stringify(cache));
+    save();
   }
   const cachedEval = (fen: string): PositionEval => {
     const c = cache[fen];
@@ -160,8 +206,11 @@ async function main() {
     const s1 = gameReducer(newGame(c.fen), { type: "move", move: c.move });
     if (s1.moves.length !== 1) return false;
     const before = await liveEval(c.fen);
-    const after = s1.result ? null : await liveEval(toFen(s1.history[1]));
-    const { review } = reviewMove(s1.moves[0], 0, s1, before, after, undefined, [], []);
+    // Như modal: nước kết thúc ván thắng thì đối phương bị sát, hòa thì cân bằng
+    const after = s1.result
+      ? { score: s1.result.winner === s1.moves[0].side ? -MATE_SCORE : 0, best: null, pv: [] }
+      : await liveEval(toFen(s1.history[1]));
+    const { review } = reviewMove(s1.moves[0], 0, s1, before, after, undefined, [], ["—"]);
     return review.facts.some((f) =>
       c.book === "middlegame"
         ? f.kind === "zhaoMiddlegame" && (f.lesson === c.lesson || f.tactic === c.tactic)
@@ -195,7 +244,7 @@ async function main() {
   }
   pool.close();
 
-  const meta = new Map(MASTER_GAMES.map((g) => [g.id, g]));
+  const meta = new Map(combinedGames.map((g) => [g.id, g]));
   const rows = picks.map((c) => {
     const g = meta.get(c.gameId)!;
     return {

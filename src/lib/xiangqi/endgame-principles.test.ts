@@ -103,6 +103,15 @@ describe("endgame-principles: nguyên lý tàn cuộc", () => {
       expect(f?.lesson).toBe(28); // Chiến thuật cầu hòa
     });
 
+    it("ván đại sư 8080 #137: bảng xếp Đơn Xe thắng Đơn Pháo nhưng Pikafish chỉ chấm +36 — không khen", () => {
+      // Xe đỏ c3 ăn Xe đen e3: còn Xe đối Pháo Song Sĩ một Tượng
+      const fen = "2c1ka3/4a4/b8/9/9/9/2R1r4/3A5/5K3/2B2A3 w";
+      const pv = [[2, 38], [77, 76], [38, 39], [58, 57], [39, 42], [57, 54], [18, 2]];
+      const t = real(fen, 56, 58, pv, 40, -36);
+      expect(detectEndgameTrade(t.before, t.move, t.after, { loss: 0, pv: t.options.pv })?.principle).toBe("doiVeTanCuocThang");
+      expect(detectEndgameTrade(t.before, t.move, t.after, t.options)).toBeNull();
+    });
+
     it("không kết luận khi đối phương không ăn lại (thế sau không phải tàn cuộc lý thuyết)", () => {
       const fen = "3ck4/9/3ab4/9/3r5/9/9/3R5/8R/4K4 w - - 0 1";
       const trade = mv(7, 3, 4, 3);
@@ -159,6 +168,13 @@ describe("endgame-principles: nguyên lý tàn cuộc", () => {
       expect(f?.principle).toBe("tuongTroCong");
       expect(f?.summary).toContain("lộ 4");
       expect(f?.lesson).toBe(16);
+    });
+
+    it("ván đại sư 2937 #179: chỉ còn Song Tượng giữ hòa trước Mã — Tướng ra lộ là giữ thủ, không phải trợ công", () => {
+      const fen = "2ba1ab2/9/4k4/9/9/6n2/9/4B4/4K4/9 w";
+      const pv = [[51, 62], [75, 84], [62, 79], [67, 87], [22, 13], [87, 67], [79, 68], [84, 75], [6, 26], [75, 84]];
+      const t = real(fen, 76, 75, pv, -40, 64);
+      expect(detectKingActivity(t.before, t.move, t.after, t.options)).toBeNull();
     });
 
     it("không tính Tướng né sang cột bị chắn (không khóa thêm ô nào)", () => {

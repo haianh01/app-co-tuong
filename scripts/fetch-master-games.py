@@ -30,7 +30,7 @@ from typing import Optional
 BASE_URL = "https://www.xqbase.com/xqbase/?gameid={gameid}"
 GAMEID_MIN = 1
 GAMEID_MAX = 11150
-OUTPUT_DIR = Path(__file__).parent.parent / ".data" / "master-games"
+DEFAULT_OUTPUT_DIR = Path(__file__).parent.parent / ".data" / "master-games"
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
@@ -205,18 +205,23 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Fetch master games from xqbase.com")
     parser.add_argument("--count",  type=int,   default=200, help="Number of games to fetch")
     parser.add_argument("--delay",  type=float, default=2.0, help="Seconds between requests")
+    parser.add_argument("--out",    type=str,   default=str(DEFAULT_OUTPUT_DIR), help="Output directory for saved games")
+    parser.add_argument("--offset", type=int,   default=0,   help="Offset added to gameids to sample different grid")
     parser.add_argument("--resume", action="store_true",     help="Skip already-downloaded gameids")
     args = parser.parse_args()
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     step    = (GAMEID_MAX - GAMEID_MIN) // args.count
-    gameids = [GAMEID_MIN + i * step for i in range(args.count)]
+    gameids = [min(GAMEID_MAX, max(GAMEID_MIN, GAMEID_MIN + args.offset + i * step)) for i in range(args.count)]
 
     if args.resume:
-        existing = {int(f.stem.split("_")[1]) for f in OUTPUT_DIR.glob("game_*.json")}
+        existing = {int(f.stem.split("_")[1]) for f in out_dir.glob("game_*.json")}
+        if DEFAULT_OUTPUT_DIR.exists():
+            existing |= {int(f.stem.split("_")[1]) for f in DEFAULT_OUTPUT_DIR.glob("game_*.json")}
         gameids  = [gid for gid in gameids if gid not in existing]
-        print(f"Resuming: {len(gameids)} games remaining")
+        print(f"Resuming: {len(gameids)} games remaining (after filtering existing in {out_dir} & {DEFAULT_OUTPUT_DIR})")
 
     stats = {
         "attempted": 0,
@@ -228,12 +233,12 @@ def main() -> None:
         "ecco_codes": {},
     }
 
-    print(f"Fetching {len(gameids)} games (delay={args.delay}s) -> {OUTPUT_DIR}")
+    print(f"Fetching {len(gameids)} games (delay={args.delay}s) -> {out_dir}")
     print("=" * 60)
 
     for i, gameid in enumerate(gameids):
         stats["attempted"] += 1
-        out_path = OUTPUT_DIR / f"game_{gameid:05d}.json"
+        out_path = out_dir / f"game_{gameid:05d}.json"
 
         if args.resume and out_path.exists():
             stats["skipped_empty"] += 1
@@ -295,7 +300,7 @@ def main() -> None:
     for code, cnt in top_ecco:
         print(f"    {code}: {cnt}")
 
-    summary_path = OUTPUT_DIR / "fetch_summary.json"
+    summary_path = out_dir / "fetch_summary.json"
     with open(summary_path, "w", encoding="utf-8") as f:
         json.dump(stats, f, ensure_ascii=False, indent=2)
     print(f"\n  Summary saved -> {summary_path}")

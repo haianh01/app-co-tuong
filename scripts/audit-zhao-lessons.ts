@@ -21,7 +21,44 @@ const arg = (name: string, dflt: string) => (args.includes(name) ? args[args.ind
 const NODES = Number(arg("--nodes", "30000"));
 const SAMPLES = Number(arg("--samples", "3"));
 const ONLY = new Set(arg("--only", "").split(",").filter(Boolean));
-const GAMES = Number(arg("--games", String(MASTER_GAMES.length)));
+const EXTRA_DIR = arg("--extra", "");
+
+function loadExtraGames(dirPath: string): typeof MASTER_GAMES {
+  if (!fs.existsSync(dirPath)) return [];
+  const files = fs.readdirSync(dirPath).filter((f) => f.startsWith("game_") && f.endsWith(".json"));
+  const extra: typeof MASTER_GAMES = [];
+  for (const file of files) {
+    try {
+      const content = JSON.parse(fs.readFileSync(path.join(dirPath, file), "utf-8"));
+      const rawMoves: string[] = content.moves_chinese ?? [];
+      const conv = convertChineseGame(rawMoves);
+      if (!conv.success || conv.moves.length < 6) continue;
+      extra.push({
+        id: content.gameid,
+        red: content.red_player,
+        black: content.black_player,
+        result: content.result,
+        tournament: content.tournament || "",
+        date: content.date || "",
+        eccoCode: content.ecco_code || "",
+        eccoName: content.ecco_name || "",
+        masterRed: content.master_red || null,
+        masterBlack: content.master_black || null,
+        moveCount: conv.notations.length,
+        movesVN: conv.notations,
+        movesCN: rawMoves,
+      });
+    } catch {
+      // bỏ qua file lỗi
+    }
+  }
+  return extra;
+}
+
+const extraGames = EXTRA_DIR ? loadExtraGames(path.resolve(process.cwd(), EXTRA_DIR)) : [];
+const seenIds = new Set(MASTER_GAMES.map((g) => g.id));
+const combinedMasterGames = [...MASTER_GAMES, ...extraGames.filter((g) => !seenIds.has(g.id))];
+const GAMES = Number(arg("--games", String(combinedMasterGames.length)));
 
 type Cached = { cp: number | null; mate: number | null; pv: string[] };
 const cacheDir = path.join(process.cwd(), ".data", "audit-cache");
@@ -35,7 +72,10 @@ const save = () => {
 };
 
 async function main() {
-  const games = MASTER_GAMES.slice(0, GAMES).map((g) => {
+  if (extraGames.length) {
+    console.error(`Nạp thêm ${extraGames.length} ván từ ${EXTRA_DIR} (tổng ${combinedMasterGames.length} ván)`);
+  }
+  const games = combinedMasterGames.slice(0, GAMES).map((g) => {
     const conv = convertChineseGame(g.movesCN);
     return { id: g.id, state: replayMoves(conv.moves) };
   });

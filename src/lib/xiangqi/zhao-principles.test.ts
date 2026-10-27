@@ -2024,6 +2024,15 @@ describe("zhao-principles: nguyên lý tranh tiên bổ sung", () => {
       expect(r && !r.ok && r.reason).toContain("không phải nước phế Tốt");
     });
 
+    it("ván đại sư 1642 #21: Tốt ăn Pháo rồi bị Xe ăn lại là thắng quân, không phải phế Tốt", () => {
+      const t = real(
+        "2rakabr1/9/1c2b1n2/p3p3p/3n2Pc1/C1p4R1/P3P3P/2N1C1N2/9/R1BAKAB2 w", 42, 43,
+        [[7, 43], [52, 43], [24, 43], [81, 72], [5, 13], [72, 75], [2, 38], [67, 31], [43, 24]], -40,
+      );
+      expect(detectPheTotPhanCong(t.before, t.move, t.after, t.options)).toBeNull();
+      expect(checkPheTotPhanCong(t.before, t.move, t.after, t.options)).toMatchObject({ ok: false, layer: 2 });
+    });
+
     it("Tầng 2 trượt: nước ăn Tốt đối phương là đổi Tốt thường chứ không phải phế Tốt (Lỗi 6)", () => {
       // Tốt đen ở (4, 2), Tốt đỏ ở (5, 2) ăn Tốt đen ở (4, 2)
       const pawnExchangeFen = "5k3/4a4/2r6/9/2p6/2P6/2R6/9/9/3K5 w - - 0 1";

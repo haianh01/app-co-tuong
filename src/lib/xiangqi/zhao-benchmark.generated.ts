@@ -33,6 +33,40 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
   },
   {
     "book": "middlegame",
+    "lesson": 1,
+    "tactic": "khuyetSiSongXe",
+    "tone": "praise",
+    "fen": "6R2/4an1R1/4k4/3c1r2p/p3p1b2/2P3N2/P2r4P/4B4/4A4/2BAK4 w",
+    "move": "g9g7",
+    "moveNotation": "X3/2",
+    "game": {
+      "id": 2234,
+      "red": "火车头 宋国强",
+      "black": "江苏 赵剑",
+      "tournament": "",
+      "date": "",
+      "ply": 77
+    }
+  },
+  {
+    "book": "middlegame",
+    "lesson": 2,
+    "tactic": "muonCungSat",
+    "tone": "praise",
+    "fen": "4kab2/4a1c2/4b1n2/pN2p3p/9/P1B5P/4P4/4C4/c2CA4/4KAB2 b",
+    "move": "g8g0",
+    "moveNotation": "P7.8",
+    "game": {
+      "id": 8361,
+      "red": "上海 胡荣华",
+      "black": "湖北 柳大华",
+      "tournament": "",
+      "date": "",
+      "ply": 62
+    }
+  },
+  {
+    "book": "middlegame",
     "lesson": 3,
     "tactic": "ngoaTaoMa",
     "tone": "praise",
@@ -121,16 +155,16 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
     "lesson": 5,
     "tactic": "chuyenHoaTanCuoc",
     "tone": "praise",
-    "fen": "3a1k3/4a4/9/7RC/2b6/6B2/8P/3K5/2c2r3/6B1c b",
-    "move": "i0i6",
-    "moveNotation": "P9/6",
+    "fen": "2cak1b2/4a4/2R1b4/2C5p/p1n2R3/9/P1n5P/3Ar4/4A4/5K3 b",
+    "move": "c9c6",
+    "moveNotation": "P3.3",
     "game": {
-      "id": 1266,
-      "red": "天津 张申宏",
-      "black": "四川 李艾东",
+      "id": 532,
+      "red": "杭州 陈建国",
+      "black": "河北 苗利明",
       "tournament": "",
       "date": "",
-      "ply": 84
+      "ply": 156
     }
   },
   {
@@ -148,6 +182,40 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
       "tournament": "",
       "date": "",
       "ply": 54
+    }
+  },
+  {
+    "book": "middlegame",
+    "lesson": 6,
+    "tactic": "chanDuong",
+    "tone": "praise",
+    "fen": "4k1b2/4a4/2n1ba3/p1N1p1c2/1r3np1p/P1P2R1N1/4P3P/3CB4/4A4/2BAK4 b",
+    "move": "g5g4",
+    "moveNotation": "B7.1",
+    "game": {
+      "id": 1346,
+      "red": "深圳 金波",
+      "black": "上海 胡荣华",
+      "tournament": "",
+      "date": "",
+      "ply": 52
+    }
+  },
+  {
+    "book": "middlegame",
+    "lesson": 6,
+    "tactic": "chanDuong",
+    "tone": "praise",
+    "fen": "4kabn1/4a3C/4bc3/6R2/6p2/6P1P/4Pr2N/4B4/4A4/2BAK4 b",
+    "move": "h9i7",
+    "moveNotation": "M8.9",
+    "game": {
+      "id": 2382,
+      "red": "安徽 钟涛",
+      "black": "厦门 郭福人",
+      "tournament": "",
+      "date": "",
+      "ply": 62
     }
   },
   {
@@ -182,6 +250,40 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
       "tournament": "",
       "date": "",
       "ply": 95
+    }
+  },
+  {
+    "book": "middlegame",
+    "lesson": 10,
+    "tactic": "nhatMaHoanLuongTuong",
+    "tone": "praise",
+    "fen": "2baka3/9/n1R1b1nr1/p3p3p/2PN1r3/6p2/P3P1c1P/4C1N1B/9/2BAKA2R w",
+    "move": "d5e7",
+    "moveNotation": "M6.5",
+    "game": {
+      "id": 1087,
+      "red": "浙江 张辉",
+      "black": "广州 张剑明",
+      "tournament": "",
+      "date": "",
+      "ply": 35
+    }
+  },
+  {
+    "book": "middlegame",
+    "lesson": 10,
+    "tactic": "nhatMaHoanLuongTuong",
+    "tone": "praise",
+    "fen": "3akab2/9/8b/8p/p4Cr2/1NRn1n1N1/P6cP/4B4/4A4/4KAB2 b",
+    "move": "f4e2",
+    "moveNotation": "M6.5",
+    "game": {
+      "id": 1642,
+      "red": "广东 黄海林",
+      "black": "河北 苗利明",
+      "tournament": "",
+      "date": "",
+      "ply": 58
     }
   },
   {
@@ -427,6 +529,23 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
     "lesson": 19,
     "tactic": "chiemTuyenTot",
     "tone": "praise",
+    "fen": "4kab1r/4a4/N1n1b1c2/p2n4p/9/4p4/P5r1P/B3C1N2/3CA4/2RAK1BR1 w",
+    "move": "c0c6",
+    "moveNotation": "X7.6",
+    "game": {
+      "id": 8080,
+      "red": "黑龙江 郭丽萍",
+      "black": "河北 刚秋英",
+      "tournament": "",
+      "date": "",
+      "ply": 45
+    }
+  },
+  {
+    "book": "middlegame",
+    "lesson": 19,
+    "tactic": "chiemTuyenTot",
+    "tone": "praise",
     "fen": "2cakab2/9/1cn1b1n2/4p1C1p/p3r4/5NP2/P3P3P/N3BC3/6R2/2BAKA3 b",
     "move": "e5e3",
     "moveNotation": "X5.2",
@@ -441,19 +560,70 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
   },
   {
     "book": "middlegame",
+    "lesson": 20,
+    "tactic": "khongCheKyHa",
+    "tone": "praise",
+    "fen": "2baka1r1/9/4b1n2/C3p3p/1n4c2/PN7/4P3P/2C2r3/R7N/2BAKA2R b",
+    "move": "h9h4",
+    "moveNotation": "X8.5",
+    "game": {
+      "id": 7747,
+      "red": "重庆 洪智",
+      "black": "江苏 徐天红",
+      "tournament": "",
+      "date": "",
+      "ply": 32
+    }
+  },
+  {
+    "book": "middlegame",
     "lesson": 21,
     "tactic": "tranhDoatLo3Lo7",
     "tone": "praise",
-    "fen": "2nak1b2/4a4/4b1n2/p1N5p/5c3/5R3/P1P4rP/N3C4/4A4/2B1KAB2 w",
-    "move": "f4g4",
-    "moveNotation": "X4-3",
+    "fen": "4ka3/4a4/b3b4/1r7/6r2/2P6/PC3R3/9/4Ap1N1/3AK4 b",
+    "move": "g5g1",
+    "moveNotation": "X7.4",
     "game": {
-      "id": 9571,
-      "red": "云南 陈信安",
-      "black": "江西 刘军",
+      "id": 8450,
+      "red": "江苏 徐健秒",
+      "black": "武汉 王斌",
       "tournament": "",
       "date": "",
-      "ply": 49
+      "ply": 120
+    }
+  },
+  {
+    "book": "middlegame",
+    "lesson": 21,
+    "tactic": "tranhDoatLo3Lo7",
+    "tone": "praise",
+    "fen": "2bak4/4a4/4b4/4c2P1/6r2/9/5p3/4C3B/4A4/4KR3 b",
+    "move": "g5g2",
+    "moveNotation": "X7.3",
+    "game": {
+      "id": 865,
+      "red": "澳门 李锦欢",
+      "black": "沈阳 尚威",
+      "tournament": "",
+      "date": "",
+      "ply": 102
+    }
+  },
+  {
+    "book": "middlegame",
+    "lesson": 21,
+    "tactic": "tranhDoatLo3Lo7",
+    "tone": "praise",
+    "fen": "4kab2/4ac3/1R2b4/p4N2p/6p2/4P4/P1pn2N1P/9/3r3C1/2B1KAB2 b",
+    "move": "d1g1",
+    "moveNotation": "X4-7",
+    "game": {
+      "id": 1827,
+      "red": "江苏 赵剑",
+      "black": "四川 谢卓淼",
+      "tournament": "",
+      "date": "",
+      "ply": 60
     }
   },
   {
@@ -509,6 +679,23 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
   },
   {
     "book": "middlegame",
+    "lesson": 25,
+    "tactic": "songXePhoiHop",
+    "tone": "praise",
+    "fen": "4ka3/4a4/b3b4/1C2R4/7rp/2P1n1N2/P8/4r4/4A1R2/3A1K3 b",
+    "move": "h5h0",
+    "moveNotation": "X8.5",
+    "game": {
+      "id": 8450,
+      "red": "江苏 徐健秒",
+      "black": "武汉 王斌",
+      "tournament": "",
+      "date": "",
+      "ply": 82
+    }
+  },
+  {
+    "book": "middlegame",
     "lesson": 28,
     "tactic": "xeMaPhaoTamTu",
     "tone": "praise",
@@ -522,6 +709,23 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
       "tournament": "",
       "date": "",
       "ply": 62
+    }
+  },
+  {
+    "book": "middlegame",
+    "lesson": 29,
+    "tactic": "xeSongMa",
+    "tone": "praise",
+    "fen": "3ak1b2/4a4/4b4/9/p8/9/Pn4r1P/2R6/1n1KA4/5R3 b",
+    "move": "g3d3",
+    "moveNotation": "X7-4",
+    "game": {
+      "id": 532,
+      "red": "杭州 陈建国",
+      "black": "河北 苗利明",
+      "tournament": "",
+      "date": "",
+      "ply": 180
     }
   },
   {
@@ -556,6 +760,23 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
       "tournament": "",
       "date": "",
       "ply": 78
+    }
+  },
+  {
+    "book": "middlegame",
+    "lesson": 30,
+    "tactic": "xeSongPhao",
+    "tone": "praise",
+    "fen": "2b1ka3/4a4/2n6/p1N1p4/3P5/1R3cr2/P8/B8/4C1c2/3rCKR2 b",
+    "move": "g1f1",
+    "moveNotation": "P7-6",
+    "game": {
+      "id": 3492,
+      "red": "沈阳 卜风波",
+      "black": "江苏 李群",
+      "tournament": "",
+      "date": "",
+      "ply": 100
     }
   },
   {
@@ -607,6 +828,23 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
       "tournament": "",
       "date": "",
       "ply": 23
+    }
+  },
+  {
+    "book": "middlegame",
+    "lesson": 35,
+    "tactic": "vayPhao",
+    "tone": "praise",
+    "fen": "1n1k1ab2/4aR3/4C4/p1r1n3p/9/5p3/8P/3NB4/9/2BAKA3 b",
+    "move": "c6c7",
+    "moveNotation": "X3/1",
+    "game": {
+      "id": 347,
+      "red": "广州 韩松龄",
+      "black": "邮电体协 许波",
+      "tournament": "",
+      "date": "",
+      "ply": 54
     }
   },
   {
@@ -713,6 +951,74 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
   },
   {
     "book": "middlegame",
+    "lesson": 39,
+    "tactic": "tamXaThangTamNgan",
+    "tone": "note",
+    "fen": "3ak4/4a4/4b1nR1/9/p3n3p/4N4/P3rC3/2C1B4/4A4/3AK1B2 b",
+    "move": "e3e4",
+    "moveNotation": "X5/1",
+    "game": {
+      "id": 5342,
+      "red": "广东 庄玉庭",
+      "black": "浙江 张申宏",
+      "tournament": "",
+      "date": "",
+      "ply": 68
+    }
+  },
+  {
+    "book": "middlegame",
+    "lesson": 39,
+    "tactic": "tamXaThangTamNgan",
+    "tone": "note",
+    "fen": "3nkab2/4a4/1R2b1n2/C1p1p3p/9/2P1P1p2/P1r5P/2N1C4/4A4/2B1KAB2 b",
+    "move": "c3c2",
+    "moveNotation": "X3.1",
+    "game": {
+      "id": 6267,
+      "red": "澳门 陈图炯",
+      "black": "杭州 宋春雷",
+      "tournament": "",
+      "date": "",
+      "ply": 38
+    }
+  },
+  {
+    "book": "middlegame",
+    "lesson": 40,
+    "tactic": "motXeDoiHai",
+    "tone": "praise",
+    "fen": "3k1ab2/2N1a4/4b4/8p/p5n2/4p1R2/r3P3P/4B3c/3CA4/2B1KA3 b",
+    "move": "a3c3",
+    "moveNotation": "X1-3",
+    "game": {
+      "id": 162,
+      "red": "沈阳 苗永鹏",
+      "black": "北京 张强",
+      "tournament": "",
+      "date": "",
+      "ply": 100
+    }
+  },
+  {
+    "book": "middlegame",
+    "lesson": 40,
+    "tactic": "motXeDoiHai",
+    "tone": "praise",
+    "fen": "4kab2/4a4/1c2b4/1R4C1p/p1nn5/9/P4R2P/3Ar4/4A4/4K4 w",
+    "move": "f3f5",
+    "moveNotation": "X4.2",
+    "game": {
+      "id": 532,
+      "red": "杭州 陈建国",
+      "black": "河北 苗利明",
+      "tournament": "",
+      "date": "",
+      "ply": 145
+    }
+  },
+  {
+    "book": "middlegame",
     "lesson": 40,
     "tactic": "motXeDoiHai",
     "tone": "praise",
@@ -747,6 +1053,40 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
   },
   {
     "book": "middlegame",
+    "lesson": 41,
+    "tactic": "motXeDoiBa",
+    "tone": "praise",
+    "fen": "3k1ab2/2N1a4/4b4/8p/p5n2/4p1R2/r3P3P/4B3c/3CA4/2B1KA3 b",
+    "move": "a3c3",
+    "moveNotation": "X1-3",
+    "game": {
+      "id": 162,
+      "red": "沈阳 苗永鹏",
+      "black": "北京 张强",
+      "tournament": "",
+      "date": "",
+      "ply": 100
+    }
+  },
+  {
+    "book": "middlegame",
+    "lesson": 41,
+    "tactic": "motXeDoiBa",
+    "tone": "praise",
+    "fen": "2bakab2/3r5/2n2c3/p1p1p3p/1r3n3/P1P2R3/1c2P3P/N1C1C1N2/1R7/2BAKAB2 w",
+    "move": "b1b3",
+    "moveNotation": "X8.2",
+    "game": {
+      "id": 1716,
+      "red": "黑龙江 王琳娜",
+      "black": "火车头 张梅",
+      "tournament": "",
+      "date": "",
+      "ply": 29
+    }
+  },
+  {
+    "book": "middlegame",
     "lesson": 42,
     "tactic": "maVanNhuLong",
     "tone": "praise",
@@ -767,16 +1107,67 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
     "lesson": 42,
     "tactic": "maVanNhuLong",
     "tone": "praise",
-    "fen": "5kb2/3Ra4/5a3/3N5/9/9/9/4K4/4An3/3r1AB2 b",
-    "move": "f1g3",
-    "moveNotation": "M6/7",
+    "fen": "2ba1kb2/4a4/9/p3CN2p/2P6/5p3/6r1P/5C3/9/2BAKAB2 w",
+    "move": "f6h5",
+    "moveNotation": "M4/2",
     "game": {
-      "id": 4291,
-      "red": "江苏 杨伊",
-      "black": "北京 唐丹",
+      "id": 3825,
+      "red": "四川 何静",
+      "black": "北京 史思旋",
       "tournament": "",
       "date": "",
-      "ply": 170
+      "ply": 59
+    }
+  },
+  {
+    "book": "middlegame",
+    "lesson": 42,
+    "tactic": "maVanNhuLong",
+    "tone": "praise",
+    "fen": "3ak4/7c1/3an4/3N5/9/9/P8/5A3/1C7/2B1KAB2 w",
+    "move": "d6f5",
+    "moveNotation": "M6/4",
+    "game": {
+      "id": 4158,
+      "red": "上海 林宏敏",
+      "black": "浙江 邱东",
+      "tournament": "",
+      "date": "",
+      "ply": 77
+    }
+  },
+  {
+    "book": "middlegame",
+    "lesson": 46,
+    "tactic": "pheTotPhanCong",
+    "tone": "praise",
+    "fen": "2bak4/4a4/4b4/4c2P1/9/9/5p3/4C1r2/4A4/4KRB2 b",
+    "move": "f3f2",
+    "moveNotation": "B6.1",
+    "game": {
+      "id": 865,
+      "red": "澳门 李锦欢",
+      "black": "沈阳 尚威",
+      "tournament": "",
+      "date": "",
+      "ply": 104
+    }
+  },
+  {
+    "book": "middlegame",
+    "lesson": 46,
+    "tactic": "pheTotPhanCong",
+    "tone": "praise",
+    "fen": "9/5n3/4kaR2/3c3Rp/p2r5/2P1r1N2/P7P/4B4/4A4/2BAK4 w",
+    "move": "c4c5",
+    "moveNotation": "B7.1",
+    "game": {
+      "id": 2234,
+      "red": "火车头 宋国强",
+      "black": "江苏 赵剑",
+      "tournament": "",
+      "date": "",
+      "ply": 89
     }
   },
   {
@@ -794,40 +1185,6 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
       "tournament": "",
       "date": "",
       "ply": 166
-    }
-  },
-  {
-    "book": "middlegame",
-    "lesson": 46,
-    "tactic": "pheTotPhanCong",
-    "tone": "praise",
-    "fen": "2baka3/9/c3c1n1b/2p3C1p/4P4/2P4R1/P1r3P1P/2n1BCN2/4A4/2BAK4 w",
-    "move": "e5e6",
-    "moveNotation": "B5.1",
-    "game": {
-      "id": 6381,
-      "red": "青海 马星",
-      "black": "天津 刘智",
-      "tournament": "",
-      "date": "",
-      "ply": 35
-    }
-  },
-  {
-    "book": "middlegame",
-    "lesson": 46,
-    "tactic": "pheTotPhanCong",
-    "tone": "praise",
-    "fen": "4kab2/4a4/4b3n/pC1r5/2pn4p/1R1R5/P1P5P/9/4K4/5A2c b",
-    "move": "c5c4",
-    "moveNotation": "B3.1",
-    "game": {
-      "id": 6656,
-      "red": "辽宁 陈卓",
-      "black": "浙江 谢丹枫",
-      "tournament": "",
-      "date": "",
-      "ply": 72
     }
   },
   {
@@ -883,6 +1240,57 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
   },
   {
     "book": "endgame",
+    "lesson": 4,
+    "tactic": "binhTanSiTuong",
+    "tone": "praise",
+    "fen": "2ba1ab2/9/4k4/9/9/6B2/8n/4B4/3pAK3/9 b",
+    "move": "d1e1",
+    "moveNotation": "B4-5",
+    "game": {
+      "id": 2937,
+      "red": "吉林 陶汉明",
+      "black": "黑龙江 于幼华",
+      "tournament": "",
+      "date": "",
+      "ply": 176
+    }
+  },
+  {
+    "book": "endgame",
+    "lesson": 4,
+    "tactic": "binhTanSiTuong",
+    "tone": "praise",
+    "fen": "3ak1Cc1/4a1n2/4b4/4P4/9/4N4/P8/5A3/9/2B1KAB2 w",
+    "move": "e6e7",
+    "moveNotation": "B5.1",
+    "game": {
+      "id": 4158,
+      "red": "上海 林宏敏",
+      "black": "浙江 邱东",
+      "tournament": "",
+      "date": "",
+      "ply": 69
+    }
+  },
+  {
+    "book": "endgame",
+    "lesson": 4,
+    "tactic": "binhTanSiTuong",
+    "tone": "praise",
+    "fen": "3ak4/4a4/9/N5P2/1Pbn5/9/4p4/B8/4A4/4KAB2 w",
+    "move": "b5c5",
+    "moveNotation": "B8-7",
+    "game": {
+      "id": 5083,
+      "red": "山西 周小平",
+      "black": "浦东华工 葛维蒲",
+      "tournament": "",
+      "date": "",
+      "ply": 95
+    }
+  },
+  {
+    "book": "endgame",
     "lesson": 5,
     "tactic": "muuBinhCoXe",
     "tone": "praise",
@@ -920,16 +1328,16 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
     "lesson": 5,
     "tactic": "muuBinhCoXe",
     "tone": "praise",
-    "fen": "4kab2/4a4/4b4/p7p/2n6/2C3R1P/r8/4B4/4A4/3AK1B2 w",
-    "move": "g4g6",
-    "moveNotation": "X3.2",
+    "fen": "4ka3/4a4/9/p1rC4p/9/2c6/P4R2P/4B4/4A4/2BAK4 w",
+    "move": "f3f6",
+    "moveNotation": "X4.3",
     "game": {
-      "id": 9406,
-      "red": "大学生 马军",
-      "black": "厦门 郑一泓",
+      "id": 8228,
+      "red": "广东 许银川",
+      "black": "广东 宗永生",
       "tournament": "",
       "date": "",
-      "ply": 55
+      "ply": 65
     }
   },
   {
@@ -1022,16 +1430,16 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
     "lesson": 7,
     "tactic": "phaSiTuongCoXe",
     "tone": "praise",
-    "fen": "2b1k4/4a4/2c2a3/R4P3/2bP2N2/2p6/3n2p2/3AB3B/2c1A4/5K3 w",
-    "move": "f6f7",
-    "moveNotation": "B4.1",
+    "fen": "1R1aka3/3P5/4b4/p1p5p/9/9/P1P1r3P/4CA3/3c1K3/2B6 w",
+    "move": "d8d9",
+    "moveNotation": "B6.1",
     "game": {
-      "id": 166,
-      "red": "哈尔滨 聂铁文",
-      "black": "湖南 张申宏",
+      "id": 88,
+      "red": "? 黄志强",
+      "black": "八一 杨永明",
       "tournament": "",
       "date": "",
-      "ply": 87
+      "ply": 85
     }
   },
   {
@@ -1121,6 +1529,23 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
   },
   {
     "book": "endgame",
+    "lesson": 9,
+    "tactic": "nguyenTacChiemTrung",
+    "tone": "praise",
+    "fen": "2bak4/4a4/b2c3P1/6r2/3R4p/9/2N6/3A1A3/3K5/9 b",
+    "move": "g6e6",
+    "moveNotation": "X7-5",
+    "game": {
+      "id": 7192,
+      "red": "大连 苗永鹏",
+      "black": "河北 苗利明",
+      "tournament": "",
+      "date": "",
+      "ply": 148
+    }
+  },
+  {
+    "book": "endgame",
     "lesson": 10,
     "tactic": "loSuonApDay",
     "tone": "praise",
@@ -1138,6 +1563,40 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
   },
   {
     "book": "endgame",
+    "lesson": 10,
+    "tactic": "loSuonApDay",
+    "tone": "praise",
+    "fen": "4ka3/6P2/b3ra3/2R2N3/p8/9/2P6/9/3K5/3A1cB2 w",
+    "move": "g8f8",
+    "moveNotation": "B3-4",
+    "game": {
+      "id": 6489,
+      "red": "湖南 孙浩宇",
+      "black": "火车头 崔峻",
+      "tournament": "",
+      "date": "",
+      "ply": 121
+    }
+  },
+  {
+    "book": "endgame",
+    "lesson": 10,
+    "tactic": "loSuonApDay",
+    "tone": "praise",
+    "fen": "3k5/9/9/3P5/9/4R4/2r2p3/4B4/4A4/2B1KA3 w",
+    "move": "d6d7",
+    "moveNotation": "B6.1",
+    "game": {
+      "id": 7155,
+      "red": "河北金环钢构 苗利明",
+      "black": "河南 武俊强",
+      "tournament": "",
+      "date": "",
+      "ply": 97
+    }
+  },
+  {
+    "book": "endgame",
     "lesson": 11,
     "tactic": "maHoatChienThang",
     "tone": "praise",
@@ -1151,6 +1610,23 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
       "tournament": "",
       "date": "",
       "ply": 94
+    }
+  },
+  {
+    "book": "endgame",
+    "lesson": 11,
+    "tactic": "maHoatChienThang",
+    "tone": "praise",
+    "fen": "2ba2b2/3ka4/9/p2PC3p/5N3/5p3/5r2P/5C3/4A4/2BAK1B2 w",
+    "move": "f5d4",
+    "moveNotation": "M4/6",
+    "game": {
+      "id": 3825,
+      "red": "四川 何静",
+      "black": "北京 史思旋",
+      "tournament": "",
+      "date": "",
+      "ply": 71
     }
   },
   {
@@ -1226,6 +1702,23 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
     "lesson": 14,
     "tactic": "totApCung",
     "tone": "praise",
+    "fen": "4ka3/4a4/b3b4/1r7/6r2/2P3N2/PC1R2p2/9/4A4/3AK4 b",
+    "move": "g3g2",
+    "moveNotation": "B7.1",
+    "game": {
+      "id": 8450,
+      "red": "江苏 徐健秒",
+      "black": "武汉 王斌",
+      "tournament": "",
+      "date": "",
+      "ply": 114
+    }
+  },
+  {
+    "book": "endgame",
+    "lesson": 14,
+    "tactic": "totApCung",
+    "tone": "praise",
     "fen": "4kab2/4a4/4b4/1R7/2n4P1/2C6/2p5r/4B4/4A4/3AK1B2 b",
     "move": "c3c2",
     "moveNotation": "B3.1",
@@ -1243,33 +1736,16 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
     "lesson": 14,
     "tactic": "totApCung",
     "tone": "praise",
-    "fen": "3k5/9/4b4/3P5/2N1n1b1P/9/3p5/4B4/9/3K5 b",
-    "move": "d3d2",
-    "moveNotation": "B4.1",
+    "fen": "2b1ka3/2P1a4/4b4/p7p/4c4/9/P5R1P/2r6/4A4/3A1K3 w",
+    "move": "c8d8",
+    "moveNotation": "B7-6",
     "game": {
-      "id": 1321,
-      "red": "北京 龚晓民",
-      "black": "山东 侯昭忠",
+      "id": 1309,
+      "red": "农民体协 程进超",
+      "black": "四川 李艾东",
       "tournament": "",
       "date": "",
-      "ply": 100
-    }
-  },
-  {
-    "book": "endgame",
-    "lesson": 14,
-    "tactic": "totApCung",
-    "tone": "praise",
-    "fen": "2R6/3k5/3a5/2P6/2r6/6B2/6n2/4BA3/4A1C2/4K4 w",
-    "move": "c6c7",
-    "moveNotation": "B7.1",
-    "game": {
-      "id": 2696,
-      "red": "石化体协 崔岩",
-      "black": "安徽 李冰",
-      "tournament": "",
-      "date": "",
-      "ply": 161
+      "ply": 79
     }
   },
   {
@@ -1396,6 +1872,23 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
     "lesson": 18,
     "tactic": "khuyetSiKyGi",
     "tone": "praise",
+    "fen": "2bak4/4a4/4b4/4c2P1/9/4C4/9/5pr2/4A4/4KRB2 b",
+    "move": "g2g1",
+    "moveNotation": "X7.1",
+    "game": {
+      "id": 865,
+      "red": "澳门 李锦欢",
+      "black": "沈阳 尚威",
+      "tournament": "",
+      "date": "",
+      "ply": 106
+    }
+  },
+  {
+    "book": "endgame",
+    "lesson": 18,
+    "tactic": "khuyetSiKyGi",
+    "tone": "praise",
     "fen": "5k3/4a1N2/9/7R1/2p6/8r/4P3P/4B4/4A4/4KAB2 w",
     "move": "h6f6",
     "moveNotation": "X2-4",
@@ -1406,6 +1899,23 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
       "tournament": "",
       "date": "",
       "ply": 109
+    }
+  },
+  {
+    "book": "endgame",
+    "lesson": 20,
+    "tactic": "coTanPhaoHoan",
+    "tone": "praise",
+    "fen": "3ak4/4aP3/9/5C3/4R4/1c7/p5r2/4B4/4A4/2BAK4 b",
+    "move": "b4b8",
+    "moveNotation": "P2/4",
+    "game": {
+      "id": 8228,
+      "red": "广东 许银川",
+      "black": "广东 宗永生",
+      "tournament": "",
+      "date": "",
+      "ply": 106
     }
   },
   {
@@ -1464,16 +1974,16 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
     "lesson": 21,
     "tactic": "donTotKhongCheTuyen",
     "tone": "praise",
-    "fen": "4kab2/4a4/4b4/9/6n2/2p3R1p/3r5/N3B4/4A4/2BAK4 w",
-    "move": "g4c4",
-    "moveNotation": "X3-7",
+    "fen": "4kab2/4a4/4b4/8p/p8/4P1R1P/2r6/4B3c/4A4/3CKA3 b",
+    "move": "c3e3",
+    "moveNotation": "X3-5",
     "game": {
-      "id": 4291,
-      "red": "江苏 杨伊",
-      "black": "北京 唐丹",
+      "id": 162,
+      "red": "沈阳 苗永鹏",
+      "black": "北京 张强",
       "tournament": "",
       "date": "",
-      "ply": 65
+      "ply": 110
     }
   },
   {
@@ -1481,16 +1991,33 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
     "lesson": 21,
     "tactic": "donTotKhongCheTuyen",
     "tone": "praise",
-    "fen": "9/4k4/4bR3/1r7/8p/2B2p3/P4n3/9/4A4/2BCK4 w",
-    "move": "f7f4",
-    "moveNotation": "X4/3",
+    "fen": "2bak4/4a4/4bc3/7r1/9/5p2P/6R2/C4A3/4A4/4K1B2 b",
+    "move": "h6i6",
+    "moveNotation": "X8-9",
     "game": {
-      "id": 5501,
-      "red": "湖北 李望祥",
-      "black": "河北 阎文清",
+      "id": 865,
+      "red": "澳门 李锦欢",
+      "black": "沈阳 尚威",
       "tournament": "",
       "date": "",
-      "ply": 117
+      "ply": 72
+    }
+  },
+  {
+    "book": "endgame",
+    "lesson": 22,
+    "tactic": "doiPhaoLayMa",
+    "tone": "praise",
+    "fen": "4k4/4a4/3n1a3/9/2r6/3R2B2/2p6/3C5/4A4/4KAB2 w",
+    "move": "d2d7",
+    "moveNotation": "P6.5",
+    "game": {
+      "id": 2567,
+      "red": "江苏 张国凤",
+      "black": "山西 董波",
+      "tournament": "",
+      "date": "",
+      "ply": 127
     }
   },
   {
@@ -1542,6 +2069,91 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
       "tournament": "",
       "date": "",
       "ply": 123
+    }
+  },
+  {
+    "book": "endgame",
+    "lesson": 24,
+    "tactic": "nuocCho",
+    "tone": "praise",
+    "fen": "3P1a3/1R1ck4/4b4/p1p5p/9/9/P1P1r3P/4CA3/5K3/2B6 w",
+    "move": "f2e1",
+    "moveNotation": "S4/5",
+    "game": {
+      "id": 88,
+      "red": "? 黄志强",
+      "black": "八一 杨永明",
+      "tournament": "",
+      "date": "",
+      "ply": 89
+    }
+  },
+  {
+    "book": "endgame",
+    "lesson": 24,
+    "tactic": "nuocCho",
+    "tone": "praise",
+    "fen": "2ba1ab2/9/4k4/9/9/4n4/9/4B3B/3pA4/4KA3 b",
+    "move": "e7e8",
+    "moveNotation": "Tg5/1",
+    "game": {
+      "id": 2937,
+      "red": "吉林 陶汉明",
+      "black": "黑龙江 于幼华",
+      "tournament": "",
+      "date": "",
+      "ply": 154
+    }
+  },
+  {
+    "book": "endgame",
+    "lesson": 25,
+    "tactic": "chienThuatVayKhon",
+    "tone": "praise",
+    "fen": "2b1ka3/4a4/2P1b4/p7p/9/9/P2pc3P/B3C3B/4A4/3AKR1r1 b",
+    "move": "h0h2",
+    "moveNotation": "X8/2",
+    "game": {
+      "id": 1309,
+      "red": "农民体协 程进超",
+      "black": "四川 李艾东",
+      "tournament": "",
+      "date": "",
+      "ply": 66
+    }
+  },
+  {
+    "book": "endgame",
+    "lesson": 25,
+    "tactic": "chienThuatVayKhon",
+    "tone": "praise",
+    "fen": "3k1ab2/4c4/4ba3/8p/4N4/6P2/7RP/B8/4KC3/3r5 b",
+    "move": "d0d5",
+    "moveNotation": "X4/5",
+    "game": {
+      "id": 5046,
+      "red": "郑州 李忠雨",
+      "black": "宁夏 刘明",
+      "tournament": "",
+      "date": "",
+      "ply": 84
+    }
+  },
+  {
+    "book": "endgame",
+    "lesson": 25,
+    "tactic": "chienThuatVayKhon",
+    "tone": "praise",
+    "fen": "2ba1k3/4a4/5c3/p4R1P1/4C3r/3p2p2/P8/9/9/2BAKA3 w",
+    "move": "e5f5",
+    "moveNotation": "P5-4",
+    "game": {
+      "id": 8006,
+      "red": "黑龙江 张晓平",
+      "black": "成都 陈鱼",
+      "tournament": "",
+      "date": "",
+      "ply": 77
     }
   },
   {
@@ -1600,16 +2212,16 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
     "lesson": 27,
     "tactic": "kyThuatDanhChan",
     "tone": "praise",
-    "fen": "C2ak4/4a4/9/2r6/1P4p2/8p/R4n3/4B4/4A4/3AK1B2 b",
-    "move": "c6c9",
-    "moveNotation": "X3/3",
+    "fen": "3ak4/4a4/5c3/4R3p/p8/2r5P/9/1C2B4/4A4/4KA3 b",
+    "move": "c4b4",
+    "moveNotation": "X3-2",
     "game": {
-      "id": 6436,
-      "red": "山东 李强",
-      "black": "澳门 陈图炯",
+      "id": 2197,
+      "red": "上海浦东 葛维蒲",
+      "black": "四川 蒋全胜",
       "tournament": "",
       "date": "",
-      "ply": 100
+      "ply": 84
     }
   },
   {
@@ -1617,16 +2229,50 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
     "lesson": 27,
     "tactic": "kyThuatDanhChan",
     "tone": "praise",
-    "fen": "4k1b2/4a4/4b4/p3P4/4R3P/2P6/4c3r/4B4/4A4/2BAK2C1 b",
-    "move": "i3h3",
-    "moveNotation": "X9-8",
+    "fen": "4k4/4a4/5a3/9/2nr5/2R3B2/1p7/4B4/3CA4/4KA3 w",
+    "move": "d1d2",
+    "moveNotation": "P6.1",
     "game": {
-      "id": 8196,
-      "red": "河北 阎文清",
-      "black": "湖南 肖革联",
+      "id": 2567,
+      "red": "江苏 张国凤",
+      "black": "山西 董波",
       "tournament": "",
       "date": "",
-      "ply": 94
+      "ply": 121
+    }
+  },
+  {
+    "book": "endgame",
+    "lesson": 27,
+    "tactic": "kyThuatDanhChan",
+    "tone": "praise",
+    "fen": "2bakab2/9/9/p3C3p/2P1p4/9/r5P1P/9/4N4/C1BAKAB2 w",
+    "move": "a0a2",
+    "moveNotation": "P9.2",
+    "game": {
+      "id": 3825,
+      "red": "四川 何静",
+      "black": "北京 史思旋",
+      "tournament": "",
+      "date": "",
+      "ply": 45
+    }
+  },
+  {
+    "book": "endgame",
+    "lesson": 28,
+    "tactic": "giaiHoa",
+    "tone": "praise",
+    "fen": "2ba1ab2/9/4k4/9/9/6B2/8n/4B4/4pK3/9 w",
+    "move": "f1e1",
+    "moveNotation": "Tg4-5",
+    "game": {
+      "id": 2937,
+      "red": "吉林 陶汉明",
+      "black": "黑龙江 于幼华",
+      "tournament": "",
+      "date": "",
+      "ply": 177
     }
   },
   {
@@ -1668,6 +2314,23 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
     "lesson": 31,
     "tactic": "xeMaLanhChieu",
     "tone": "praise",
+    "fen": "3ak1b2/4a4/4b4/9/p8/9/P7r/2RnR4/1n1K5/9 b",
+    "move": "i3i1",
+    "moveNotation": "X9.2",
+    "game": {
+      "id": 532,
+      "red": "杭州 陈建国",
+      "black": "河北 苗利明",
+      "tournament": "",
+      "date": "",
+      "ply": 186
+    }
+  },
+  {
+    "book": "endgame",
+    "lesson": 31,
+    "tactic": "xeMaLanhChieu",
+    "tone": "praise",
     "fen": "5kb2/3Ra4/5a3/3N5/9/9/2rp5/9/4An3/3K1AB2 b",
     "move": "c3c0",
     "moveNotation": "X3.3",
@@ -1702,16 +2365,33 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
     "lesson": 32,
     "tactic": "xeChotPhaSiTuong",
     "tone": "praise",
-    "fen": "3ckab2/4a4/4bn3/9/4P3r/6R2/9/4B4/9/2B1KA1R1 w",
-    "move": "e5e6",
-    "moveNotation": "B5.1",
+    "fen": "4kab2/4a4/b1R2c3/3P5/1c7/9/9/4B4/4A4/2BAK4 w",
+    "move": "c7a7",
+    "moveNotation": "X7-9",
     "game": {
-      "id": 7206,
-      "red": "浙江球冠 于幼华",
-      "black": "甘肃中国通信移动 梁军",
+      "id": 4232,
+      "red": "浙江 邱东",
+      "black": "四川 才溢",
       "tournament": "",
       "date": "",
-      "ply": 105
+      "ply": 97
+    }
+  },
+  {
+    "book": "endgame",
+    "lesson": 32,
+    "tactic": "xeChotPhaSiTuong",
+    "tone": "praise",
+    "fen": "3k1a3/1R2a4/2r1P4/3P5/9/9/6p2/4B4/4A4/2B1KA3 w",
+    "move": "e7e8",
+    "moveNotation": "B5.1",
+    "game": {
+      "id": 7155,
+      "red": "河北金环钢构 苗利明",
+      "black": "河南 武俊强",
+      "tournament": "",
+      "date": "",
+      "ply": 91
     }
   },
   {
@@ -1831,6 +2511,23 @@ export const ZHAO_BENCHMARK_ROWS: ZhaoBenchmarkRow[] = [
       "tournament": "",
       "date": "",
       "ply": 56
+    }
+  },
+  {
+    "book": "endgame",
+    "lesson": 38,
+    "tactic": "tamAnhChienLuBo",
+    "tone": "note",
+    "fen": "2bakab2/9/9/p3c3p/2P1p4/9/P2r2P1P/4C4/4N4/C1BAKAB2 w",
+    "move": "e2e6",
+    "moveNotation": "P5.4",
+    "game": {
+      "id": 3825,
+      "red": "四川 何静",
+      "black": "北京 史思旋",
+      "tournament": "",
+      "date": "",
+      "ply": 43
     }
   },
   {

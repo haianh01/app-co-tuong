@@ -3406,7 +3406,6 @@ export function checkMotXeDoiHai(
       reason: `Biến engine ăn được ${piecesWonExcludingPawns.length} quân lớn/nhẹ — thuộc về Một Xe đổi ba (Bài 41)`,
     };
   }
-
   const endPly = Math.max(rookLost.ply, minorsWon[0].ply, minorsWon[1].ply);
 
   // 3. Bên đi không bị mất thêm quân chủ lực (Xe, Mã, Pháo) ngoài con Xe này
@@ -3814,6 +3813,14 @@ export function checkPheTotPhanCong(
       ok: false,
       layer: 2,
       reason: "Nước này ăn Tốt đối phương — thuộc về đổi Tốt hoặc mưu Binh, không phải chủ động phế Tốt",
+    };
+  }
+  // Tốt ăn quân lớn hơn rồi bị ăn lại là thắng quân / đổi quân, không phải phế
+  if (victim) {
+    return {
+      ok: false,
+      layer: 2,
+      reason: "Nước này Tốt ăn quân đối phương — bị ăn lại là đổi quân, không phải chủ động phế Tốt",
     };
   }
 

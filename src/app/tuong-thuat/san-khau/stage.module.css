@@ -1146,22 +1146,25 @@
     #d2b182 100%
   ) !important;
   --board-line: #381a07 !important;
-  --piece-face: radial-gradient(circle at 45% 35%, #fffdf7 0%, #faecd5 45%, #e9ce9d 85%, #dcba7e 100%) !important;
-  --piece-red: #ba1717 !important;
-  --piece-black: #111111 !important;
-  --piece-edge: #7f5122 !important;
+  /* Quân giống trang Tường thuật (màu mặc định trong globals.css): mặt kem đều, viền và vòng trong cùng màu chữ. */
+  --piece-face: #f3dfb6 !important;
+  --piece-red: #b3261e !important;
+  --piece-black: #1e1915 !important;
+  --piece-edge: #9c7a4a !important;
   --board-grid-width: 2.8;
   --board-frame-width: 4.5;
   --board-text-opacity: 0 !important;
   /* Ẩn chữ 楚河漢界 nhưng giữ số cột để người xem đọc được ký hiệu nước đi. */
   --board-label-opacity: 0.92;
-  --board-label-size: 24px;
-  --board-label-weight: 800;
-  --piece-scale: 1.07;
-  --piece-border: 2.8px;
-  --piece-ring: 1.4px;
-  --han-scale: 1.15;
-  --han-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+  --board-label-size: 13px;
+  --board-label-weight: 700;
+  /* Quân ~86% ô (zigavn ~76%), chữ ~68% vòng trong. */
+  --piece-scale: 0.96;
+  /* Nét viền phóng theo cỡ quân (trang Tường thuật: viền 2px, vòng 1px trên quân 52px). */
+  --piece-border: 3.4px;
+  --piece-ring: 1.7px;
+  --han-scale: 1;
+  --han-shadow: none;
   /* Dấu nước vừa đi & góc chọn quân: 4 góc xanh neon Ziga */
   --last-from-size: 5%;
   --last-from-border: 4px;

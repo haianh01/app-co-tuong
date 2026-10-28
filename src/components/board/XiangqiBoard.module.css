@@ -68,9 +68,9 @@
   aspect-ratio: 1;
   translate: -50% -50%;
   border-radius: 50%;
-  border: var(--piece-border, 2px) solid currentColor;
+  border: var(--piece-border, 2px) solid var(--piece-border-color, currentColor);
   background: var(--piece-face);
-  box-shadow: 0 3px 0 var(--piece-edge), 0 5px 8px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--piece-shadow, 0 3px 0 var(--piece-edge), 0 5px 8px rgba(0, 0, 0, 0.35));
   cursor: pointer;
   display: grid;
   place-items: center;
@@ -115,6 +115,7 @@
   font-size: calc(var(--han-size) * var(--han-scale, 1));
   line-height: 1;
   text-shadow: var(--han-shadow, none);
+  -webkit-text-stroke: var(--han-stroke, 0px) currentColor;
 }
 
 .red {

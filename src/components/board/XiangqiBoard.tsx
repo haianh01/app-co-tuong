@@ -9,59 +9,61 @@ import styles from "./XiangqiBoard.module.css";
 
 // Hình học bàn cờ trong hệ tọa độ SVG; mọi vị trí HTML được quy ra % để bàn cờ co giãn.
 const CELL = 58;
-const PAD_X = 40;
-const PAD_Y = 54; // rộng hơn PAD_X để chừa chỗ cho hàng số cột trên và dưới
-const W = 8 * CELL + 2 * PAD_X;
-const H = 9 * CELL + 2 * PAD_Y;
 const PIECE = 52;
 const TARGET = 44;
 const HAN_FONT = 27;
 /** Kéo quá khoảng này (px) mới tính là kéo thả, nhỏ hơn là bấm. */
 const DRAG_THRESHOLD = 6;
 
-const px = (dc: number) => PAD_X + dc * CELL;
-const py = (dr: number) => PAD_Y + dr * CELL;
-const pctX = (x: number) => `${(x / W) * 100}%`;
-const pctY = (y: number) => `${(y / H) * 100}%`;
+function makeGeometry(padX: number, padY: number, labelY: number) {
+  const W = 8 * CELL + 2 * padX;
+  const H = 9 * CELL + 2 * padY;
+  const px = (dc: number) => padX + dc * CELL;
+  const py = (dr: number) => padY + dr * CELL;
 
-// Kích thước phần tử HTML tính theo bề rộng bàn cờ, để co giãn cùng SVG.
-const BOARD_VARS = {
-  aspectRatio: `${W} / ${H}`,
-  "--piece-size": `${(PIECE / W) * 100}%`,
-  "--target-size": `${(TARGET / W) * 100}%`,
-  "--han-size": `${(HAN_FONT / W) * 100}cqw`,
-} as CSSProperties;
-
-const GRID_PATH = (() => {
-  let d = "";
-  for (let r = 0; r < 10; r++) d += `M${px(0)} ${py(r)}H${px(8)}`;
+  let grid = "";
+  for (let r = 0; r < 10; r++) grid += `M${px(0)} ${py(r)}H${px(8)}`;
   for (let c = 0; c < 9; c++) {
-    d += c === 0 || c === 8
+    grid += c === 0 || c === 8
       ? `M${px(c)} ${py(0)}V${py(9)}`
       : `M${px(c)} ${py(0)}V${py(4)}M${px(c)} ${py(5)}V${py(9)}`;
   }
-  d += `M${px(3)} ${py(0)}L${px(5)} ${py(2)}M${px(5)} ${py(0)}L${px(3)} ${py(2)}`;
-  d += `M${px(3)} ${py(7)}L${px(5)} ${py(9)}M${px(5)} ${py(7)}L${px(3)} ${py(9)}`;
-  return d;
-})();
+  grid += `M${px(3)} ${py(0)}L${px(5)} ${py(2)}M${px(5)} ${py(0)}L${px(3)} ${py(2)}`;
+  grid += `M${px(3)} ${py(7)}L${px(5)} ${py(9)}M${px(5)} ${py(7)}L${px(3)} ${py(9)}`;
 
-// Dấu góc ở vị trí pháo và tốt.
-const MARK_PATH = (() => {
+  // Dấu góc ở vị trí pháo và tốt.
   const spots: [number, number][] = [[2, 1], [2, 7], [7, 1], [7, 7]];
   for (const r of [3, 6]) for (const c of [0, 2, 4, 6, 8]) spots.push([r, c]);
   const g = 4;
   const l = 10;
-  let d = "";
+  let marks = "";
   for (const [r, c] of spots) {
     for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
       if ((c === 0 && sx < 0) || (c === 8 && sx > 0)) continue;
       const x = px(c);
       const y = py(r);
-      d += `M${x + sx * (g + l)} ${y + sy * g}H${x + sx * g}V${y + sy * (g + l)}`;
+      marks += `M${x + sx * (g + l)} ${y + sy * g}H${x + sx * g}V${y + sy * (g + l)}`;
     }
   }
-  return d;
-})();
+
+  return {
+    W, H, padX, padY, labelY, px, py, grid, marks,
+    pctX: (x: number) => `${(x / W) * 100}%`,
+    pctY: (y: number) => `${(y / H) * 100}%`,
+    // Kích thước phần tử HTML tính theo bề rộng bàn cờ, để co giãn cùng SVG.
+    vars: {
+      aspectRatio: `${W} / ${H}`,
+      "--piece-size": `${(PIECE / W) * 100}%`,
+      "--target-size": `${(TARGET / W) * 100}%`,
+      "--han-size": `${(HAN_FONT / W) * 100}cqw`,
+    } as CSSProperties,
+  };
+}
+
+// Bàn thường: lề trên dưới rộng hơn hai bên để chừa chỗ cho hàng số cột.
+const STANDARD = makeGeometry(40, 54, 15);
+// Bàn Ziga (sân khấu): lưới sát mép như bàn zigavn, số cột nhỏ nằm trong lề.
+const ZIGA = makeGeometry(31, 45, 11);
 
 /** Quân úp của cờ úp: "H" (đỏ) và "h" (đen). */
 const isHidden = (p: string) => p === "H" || p === "h";
@@ -119,6 +121,8 @@ export interface XiangqiBoardProps {
   variant?: "standard" | "ziga";
   /** Chữ watermark giữa sông (mặc định 'Cờ Ziga' khi variant='ziga'). */
   riverWatermark?: string;
+  /** Bộ chữ quân: mặc định theo `variant`; sân khấu dùng "standard" để quân giống trang Tường thuật. */
+  pieceSet?: "standard" | "ziga";
 }
 
 export function XiangqiBoard({
@@ -143,6 +147,7 @@ export function XiangqiBoard({
   onAnnotate,
   variant = "standard",
   riverWatermark,
+  pieceSet,
 }: XiangqiBoardProps) {
   const { user } = useSession();
   const boardRef = useRef<HTMLDivElement>(null);
@@ -151,6 +156,10 @@ export function XiangqiBoard({
   const [drag, setDrag] = useState<{ square: number; dx: number; dy: number } | null>(null);
   const [sketch, setSketch] = useState<{ from: number; to: number } | null>(null);
 
+  const isZiga = variant === "ziga";
+  const charMap = (pieceSet ?? variant) === "ziga" ? ZIGA_PIECE_CHAR : PIECE_CHAR;
+  const geo = isZiga ? ZIGA : STANDARD;
+  const { W, H, px, py, pctX, pctY } = geo;
   const flip = orientation === "b";
   const place = (i: number) => {
     const dr = flip ? 9 - rowOf(i) : rowOf(i);
@@ -174,12 +183,12 @@ export function XiangqiBoard({
     (clientX: number, clientY: number): number | null => {
       const rect = boardRef.current?.getBoundingClientRect();
       if (!rect) return null;
-      const dc = Math.round((((clientX - rect.left) / rect.width) * W - PAD_X) / CELL);
-      const dr = Math.round((((clientY - rect.top) / rect.height) * H - PAD_Y) / CELL);
+      const dc = Math.round((((clientX - rect.left) / rect.width) * W - geo.padX) / CELL);
+      const dr = Math.round((((clientY - rect.top) / rect.height) * H - geo.padY) / CELL);
       if (dc < 0 || dc > 8 || dr < 0 || dr > 9) return null;
       return (flip ? 9 - dr : dr) * 9 + (flip ? 8 - dc : dc);
     },
-    [flip],
+    [flip, geo, W, H],
   );
 
   // Khi bàn cờ thay đổi (nước đi vừa hoàn thành) hoặc bị vô hiệu hóa, dọn sạch hoàn toàn trạng thái kéo.
@@ -283,16 +292,14 @@ export function XiangqiBoard({
     "--piece-edge": pc.edge,
   } as CSSProperties;
 
-  const isZiga = variant === "ziga";
-  const charMap = isZiga ? ZIGA_PIECE_CHAR : PIECE_CHAR;
-
+  
   return (
     <div className={`${styles.rim} ${isZiga ? styles.zigaBoard : ""} ${className ?? ""}`.trim()} style={theme}>
-      <div ref={boardRef} className={styles.board} style={BOARD_VARS} data-disabled={disabled || undefined}>
+      <div ref={boardRef} className={styles.board} style={geo.vars} data-disabled={disabled || undefined}>
         <svg className={styles.lines} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
-          <rect x={PAD_X - 7} y={PAD_Y - 7} width={8 * CELL + 14} height={9 * CELL + 14} className={styles.frame} />
-          <path d={GRID_PATH} className={styles.grid} />
-          <path d={MARK_PATH} className={styles.grid} />
+          <rect x={geo.padX - 7} y={geo.padY - 7} width={8 * CELL + 14} height={9 * CELL + 14} className={styles.frame} />
+          <path d={geo.grid} className={styles.grid} />
+          <path d={geo.marks} className={styles.grid} />
           {isZiga ? (
             <text x={px(4)} y={py(4.5) + 3} className={styles.zigaRiver}>
               {riverWatermark ?? "Cờ Ziga"}
@@ -306,8 +313,8 @@ export function XiangqiBoard({
           {/* Số cột: hàng trên theo cách đếm của bên trên, hàng dưới theo bên dưới (đều đếm từ phải sang). */}
           {Array.from({ length: 9 }, (_, dc) => (
             <g key={dc} className={styles.label}>
-              <text x={px(dc)} y={15}>{dc + 1}</text>
-              <text x={px(dc)} y={H - 15}>{9 - dc}</text>
+              <text x={px(dc)} y={geo.labelY}>{dc + 1}</text>
+              <text x={px(dc)} y={H - geo.labelY}>{9 - dc}</text>
             </g>
           ))}
         </svg>

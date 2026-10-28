@@ -1296,6 +1296,7 @@ function Stage({
           animateArrows
           className={styles.boardRim}
           variant="ziga"
+          pieceSet="standard"
           riverWatermark="Cờ Ziga"
           disabled
         />

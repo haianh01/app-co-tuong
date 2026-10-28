@@ -1,22 +1,41 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useReducer, useRef, useState } from "react";
 import { XiangqiBoard } from "@/components/board/XiangqiBoard";
 import { useHydrated } from "@/hooks/useHydrated";
 import { useLocationSearch } from "@/hooks/useLocationSearch";
-import { STAGE_ROOM_RE, stageSocketUrl, type StageRelayMessage, type StageVoiceEvent } from "@/lib/stage-protocol";
+import { STAGE_ROOM_RE, stageSocketUrl, type StageCommand, type StageRelayMessage, type StageViewMessage, type StageVoiceEvent } from "@/lib/stage-protocol";
 import { formatClock } from "@/lib/vision/zigavn-panels";
 import { PIECE_CHAR } from "@/lib/xiangqi/notation";
-import { applyMove, inCheck, initialPosition, outcome, type Board, type PieceType, type Side } from "@/lib/xiangqi/engine";
+import { applyMove, attackersOf, findKing, inCheck, initialPosition, outcome, parseFen, toFen, type Board, type PieceType, type Side } from "@/lib/xiangqi/engine";
+import { usePositionAnalysis } from "@/hooks/usePositionAnalysis";
+import type { PositionAnalysisResult } from "@/lib/xiangqi/position-analysis";
 import { MatchCommentaryDrawer } from "./MatchCommentaryDrawer";
 import { playStageVoiceEvent, unlockAudio } from "@/lib/stage-voice";
 import { DEFAULT_STAGE_VOICE_LINES, formatEvalScore, liveClocks, zigaEloRank, type BigMoment, type StageClocks, type StagePlayer, type StageState, type ZigaRankTier } from "../stage-sync";
+import { drawingReducer, EMPTY_DRAWING } from "../drawing";
+import { useTrialMoves } from "../trial";
+import { useGameReview } from "../useGameReview";
+import { EvalBar, HistorySheet, ReviewNav, ReviewStrip, StageActionButtons, StageToast, TrialMovesBar, saveStateOf } from "./StageControls";
 import { PuzzleShow, getPreviewPuzzleState } from "./PuzzleShow";
 import styles from "./stage.module.css";
+
+/** Mũi tên 3 nước AI chọn khi phân tích trên sân khấu (xanh lá = tốt nhất). Mã màu phải nằm trong bảng đầu mũi tên của
+ *  XiangqiBoard (kind "custom") thì đầu mũi tên mới cùng màu thân. */
+const DEEP_ARROW_COLORS = ["#22c55e", "#3b82f6", "#f59e0b"];
+
+const STAGE_DRAWING_COLORS = [
+  { value: "#3b82f6", label: "xanh dương" },
+  { value: "#22c55e", label: "xanh lá" },
+  { value: "#ef4444", label: "đỏ" },
+  { value: "#f59e0b", label: "vàng" },
+] as const;
 
 /** Thẻ tóm tắt cho người mới vào: chỉ hiện khi người dùng bấm hoặc nhận tin recap từ trang điều khiển. */
 const RECAP_SHOW_MS = 10_000;
 const MOMENT_SHOW_MS = 3_500;
+/** Mở màn ván: màn VS của hai kỳ thủ, bàn cờ bung ra, quân rơi vào chỗ rồi chữ "BẮT ĐẦU!". */
+const INTRO_SHOW_MS = 3_600;
 
 /** Nhận trạng thái từ trang điều khiển qua /ws/stage; tự kết nối lại khi rớt mạng hoặc server khởi động lại. */
 function useStageFeed(
@@ -26,6 +45,7 @@ function useStageFeed(
 ) {
   const [state, setState] = useState<StageState | null>(null);
   const [connected, setConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
   const onRecapRef = useRef(onRecap);
   const onVoiceRef = useRef(onVoice);
   useEffect(() => {
@@ -41,6 +61,7 @@ function useStageFeed(
     let closed = false;
     const open = () => {
       ws = new WebSocket(stageSocketUrl(window.location, room, "view"));
+      wsRef.current = ws;
       ws.onopen = () => {
         delay = 1000;
         setConnected(true);
@@ -71,7 +92,13 @@ function useStageFeed(
     };
   }, [room]);
 
-  return { state, connected };
+  /** Gửi lệnh ngược về trang điều khiển (vd. "save"); mất kết nối thì bỏ qua. */
+  const sendCommand = useCallback((cmd: StageCommand) => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "cmd", cmd } satisfies StageViewMessage));
+  }, []);
+
+  return { state, connected, sendCommand };
 }
 
 /** Khung 1080×1920 thu nhỏ vừa cửa sổ (OBS Browser Source đặt đúng 1080×1920 thì tỉ lệ là 1). */
@@ -101,6 +128,25 @@ function useMoment(moment: BigMoment | null | undefined, silent = false) {
     return () => clearTimeout(t);
   }, [shown]);
   return shown;
+}
+
+/**
+ * Bật mở màn mỗi khi bàn về thế xuất phát (vừa mở sân khấu lúc ván chưa đi, hoặc trang điều khiển bắt đầu ván mới),
+ * tắt khi hết giờ hay khi đã có nước đi. Trả về mã lần mở màn đang hiện (null: không hiện).
+ */
+function useGameIntro(ply: number, enabled: boolean) {
+  const [intro, setIntro] = useState<{ ply: number | null; id: number; shown: boolean }>({ ply: null, id: 0, shown: false });
+  if (intro.ply !== ply) {
+    const start = enabled && ply === 0;
+    setIntro({ ply, id: start ? intro.id + 1 : intro.id, shown: start });
+  }
+  const { id, shown } = intro;
+  useEffect(() => {
+    if (!shown) return;
+    const t = setTimeout(() => setIntro((i) => (i.id === id ? { ...i, shown: false } : i)), INTRO_SHOW_MS);
+    return () => clearTimeout(t);
+  }, [id, shown]);
+  return shown ? id : null;
 }
 
 /** Thẻ tóm tắt: CHỈ HIỆN KHI NGƯỜI DÙNG BẤM (hoặc nhận tín hiệu recap). Không tự động hiện theo thời gian. */
@@ -706,48 +752,92 @@ function ZigaLiveCard({
   );
 }
 
+/** Một bên của màn VS: ảnh, tên và danh hiệu kỳ thủ trượt vào từ mép màn hình. */
+function IntroPlate({ player, side, from }: { player: StagePlayer; side: Side; from: "left" | "right" }) {
+  const rank = zigaEloRank(player.points, player.title, player.stars, side);
+  return (
+    <div className={styles.introPlate} data-from={from} data-side={side}>
+      <div className={styles.introAvatar} data-side={side}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={player.avatarUrl || rank.avatarUrl} alt="" />
+      </div>
+      <div className={styles.introWho}>
+        <span className={styles.introName}>{player.name}</span>
+        <span className={styles.introRank}>
+          {player.title || rank.title}
+          {player.points ? ` · ${player.points}` : ""}
+        </span>
+        <span className={styles.introSide} data-side={side}>
+          {side === "r" ? "CẦM ĐỎ · ĐI TRƯỚC" : "CẦM ĐEN"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function GameIntro({ state, oppSide }: { state: StageState; oppSide: Side }) {
+  return (
+    <div className={styles.introOverlay} aria-hidden="true">
+      <div className={styles.introBackdrop} />
+      <div className={styles.introBand}>
+        <IntroPlate player={state.settings.opponent} side={oppSide} from="left" />
+        <div className={styles.introVs}>
+          <span>VS</span>
+        </div>
+        <IntroPlate player={state.settings.me} side={state.mySide} from="right" />
+      </div>
+      <div className={styles.introGo}>
+        <span className={styles.introGoRound}>VÁN {state.settings.round}</span>
+        <span className={styles.introGoText}>BẮT ĐẦU!</span>
+      </div>
+    </div>
+  );
+}
+
+const CONFETTI_COLORS = ["#ffd54f", "#ff5a3c", "#4ade80", "#60a5fa", "#f472b6", "#fff1e8"];
+
+/** Chiếu bí: tia sáng xoay sau thẻ kết quả, thắng thì thêm pháo giấy rơi. */
+function MateBurst({ win }: { win: boolean }) {
+  return (
+    <>
+      <div className={styles.mateRays} data-win={win || undefined} aria-hidden="true" />
+      {win && (
+        <div className={styles.confetti} aria-hidden="true">
+          {Array.from({ length: 36 }, (_, i) => (
+            <span
+              key={i}
+              style={
+                {
+                  "--x": `${(i * 37) % 100}%`,
+                  "--d": `${(i * 53) % 900}ms`,
+                  "--r": `${(i * 71) % 360}deg`,
+                  "--c": CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+                } as React.CSSProperties
+              }
+            />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 /** Hàng dưới chuẩn Ziga: 3 nút đồng bên trái (Menu, Chat, Thả tim) và thông tin kỳ thủ bạn bên phải */
-function ZigaBottomBar({
-  state,
-  recap,
-  onOpenDrawer,
-  onTestVoice,
-}: {
-  state: StageState;
-  recap: { shown: boolean; toggle: () => void };
-  onOpenDrawer?: () => void;
-  onTestVoice?: () => void;
-}) {
+/** Dải phân tích khi đi thử: chuỗi nước đã có ở thanh Biến thử, nên ở đây nói AI thấy gì ở thế đang thử. */
+function trialText(notations: string[], best: { notation: string; purposeLabel: string; narrative: string } | null): string {
+  if (notations.length === 0) return "Đi thử: bấm quân để bày biến từ thế này";
+  if (!best) return `Sau ${notations.length} nước thử, AI đang xem thế cờ…`;
+  return `${best.notation} (${best.purposeLabel})${best.narrative ? `: ${best.narrative}` : ""}`;
+}
+
+function ZigaBottomBar({ state, controls }: { state: StageState; controls: React.ReactNode }) {
   const { settings, mySide, turn } = state;
   const now = useNow(250, !!state.clocks);
   const meClock = clockView(state.clocks, "me", now);
 
   return (
     <section className={styles.zigaBottomBar}>
-      <div className={styles.bronzeButtonGroup}>
-        <button
-          type="button"
-          className={styles.bronzeBtn}
-          onClick={onTestVoice}
-          title="Tùy chọn menu"
-          aria-label="Tùy chọn menu"
-        >
-          <span className={styles.bronzeIcon}>☰</span>
-        </button>
-        <button
-          type="button"
-          className={styles.bronzeBtn}
-          onClick={onOpenDrawer ?? recap.toggle}
-          title="Trận cờ & Lời bình"
-          aria-label="Biên bản trận cờ và lời bình chuyên gia"
-        >
-          <span className={styles.bronzeIcon}>💬</span>
-        </button>
-        <div className={`${styles.bronzeBtn} ${styles.bronzeLikesBtn}`} title="Số ván thắng hôm nay">
-          <span className={styles.heartIcon}>❤️</span>
-          <span className={styles.likesCount}>399+</span>
-        </div>
-      </div>
+      {controls}
 
       <PlayerCard
         player={settings.me}
@@ -763,98 +853,6 @@ function ZigaBottomBar({
 
 /** Tên kênh trên tiêu đề; chưa đặt thì là tên kì thủ của người dẫn (người dẫn chính là người đang chơi). */
 const channelName = (s: StageState["settings"]) => s.host.trim() || s.me.name;
-
-/** Khung giới thiệu trên cùng kiểu ảnh mẫu: tên kênh vàng lớn, các dòng thông tin có quân cờ đầu dòng. */
-function StageHeader({
-  state,
-  recap,
-  onTestVoice,
-}: {
-  state: StageState;
-  recap: { shown: boolean; toggle: () => void };
-  onTestVoice?: () => void;
-}) {
-  const { settings } = state;
-  // Lời mời (cta) chạy ở dải chữ bên dưới nên không lặp lại ở đây; khung chứa tối đa 5 dòng.
-  const { today, goal, timeControl } = settings;
-  const review = state.review ?? null;
-  const rows: { icon: string; label?: string; value: string }[] = [];
-  if (review) {
-    // Đang chiếu phân tích ván: khung giới thiệu đổi sang thông tin review thay cho thành tích.
-    const tp = review.turningPoint;
-    rows.push({ icon: "車", label: "Nước", value: `${Math.ceil(review.ply / 2)} / ${Math.ceil(review.totalPlies / 2)}` });
-    rows.push({ icon: "馬", label: "Đánh giá", value: formatEvalScore(review.evalScore) || "Thế cờ cân bằng" });
-    if (review.bestNotation) rows.push({ icon: "炮", label: "Tối ưu", value: review.bestNotation });
-    if (tp) rows.push({ icon: "象", label: `Bước ngoặt #${tp.index + 1}`, value: `${tp.notation} · ${tp.description}` });
-    if (review.commentary) rows.push({ icon: "士", value: review.commentary });
-  } else {
-    rows.push(
-      { icon: "車", label: "Khai cuộc", value: state.openingName ?? "chưa rõ" },
-      { icon: "馬", label: "Hôm nay", value: `${today.win} thắng · ${today.draw} hòa · ${today.loss} thua` },
-      { icon: "炮", label: "Quân lực", value: state.materialBalance.text },
-    );
-    // Cài đặt lưu từ bản cũ có thể chưa có thể thức thời gian.
-    if (timeControl) {
-      rows.push({ icon: "象", label: "Thể thức", value: `${timeControl.totalMin} phút · ${timeControl.perMoveSec} giây/nước` });
-    }
-    if (goal && goal.target > 0) {
-      rows.push({
-        icon: "士",
-        label: "Mục tiêu",
-        value: `${goal.current.toLocaleString("vi-VN")} / ${goal.target.toLocaleString("vi-VN")} ${goal.label}`,
-      });
-    }
-  }
-  return (
-    <header className={styles.header}>
-      <div className={styles.titleRow}>
-        {review ? (
-          <span className={styles.roundBadge} data-review>
-            PHÂN TÍCH VÁN {review.round ?? settings.round}
-          </span>
-        ) : (
-          <span className={styles.roundBadge}>VÁN {settings.round}</span>
-        )}
-        <span className={styles.channel}>{channelName(settings)}</span>
-      </div>
-      {settings.site && <span className={styles.site}>Đang chơi trên {settings.site}</span>}
-      <ul className={styles.infoList}>
-        {rows.map((r) => (
-          <li key={r.icon} className={styles.infoRow}>
-            <span className={styles.infoIcon} aria-hidden="true">
-              {r.icon}
-            </span>
-            {r.label && <span className={styles.infoLabel}>{r.label}:</span>}
-            <span className={styles.infoValue}>{r.value}</span>
-          </li>
-        ))}
-      </ul>
-      <span className={styles.headerArt} aria-hidden="true">
-        象棋
-      </span>
-      <div className={styles.headerTools}>
-        {onTestVoice && (
-          <button
-            type="button"
-            className={styles.recapToggleBtn}
-            onClick={onTestVoice}
-            title="Bấm để thử âm thanh / kích hoạt loa cho sân khấu"
-          >
-            🔊 Thử tiếng
-          </button>
-        )}
-        <button
-          type="button"
-          className={styles.recapToggleBtn}
-          onClick={recap.toggle}
-          title="Bấm để xem hoặc ẩn thẻ tóm tắt ván"
-        >
-          {recap.shown ? "✕ Ẩn tóm tắt" : "📋 Tóm tắt"}
-        </button>
-      </div>
-    </header>
-  );
-}
 
 /** Dải chữ chạy lớn trên cùng: hiển thị ván đấu, tên kênh, khai cuộc, thành tích, lời kêu gọi. */
 function Ticker({ state }: { state: StageState }) {
@@ -1079,7 +1077,7 @@ export function StageClient() {
     [showBubble],
   );
 
-  const { state: socketState, connected: socketConnected } = useStageFeed(room, recap.show, onVoice);
+  const { state: socketState, connected: socketConnected, sendCommand } = useStageFeed(room, recap.show, onVoice);
   const preview = useMemo(
     () => (isPuzzlePreview ? getPreviewPuzzleState(getPreviewZigaState()) : isPreview ? getPreviewZigaState() : null),
     [isPreview, isPuzzlePreview],
@@ -1159,6 +1157,8 @@ export function StageClient() {
         ) : (
           <Stage
             state={state}
+            room={socketState ? room : null}
+            sendCommand={sendCommand}
             connected={connected}
             moment={moment}
             recap={recap}
@@ -1178,6 +1178,8 @@ export function StageClient() {
 
 function Stage({
   state,
+  room,
+  sendCommand,
   connected,
   moment,
   recap,
@@ -1185,6 +1187,9 @@ function Stage({
   onTestVoice,
 }: {
   state: StageState;
+  /** Mã phòng khi đang nối trang điều khiển thật (bản xem trước: null, các nút hành động bị tắt). */
+  room: string | null;
+  sendCommand: (cmd: StageCommand) => void;
   connected: boolean;
   moment: BigMoment | null;
   recap: { shown: boolean; toggle: () => void; close: () => void };
@@ -1194,9 +1199,105 @@ function Stage({
   const { settings, mySide, turn } = state;
   const oppSide: Side = mySide === "r" ? "b" : "r";
   const shaking = moment?.type === "check";
+  const introId = useGameIntro(state.ply, !state.trial && !state.review);
   const now = useNow(250, !!state.clocks);
   const trial = state.trial ?? null;
-  const review = state.review ?? null;
+
+  // Phân tích / xem lại ván đã lưu ngay trên sân khấu (bấm nút Phân tích hoặc chọn từ Lịch sử).
+  // Trang điều khiển cũng chiếu phân tích được (state.review); sân khấu tự mở thì ưu tiên cái của sân khấu.
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [reviewGameId, setReviewGameId] = useState<string | null>(null);
+  const [reviewPly, setReviewPly] = useState(0);
+  const [autoAnalyze, setAutoAnalyze] = useState(false);
+  const gameReview = useGameReview(room, reviewGameId);
+  const { reviewAt } = gameReview;
+  const localReview = useMemo(() => (reviewGameId ? reviewAt(reviewPly) : null), [reviewGameId, reviewPly, reviewAt]);
+  const review = localReview ?? state.review ?? null;
+  const reviewing = reviewGameId !== null;
+
+  const openReview = useCallback((gameId: string, analyze: boolean) => {
+    setHistoryOpen(false);
+    setReviewGameId(gameId);
+    setReviewPly(0);
+    setAutoAnalyze(analyze);
+  }, []);
+  const exitReview = useCallback(() => setReviewGameId(null), []);
+
+  // Ván chưa có phân tích AI: chạy một lần khi người dẫn chọn "Phân tích" (Xem lại thì không).
+  const { game: reviewGame, analysis: reviewAnalysis, loading: reviewLoading, analyzing, error: reviewError, runAnalysis } = gameReview;
+  useEffect(() => {
+    if (!autoAnalyze || !reviewGame || reviewAnalysis || reviewLoading || analyzing || reviewError) return;
+    queueMicrotask(() => setAutoAnalyze(false));
+    void runAnalysis();
+  }, [autoAnalyze, reviewGame, reviewAnalysis, reviewLoading, analyzing, reviewError, runAnalysis]);
+
+  const reviewTotal = gameReview.totalPlies;
+  const seekReview = useCallback((ply: number) => setReviewPly(Math.max(0, Math.min(reviewTotal, ply))), [reviewTotal]);
+  const nextTurning = useCallback(() => {
+    const tps = [...gameReview.turningPoints].sort((a, b) => a.ply - b.ply);
+    const next = tps.find((tp) => tp.ply > reviewPly) ?? tps[0];
+    if (next) setReviewPly(next.ply);
+  }, [gameReview.turningPoints, reviewPly]);
+
+  const [reviewTrialing, setReviewTrialing] = useState(false);
+  useEffect(() => {
+    if (!reviewing || reviewTrialing) return;
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (e.key === "ArrowLeft") setReviewPly((p) => Math.max(0, p - 1));
+      else if (e.key === "ArrowRight") setReviewPly((p) => Math.min(reviewTotal, p + 1));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [reviewing, reviewTrialing, reviewTotal]);
+
+  const reviewStatus = !reviewing
+    ? null
+    : reviewError
+      ? `⚠️ ${reviewError}`
+      : reviewLoading || !reviewGame
+        ? "Đang tải ván…"
+        : analyzing
+          ? `AI đang phân tích ván… ${gameReview.progress}%`
+          : null;
+
+  // Lưu ván: trang điều khiển giữ mã ván và hàng đợi offline, sân khấu chỉ gửi lệnh và báo kết quả nó gửi về.
+  const saveState = saveStateOf(state.archive, settings.round);
+  const [toast, setToast] = useState<{ text: string; tone: "ok" | "warn" | "error" } | null>(null);
+  const showToast = useCallback((text: string, tone: "ok" | "warn" | "error") => setToast({ text, tone }), []);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3_500);
+    return () => clearTimeout(t);
+  }, [toast]);
+  // Trang điều khiển báo lưu xong / xếp hàng / lỗi: báo một lần lúc trạng thái đổi.
+  const [seenSaveState, setSeenSaveState] = useState(saveState);
+  if (seenSaveState !== saveState) {
+    setSeenSaveState(saveState);
+    const round = state.archive?.savedRound ?? settings.round;
+    if (saveState === "saved") setToast({ text: `✓ Đã lưu Ván ${round}`, tone: "ok" });
+    else if (saveState === "queued") setToast({ text: `Mất mạng: Ván ${round} đã xếp hàng, sẽ tự gửi lại`, tone: "warn" });
+    else if (saveState === "error") setToast({ text: `⚠️ ${state.archive?.error ?? "Lưu ván thất bại"}`, tone: "error" });
+  }
+
+  const onSave = useCallback(() => {
+    if (!connected) {
+      showToast("Mất kết nối với trang Tường thuật, chưa lưu được", "error");
+      return;
+    }
+    sendCommand("save");
+  }, [connected, sendCommand, showToast]);
+
+  // Phân tích: ván vừa lưu của buổi này; chưa lưu ván nào thì mở Lịch sử để chọn.
+  const onAnalyze = useCallback(() => {
+    const archive = state.archive;
+    if (archive?.gameId && archive.status === "saved") openReview(archive.gameId, true);
+    else {
+      setHistoryOpen(true);
+      showToast("Chọn một ván đã lưu để phân tích", "warn");
+    }
+  }, [state.archive, openReview, showToast]);
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedPly, setSelectedPly] = useState<number | null>(null);
@@ -1227,15 +1328,155 @@ function Stage({
     return null;
   }, [selectedPly, state.ply, state.moves, state.lastMove, review]);
 
+  // Vẽ nét trên bàn cờ trực tiếp trên sân khấu
+  const [sketch, draw] = useReducer(drawingReducer, EMPTY_DRAWING);
+  const [drawing, setDrawing] = useState(false);
+  const [color, setColor] = useState<string>(STAGE_DRAWING_COLORS[0].value);
+  const clearDrawings = useCallback(() => draw({ type: "clear" }), []);
+
+  // Đi thử nước biến trực tiếp trên sân khấu
+  const liveNotations = useMemo(() => (state.moves || []).map((m) => m.notation), [state.moves]);
+  const trialControls = useTrialMoves(liveNotations);
+  const isTrialActive = Boolean(trialControls.trial);
+  const isTrialMode = Boolean(trial || isTrialActive);
+  const drawingBeforeTrial = useRef(false);
+
+  const toggleTrial = useCallback(() => {
+    if (trialControls.trial) {
+      trialControls.exit();
+      setDrawing(drawingBeforeTrial.current);
+      return;
+    }
+    drawingBeforeTrial.current = drawing;
+    // Đang xem một nước của ván cũ thì bên đi là bên đến lượt ở nước đó, không phải ván đang đánh.
+    trialControls.start({ board: displayBoard, turn: (selectedPly === null ? review?.turn : undefined) ?? state.turn });
+    setDrawing(false);
+  }, [trialControls, displayBoard, selectedPly, review?.turn, state.turn, drawing]);
+  if (reviewTrialing !== (reviewing && isTrialActive)) setReviewTrialing(reviewing && isTrialActive);
+
+  /** Rời biến thử (khi chuyển nước hay thoát phân tích): bàn cờ phải về đúng nước đang xem. */
+  const leaveTrial = () => {
+    if (!trialControls.trial) return;
+    trialControls.exit();
+    setDrawing(drawingBeforeTrial.current);
+  };
+
+  // AI sâu (Pikafish ~1,5M nodes, MultiPV 3) cho thế đang hiện khi phân tích trên sân khấu: nước của ván, hoặc biến
+  // người dẫn đang đi thử. Đợi người dẫn ngừng bấm một chút rồi mới gọi. Bấm nhanh qua nhiều nước thì kết quả về lộn
+  // thứ tự, nên giữ kết quả theo từng thế cờ (quay lại nước đã xem thì có ngay) thay vì kết quả mới nhất của hook.
+  const { analyze: analyzeDeep } = usePositionAnalysis("deep");
+  const [deepByFen, setDeepByFen] = useState<Record<string, PositionAnalysisResult | "error">>({});
+  const deepPending = useRef(new Set<string>());
+  const analysisFen = !reviewing
+    ? null
+    : isTrialActive && trialControls.position
+      ? toFen(trialControls.position)
+      : localReview?.turn
+        ? toFen({ board: localReview.board, turn: localReview.turn })
+        : null;
+  useEffect(() => {
+    if (!analysisFen) return;
+    const pos = parseFen(analysisFen);
+    if (deepByFen[analysisFen]) return;
+    const t = setTimeout(() => {
+      const pending = deepPending.current;
+      if (pending.has(analysisFen)) return;
+      pending.add(analysisFen);
+      analyzeDeep(pos.board, pos.turn)
+        .then((r) => setDeepByFen((m) => ({ ...m, [analysisFen]: r.layer1.engineAvailable ? r : "error" })))
+        .catch(() => setDeepByFen((m) => ({ ...m, [analysisFen]: "error" })))
+        .finally(() => pending.delete(analysisFen));
+    }, 350);
+    return () => clearTimeout(t);
+  }, [analysisFen, analyzeDeep, deepByFen]);
+  const deepEntry = analysisFen ? deepByFen[analysisFen] : undefined;
+  const deepResult = deepEntry && deepEntry !== "error" ? deepEntry : null;
+  const deepBest = deepResult?.layer1.candidates[0] ?? null;
+  const deepThinking = !!analysisFen && !deepEntry;
+  const deepRedScore = deepResult ? (deepResult.turn === "r" ? deepResult.layer1.evalCp : -deepResult.layer1.evalCp) : null;
+
+  // Phím tắt bàn phím
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      const key = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && key === "z") {
+        e.preventDefault();
+        if (e.shiftKey) draw({ type: "redo" });
+        else draw({ type: "undo" });
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && key === "y") {
+        e.preventDefault();
+        draw({ type: "redo" });
+        return;
+      }
+      if (e.altKey) return;
+      if (e.key === " " && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setDrawing((d) => !d);
+        return;
+      }
+      if (["1", "2", "3", "4"].includes(e.key) && !e.ctrlKey && !e.metaKey) {
+        const idx = Number(e.key) - 1;
+        if (STAGE_DRAWING_COLORS[idx]) setColor(STAGE_DRAWING_COLORS[idx].value);
+        return;
+      }
+      if (e.key === "Escape" || key === "c") {
+        clearDrawings();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [clearDrawings]);
+
+  // Tổng hợp mũi tên và khoanh ô (từ phòng điều khiển + nét vẽ trực tiếp)
+  const combinedArrows = useMemo(() => {
+    if (reviewing) {
+      // Mũi tên đỏ của trang phân tích ván = nước sai ở bước ngoặt; chỉ đúng khi đang xem nước của ván, không phải biến thử.
+      const mistake = isTrialActive ? [] : (review?.arrows ?? []).filter((a) => a.color?.startsWith("rgba(239"));
+      const ai = (deepResult?.layer1.candidates ?? []).slice(0, 3).map((c, i) => ({ from: c.move.from, to: c.move.to, color: DEEP_ARROW_COLORS[i], kind: "custom" as const }));
+      return [...ai, ...mistake, ...sketch.present.arrows];
+    }
+    const baseArrows = review?.arrows?.length
+      ? review.arrows
+      : review?.bestMove
+        ? [{ from: review.bestMove.from, to: review.bestMove.to, color: "rgba(34, 197, 94, 0.9)" }]
+        : (state.arrows || []);
+    return [...baseArrows, ...sketch.present.arrows];
+  }, [reviewing, isTrialActive, deepResult, review, state.arrows, sketch.present.arrows]);
+
+  const combinedHighlights = useMemo(() => {
+    const baseMarks = state.highlights || [];
+    return [...baseMarks, ...sketch.present.marks];
+  }, [state.highlights, sketch.present.marks]);
+
+  // Chiếu tướng / chiếu bí trên ván thật: lằn sáng từ (các) quân đang chiếu tới Tướng bị chiếu.
+  const liveFxOn = !isTrialMode && !review && selectedPly === null;
+  const checkFx = useMemo(() => {
+    if (!liveFxOn || !moment || moment.type === "bigCapture" || !inCheck(state.board, state.turn)) return null;
+    const king = findKing(state.board, state.turn);
+    if (king < 0) return null;
+    const from = attackersOf(state.board, king, state.turn === "r" ? "b" : "r");
+    return from.length ? { key: moment.id, from, king } : null;
+  }, [liveFxOn, moment, state.board, state.turn]);
+  const mateOutcome = moment?.type === "mate" ? outcome({ board: state.board, turn: state.turn }) : null;
+  const mateWin = !!mateOutcome?.over && mateOutcome.winner === mySide;
+
   const meClock = clockView(state.clocks, "me", now);
   const oppClock = clockView(state.clocks, "opponent", now);
   return (
     <>
       {!connected && <div className={styles.offline}>Mất kết nối, đang nối lại…</div>}
       {/* Đi thử: làm tối cả sân khấu, chỉ bàn cờ biến thử nổi lên, để người xem biết đây không phải ván thật. */}
-      {trial && <div className={styles.trialDim} aria-hidden="true" />}
-
-      {review && <StageHeader state={state} recap={recap} onTestVoice={onTestVoice} />}
+      {isTrialMode && <div className={styles.trialDim} aria-hidden="true" />}
+      {/* Chiếu tướng: viền đỏ quanh cả sân khấu đập theo nhịp, như còi báo động. */}
+      {liveFxOn && moment && moment.type !== "bigCapture" && (
+        <div key={moment.id} className={styles.checkVignette} data-type={moment.type} aria-hidden="true" />
+      )}
+      {introId !== null && liveFxOn && <GameIntro key={introId} state={state} oppSide={oppSide} />}
 
       {/* Phần trên chuẩn Ziga: Đối thủ bên trái, Khung Live Streamer / OBS bên phải */}
       <section className={styles.topSection}>
@@ -1255,15 +1496,31 @@ function Stage({
       </section>
 
       {/* Dải chữ chạy lớn nối phần đầu với bàn cờ */}
-      <Ticker state={state} />
+      {review ? (
+        <ReviewStrip
+          text={
+            reviewStatus ??
+            (isTrialActive
+              ? trialText(trialControls.stage?.trial.notations ?? [], deepBest)
+              : (review.turningPoint?.description ??
+                (deepBest?.narrative ? `${deepBest.notation} (${deepBest.purposeLabel}): ${deepBest.narrative}` : null) ??
+                review.commentary ??
+                formatEvalScore(review.evalScore)))
+          }
+          best={reviewing ? (deepBest ? `${deepBest.notation} · ${deepResult?.layer1.evalText}` : null) : review.bestNotation}
+          thinking={reviewing && !reviewStatus && deepThinking}
+        />
+      ) : (
+        <Ticker state={state} />
+      )}
 
       {/* Bàn cờ Ziga chính giữa tràn viền 1080px */}
-      <div className={styles.boardWrap} data-shake={shaking || undefined} data-trial={trial ? true : undefined} data-review={review ? true : undefined}>
+      <div className={styles.boardWrap} data-shake={shaking || undefined} data-trial={isTrialMode ? true : undefined} data-review={review ? true : undefined}>
         {review ? (
           <div className={styles.reviewBadge} role="status">
             AI PHÂN TÍCH · VÁN {review.round ?? settings.round}
           </div>
-        ) : trial ? (
+        ) : isTrialMode ? (
           <div className={styles.trialBadge} role="status">
             BIẾN THỬ
           </div>
@@ -1283,25 +1540,51 @@ function Stage({
             </button>
           </div>
         )}
+        {reviewing && (deepRedScore !== null || gameReview.redScores) && (
+          <EvalBar redScore={deepRedScore ?? (isTrialActive ? null : (gameReview.redScores?.[localReview?.ply ?? 0] ?? null))} bottom={mySide} />
+        )}
         <XiangqiBoard
-          board={displayBoard}
+          board={isTrialActive && trialControls.stage ? trialControls.stage.board : displayBoard}
           orientation={mySide}
-          lastMove={displayLastMove}
-          checkSquare={selectedPly === null ? state.checkSquare : null}
-          arrows={review?.arrows?.length ? review.arrows : review?.bestMove ? [{ from: review.bestMove.from, to: review.bestMove.to, color: "rgba(34, 197, 94, 0.9)" }] : state.arrows}
-          highlights={state.highlights}
-          selected={selectedPly === null ? (state.selected ?? null) : null}
-          targets={selectedPly === null ? (state.targets ?? []) : []}
-          arrowWidthScale={1.8}
+          lastMove={isTrialActive && trialControls.stage ? trialControls.stage.lastMove : displayLastMove}
+          checkSquare={
+            isTrialActive && trialControls.stage
+              ? trialControls.stage.checkSquare
+              : selectedPly === null
+                ? state.checkSquare
+                : null
+          }
+          arrows={combinedArrows}
+          highlights={combinedHighlights}
+          selected={
+            isTrialActive && trialControls.stage
+              ? trialControls.stage.selected
+              : selectedPly === null
+                ? (state.selected ?? null)
+                : null
+          }
+          targets={
+            isTrialActive && trialControls.stage
+              ? trialControls.stage.targets
+              : selectedPly === null
+                ? (state.targets ?? [])
+                : []
+          }
+          arrowWidthScale={1.1}
           animateArrows
           className={styles.boardRim}
-          variant="ziga"
-          pieceSet="standard"
+          skin={{ board: "jade", piece: "gold" }}
           riverWatermark="Cờ Ziga"
-          disabled
+          intro={introId !== null && liveFxOn}
+          checkFx={checkFx}
+          sketchColor={color}
+          onSquareClick={isTrialActive && trialControls.stage ? trialControls.onSquareClick : undefined}
+          onAnnotate={drawing ? (from, to) => draw({ type: "annotate", from, to, color }) : undefined}
+          disabled={!drawing && !isTrialActive}
         />
         {moment && (
           <div className={styles.momentOverlay}>
+            {moment.type === "mate" && <MateBurst win={mateWin} />}
             {moment.type === "check" ? (
               <div className={styles.sealCheck} title="Chiếu tướng (將軍)" role="status">
                 <span className={styles.sealInner}>將軍</span>
@@ -1346,14 +1629,133 @@ function Stage({
             <span className={styles.recapLine}>Hôm nay: {state.recap.recordText}</span>
           </aside>
         )}
+        {historyOpen && room && (
+          <HistorySheet room={room} reloadKey={state.archive?.savedRound} onClose={() => setHistoryOpen(false)} onOpen={openReview} />
+        )}
+        {toast && <StageToast text={toast.text} tone={toast.tone} />}
       </div>
 
-      {/* Hàng dưới chuẩn Ziga: 3 nút đồng bên trái (Menu, Chat, Thả tim) và thông tin kỳ thủ bạn bên phải */}
+      {/* Thanh công cụ Vẽ & Đi thử (cả khi đang phân tích ván: bày biến từ nước đang xem) */}
+      <div className={styles.liveToolbar} role="toolbar" aria-label="Thanh công cụ vẽ và đi thử">
+        <button
+          type="button"
+          className={styles.toolbarBtn}
+          aria-pressed={drawing}
+          title={drawing ? "Tắt vẽ để đi quân bằng tay (Phím Space)" : "Bật chế độ vẽ mũi tên & khoanh ô (Phím Space)"}
+          onClick={() => setDrawing((d) => !d)}
+        >
+          ✏️ {drawing ? "Đang vẽ" : "Vẽ"}
+        </button>
+        <button
+          type="button"
+          className={styles.toolbarBtn}
+          aria-pressed={isTrialActive}
+          title={isTrialActive ? "Thoát đi thử, quay về ván thật" : "Bày biến trên bàn cờ tạm để giải thích"}
+          onClick={toggleTrial}
+        >
+          🧪 {isTrialActive ? "Thoát đi thử" : "Đi thử"}
+        </button>
+
+        <div className={styles.swatchGroup} role="radiogroup" aria-label="Chọn màu vẽ">
+          {STAGE_DRAWING_COLORS.map((c, idx) => (
+            <button
+              key={c.value}
+              type="button"
+              className={styles.colorSwatch}
+              style={{ backgroundColor: c.value }}
+              aria-label={`Màu ${c.label}`}
+              title={`Màu ${c.label} (Phím ${idx + 1})`}
+              aria-pressed={color === c.value}
+              onClick={() => setColor(c.value)}
+            />
+          ))}
+        </div>
+
+        <button
+          type="button"
+          className={`${styles.toolbarBtn} ${styles.iconBtn}`}
+          onClick={() => draw({ type: "undo" })}
+          disabled={sketch.past.length === 0}
+          title="Hoàn tác nét vẽ (Ctrl+Z)"
+          aria-label="Hoàn tác nét vẽ"
+        >
+          ↶
+        </button>
+        <button
+          type="button"
+          className={`${styles.toolbarBtn} ${styles.iconBtn}`}
+          onClick={() => draw({ type: "redo" })}
+          disabled={sketch.future.length === 0}
+          title="Làm lại nét vẽ (Ctrl+Y)"
+          aria-label="Làm lại nét vẽ"
+        >
+          ↷
+        </button>
+        <button
+          type="button"
+          className={styles.toolbarBtn}
+          onClick={clearDrawings}
+          title="Xóa tất cả nét vẽ (Phím C hoặc Esc)"
+        >
+          Xóa nét vẽ
+        </button>
+        <button
+          type="button"
+          className={`${styles.toolbarBtn} ${styles.iconBtn}`}
+          onClick={() => setDrawerOpen(true)}
+          title="Trận cờ & Lời bình"
+          aria-label="Biên bản trận cờ và lời bình chuyên gia"
+        >
+          📜
+        </button>
+      </div>
+
+      {isTrialActive && trialControls.trial && (
+        <TrialMovesBar
+          notations={trialControls.stage?.trial.notations ?? []}
+          firstSide={trialControls.trial.base.turn}
+          onBack={trialControls.back}
+          onExit={toggleTrial}
+        />
+      )}
+
+      {/* Hàng dưới: ô điều khiển bên trái (Phân tích · Lưu ván · Lịch sử, hoặc điều hướng khi đang phân tích), kỳ thủ bạn bên phải */}
       <ZigaBottomBar
         state={state}
-        recap={recap}
-        onOpenDrawer={() => setDrawerOpen(true)}
-        onTestVoice={onTestVoice}
+        controls={
+          reviewing ? (
+            <ReviewNav
+              ply={localReview?.ply ?? 0}
+              total={reviewTotal}
+              hasTurningPoints={gameReview.turningPoints.length > 0}
+              onPrev={() => {
+                leaveTrial();
+                seekReview(reviewPly - 1);
+              }}
+              onNext={() => {
+                leaveTrial();
+                seekReview(reviewPly + 1);
+              }}
+              onNextTurning={() => {
+                leaveTrial();
+                nextTurning();
+              }}
+              onExit={() => {
+                leaveTrial();
+                exitReview();
+              }}
+            />
+          ) : (
+            <StageActionButtons
+              saveState={saveState}
+              historyOpen={historyOpen}
+              canAct={room !== null}
+              onAnalyze={onAnalyze}
+              onSave={onSave}
+              onHistory={() => setHistoryOpen((o) => !o)}
+            />
+          )
+        }
       />
 
       {/* Bảng Drawer Trận cờ & Lời bình Chuyên gia */}

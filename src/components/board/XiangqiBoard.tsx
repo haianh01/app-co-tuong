@@ -119,10 +119,14 @@ export interface XiangqiBoardProps {
   onAnnotate?: (from: number, to: number) => void;
   /** Chế độ giao diện Ziga giống bàn cờ cờ tướng Ziga (quân cờ ngà gỗ, watermark sông, góc xanh neon). */
   variant?: "standard" | "ziga";
-  /** Chữ watermark giữa sông (mặc định 'Cờ Ziga' khi variant='ziga'). */
+  /** Chữ watermark giữa sông thay cho 楚河漢界 (mặc định 'Cờ Ziga' khi variant='ziga'). */
   riverWatermark?: string;
   /** Bộ chữ quân: mặc định theo `variant`; sân khấu dùng "standard" để quân giống trang Tường thuật. */
   pieceSet?: "standard" | "ziga";
+  /** Mở màn ván: lưới hiện dần rồi quân rơi vào chỗ lần lượt từ hàng cuối mỗi bên (bật lại để chạy lại). */
+  intro?: boolean;
+  /** Hiệu ứng chiếu tướng: lằn sáng từ quân chiếu tới Tướng và sóng đỏ quanh Tướng; đổi `key` để chạy lại. */
+  checkFx?: { key: string; from: number[]; king: number } | null;
 }
 
 export function XiangqiBoard({
@@ -148,6 +152,8 @@ export function XiangqiBoard({
   variant = "standard",
   riverWatermark,
   pieceSet,
+  intro = false,
+  checkFx = null,
 }: XiangqiBoardProps) {
   const { user } = useSession();
   const boardRef = useRef<HTMLDivElement>(null);
@@ -295,13 +301,23 @@ export function XiangqiBoard({
   
   return (
     <div className={`${styles.rim} ${isZiga ? styles.zigaBoard : ""} ${className ?? ""}`.trim()} style={theme}>
-      <div ref={boardRef} className={styles.board} style={geo.vars} data-disabled={disabled || undefined}>
+      <div
+        ref={boardRef}
+        className={styles.board}
+        style={geo.vars}
+        data-disabled={disabled || undefined}
+        data-intro={intro || undefined}
+      >
         <svg className={styles.lines} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
           <rect x={geo.padX - 7} y={geo.padY - 7} width={8 * CELL + 14} height={9 * CELL + 14} className={styles.frame} />
           <path d={geo.grid} className={styles.grid} />
           <path d={geo.marks} className={styles.grid} />
-          {isZiga ? (
-            <text x={px(4)} y={py(4.5) + 3} className={styles.zigaRiver}>
+          {isZiga || riverWatermark ? (
+            <text
+              x={px(4)}
+              y={py(4.5) + 3}
+              className={isZiga ? styles.zigaRiver : `${styles.zigaRiver} ${styles.skinRiver}`}
+            >
               {riverWatermark ?? "Cờ Ziga"}
             </text>
           ) : (
@@ -341,9 +357,16 @@ export function XiangqiBoard({
             targetSet.has(i) && styles.capturable,
             dragging && styles.dragging,
           ].filter(Boolean).join(" ");
-          const style = dragging
+          const style: CSSProperties = dragging
             ? { ...at(i), transform: `translate(${drag.dx}px, ${drag.dy}px) scale(1.08)` }
             : at(i);
+          if (intro) {
+            // Hàng cuối mỗi bên rơi trước, tiến dần vào sông; trong một hàng thì từ giữa ra hai cánh.
+            const { x, y } = place(i);
+            const dr = Math.round((y - geo.padY) / CELL);
+            const dc = Math.round((x - geo.padX) / CELL);
+            (style as Record<string, string>)["--intro-d"] = `${Math.min(dr, 9 - dr) * 110 + Math.abs(dc - 4) * 30}ms`;
+          }
           return (
             <button
               key={ids?.[i] ?? `sq${i}`}
@@ -379,33 +402,6 @@ export function XiangqiBoard({
 
         {(arrows.length > 0 || highlights.length > 0) && (
           <svg className={styles.overlays} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
-            <defs>
-              <marker id="arrowhead-better" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#22c55e" />
-              </marker>
-              <marker id="arrowhead-played" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#ef4444" />
-              </marker>
-              <marker id="arrowhead-reply" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#f59e0b" />
-              </marker>
-              <marker id="arrowhead-blue" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#3b82f6" />
-              </marker>
-              <marker id="arrowhead-green" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#22c55e" />
-              </marker>
-              <marker id="arrowhead-red" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#ef4444" />
-              </marker>
-              <marker id="arrowhead-yellow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#f59e0b" />
-              </marker>
-              <marker id="arrowhead-custom" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-                <path d="M 0 1.5 L 9 5 L 0 8.5 z" fill="#3b82f6" />
-              </marker>
-            </defs>
-
             {/* Highlights các ô */}
             {highlights.map((hl, idx) => {
               const sq = typeof hl === "number" ? hl : hl.square;
@@ -438,11 +434,6 @@ export function XiangqiBoard({
 
               const ux = dx / dist;
               const uy = dy / dist;
-              const startX = p1.x + ux * 16;
-              const startY = p1.y + uy * 16;
-              const endX = p2.x - ux * (20 + 2 * arrowWidthScale);
-              const endY = p2.y - uy * (20 + 2 * arrowWidthScale);
-
               const kind = a.kind ?? "played";
               const strokeColor =
                 a.color ??
@@ -453,33 +444,37 @@ export function XiangqiBoard({
                   : kind === "custom"
                   ? "#3b82f6"
                   : "#ef4444");
+              const strokeWidth = (kind === "reply" ? 3.5 : 4.5) * arrowWidthScale;
 
-              const colorMarkerMap: Record<string, string> = {
-                "#3b82f6": "arrowhead-blue",
-                "#22c55e": "arrowhead-green",
-                "#ef4444": "arrowhead-red",
-                "#f59e0b": "arrowhead-yellow",
-              };
-
-              const markerId =
-                kind === "better"
-                  ? "arrowhead-better"
-                  : kind === "reply"
-                  ? "arrowhead-reply"
-                  : kind === "custom"
-                  ? (a.color && colorMarkerMap[a.color]) ?? "arrowhead-custom"
-                  : "arrowhead-played";
+              // Thân bắt đầu gần tâm quân đi, mũi chạm vào quân đích (ô trống thì gần tới giao điểm). Đầu mũi tên tự vẽ và
+              // co theo độ dài: nước 1 ô mà giữ đầu cỡ chuẩn thì đầu che gần hết thân, trông cụt.
+              const startGap = dist <= CELL * 1.5 ? CELL * 0.15 : 16;
+              const tipGap = board[a.to] ? CELL * 0.3 : CELL * 0.1;
+              const headLen = Math.min(5.4 * strokeWidth, (dist - startGap - tipGap) * 0.45);
+              const headHalf = Math.max(headLen * 0.4, strokeWidth * 1.1);
+              const startX = p1.x + ux * startGap;
+              const startY = p1.y + uy * startGap;
+              const tipX = p2.x - ux * tipGap;
+              const tipY = p2.y - uy * tipGap;
+              const baseX = tipX - ux * headLen;
+              const baseY = tipY - uy * headLen;
+              // Thân lẹm vào đầu một chút để không hở khe giữa nét tròn và đáy tam giác.
+              const endX = baseX + ux * Math.min(headLen * 0.3, strokeWidth);
+              const endY = baseY + uy * Math.min(headLen * 0.3, strokeWidth);
+              const head = `M ${tipX} ${tipY} L ${baseX - uy * headHalf} ${baseY + ux * headHalf} L ${baseX + uy * headHalf} ${baseY - ux * headHalf} Z`;
 
               const isDashed = a.dashed || kind === "reply";
               const arrowClass = animateArrows && !isDashed ? styles.animatedArrow : undefined;
               const arrowStyle = animateArrows && !isDashed ? ({ "--arrow-len": Math.ceil(dist) } as CSSProperties) : undefined;
 
-              const badgeX = p1.x + dx * 0.45;
-              const badgeY = p1.y + dy * 0.45;
               const badgeR = 10.5 * Math.max(1, arrowWidthScale * 0.85);
+              // Mũi tên ngắn (≤ 1,5 ô): số thứ tự đặt lệch sang bên cạnh thân, không thì che mất cả mũi tên.
+              const badgeSide = dist <= CELL * 1.5 ? badgeR + strokeWidth : 0;
+              const badgeX = (startX + baseX) / 2 - uy * badgeSide;
+              const badgeY = (startY + baseY) / 2 + ux * badgeSide;
 
               return (
-                <g key={`arrow-${idx}-${a.from}-${a.to}`}>
+                <g key={`arrow-${idx}-${a.from}-${a.to}`} opacity={0.9}>
                   <line
                     className={arrowClass}
                     style={arrowStyle}
@@ -488,12 +483,11 @@ export function XiangqiBoard({
                     x2={endX}
                     y2={endY}
                     stroke={strokeColor}
-                    strokeWidth={(kind === "reply" ? 3.5 : 4.5) * arrowWidthScale}
+                    strokeWidth={strokeWidth}
                     strokeDasharray={isDashed ? "6 4" : undefined}
                     strokeLinecap="round"
-                    opacity={0.9}
-                    markerEnd={`url(#${markerId})`}
                   />
+                  <path d={head} fill={strokeColor} strokeLinejoin="round" />
                   {a.label !== undefined && a.label !== null && a.label !== "" && (
                     <g pointerEvents="none">
                       <circle
@@ -606,6 +600,31 @@ export function XiangqiBoard({
             onPointerCancel={() => setSketch(null)}
             onContextMenu={(e) => e.preventDefault()}
           />
+        )}
+
+        {checkFx && (
+          <svg key={checkFx.key} className={styles.checkFx} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
+            {checkFx.from.map((sq) => {
+              const a = place(sq);
+              const k = place(checkFx.king);
+              return (
+                <g key={sq}>
+                  <line x1={a.x} y1={a.y} x2={k.x} y2={k.y} pathLength={1} className={styles.checkBeamGlow} />
+                  <line x1={a.x} y1={a.y} x2={k.x} y2={k.y} pathLength={1} className={styles.checkBeam} />
+                </g>
+              );
+            })}
+            {[0, 1, 2].map((n) => (
+              <circle
+                key={n}
+                cx={place(checkFx.king).x}
+                cy={place(checkFx.king).y}
+                r={CELL * 0.5}
+                className={styles.checkWave}
+                style={{ animationDelay: `${300 + n * 420}ms` }}
+              />
+            ))}
+          </svg>
         )}
 
         {children}

@@ -1,0 +1,3 @@
+Tiếng quân cờ trong thư mục này lấy từ "Impact Sounds" của Kenney (www.kenney.nl),
+giấy phép Creative Commons CC0 1.0 (public domain): https://creativecommons.org/publicdomain/zero/1.0/
+Đã cắt ngắn, chuyển mono và chuẩn hóa âm lượng.

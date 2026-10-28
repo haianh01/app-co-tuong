@@ -5,8 +5,10 @@ import { useActionState, useEffect, useState } from "react";
 import { removeAccount, saveEmail, savePassword, saveProfile, type FormResult } from "@/app/actions/account";
 import { Avatar } from "@/components/Avatar";
 import { useSession } from "@/components/session/SessionProvider";
+import { useMuted, useSoundPack } from "@/hooks/useGameSounds";
 import { useHydrated } from "@/hooks/useHydrated";
 import { AVATARS } from "@/lib/skins";
+import { previewSoundPack, SOUND_PACKS } from "@/lib/sound";
 import type { SessionUser } from "@/lib/session-types";
 import styles from "./settings.module.css";
 
@@ -55,6 +57,8 @@ export function SettingsClient({ user, providers }: { user: SessionUser; provide
           Tên đăng nhập: <strong>{user.username}</strong> · <Link href={`/u/${user.username}`} className={styles.link}>Xem hồ sơ công khai</Link>
         </p>
       </section>
+
+      <SoundSection />
 
       <section className={`card ${styles.card}`} aria-labelledby="s-email">
         <h2 id="s-email">Email</h2>
@@ -124,5 +128,54 @@ export function SettingsClient({ user, providers }: { user: SessionUser; provide
         </form>
       </section>
     </div>
+  );
+}
+
+/** Bộ âm thanh đi cờ: lưu trên thiết bị này và dùng cho mọi màn (chơi, cờ thế, giải đấu, Tường thuật…). */
+function SoundSection() {
+  const [pack, setPack] = useSoundPack();
+  const [muted, setMuted] = useMuted();
+  return (
+    <section className={`card ${styles.card}`} aria-labelledby="s-sound">
+      <h2 id="s-sound">Âm thanh đi cờ</h2>
+      <p className="muted">Chọn một bộ tiếng là áp dụng ngay cho mọi màn chơi trên thiết bị này. Bấm để nghe thử.</p>
+      <label className={styles.switchRow}>
+        <input type="checkbox" checked={!muted} onChange={(e) => setMuted(!e.target.checked)} />
+        Bật âm thanh
+      </label>
+      <fieldset className={styles.soundPacks} disabled={muted}>
+        <legend className="visually-hidden">Bộ âm thanh</legend>
+        {SOUND_PACKS.map((p) => (
+          <label key={p.id} className={styles.soundOption} data-checked={pack === p.id || undefined}>
+            <input
+              type="radio"
+              name="soundPack"
+              value={p.id}
+              checked={pack === p.id}
+              onChange={() => {
+                setPack(p.id);
+                previewSoundPack(p.id);
+              }}
+            />
+            <span className={styles.soundName}>
+              {p.name}
+              {p.recorded && <span className={styles.soundTag}>Thu âm thật</span>}
+            </span>
+            <span className={styles.soundDesc}>{p.desc}</span>
+            <button
+              type="button"
+              className={styles.soundPlay}
+              aria-label={`Nghe thử ${p.name}`}
+              onClick={(e) => {
+                e.preventDefault();
+                previewSoundPack(p.id);
+              }}
+            >
+              ▶
+            </button>
+          </label>
+        ))}
+      </fieldset>
+    </section>
   );
 }

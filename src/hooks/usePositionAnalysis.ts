@@ -22,7 +22,8 @@ export interface UsePositionAnalysisReturn {
   reset: () => void;
 }
 
-export function usePositionAnalysis(): UsePositionAnalysisReturn {
+/** `purpose`: "analysis" (60k nodes, nhanh) hoặc "deep" (~1,5M nodes, dùng khi cần gợi ý chắc tay, vd. sân khấu livestream). */
+export function usePositionAnalysis(purpose: "analysis" | "deep" = "analysis"): UsePositionAnalysisReturn {
   const [result, setResult] = useState<PositionAnalysisResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +58,7 @@ export function usePositionAnalysis(): UsePositionAnalysisReturn {
           const res = await fetch("/api/engine", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ fen, purpose: "analysis" }),
+            body: JSON.stringify({ fen, purpose }),
           });
           if (res.ok) {
             engineResult = (await res.json()) as AiResult;
@@ -116,7 +117,7 @@ export function usePositionAnalysis(): UsePositionAnalysisReturn {
       }
       return analysis;
     },
-    [],
+    [purpose],
   );
 
   return {

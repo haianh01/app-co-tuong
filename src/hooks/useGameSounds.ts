@@ -3,7 +3,7 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { Side } from "@/lib/xiangqi/engine";
 import type { GameResult, PlayedMove } from "@/lib/xiangqi/game";
-import { isMuted, playSound, setMuted, subscribeMuted } from "@/lib/sound";
+import { getSoundPack, isMuted, playSound, setMuted, setSoundPack, subscribeMuted, subscribeSoundPack, type SoundPack } from "@/lib/sound";
 
 /** Phát tiếng đặt quân / ăn quân / chiếu khi có nước mới (không phát khi lùi nước hay tải lại ván). */
 export function useMoveSounds(moves: PlayedMove[]) {
@@ -35,4 +35,9 @@ export function useResultSound(result: GameResult | null, viewer: Side | null) {
 export function useMuted(): [boolean, (muted: boolean) => void] {
   const muted = useSyncExternalStore(subscribeMuted, isMuted, () => false);
   return [muted, setMuted];
+}
+
+export function useSoundPack(): [SoundPack, (pack: SoundPack) => void] {
+  const pack = useSyncExternalStore(subscribeSoundPack, getSoundPack, () => "go" as SoundPack);
+  return [pack, setSoundPack];
 }

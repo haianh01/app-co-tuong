@@ -17,6 +17,11 @@ const PLAY: Record<number, EngineLimits> = {
 };
 /** Phân tích / huấn luyện: MultiPV = 3 để đánh giá các phương án lựa chọn, nodes 60k để chính xác. */
 const ANALYSIS: EngineLimits = { nodes: 60_000, multipv: 3 };
+/** Phân tích sâu một thế cờ (màn livestream xem lại / đi thử): cùng mức với lượt sâu của /api/engine/batch. */
+const DEEP: EngineLimits = {
+  nodes: Math.max(500_000, Number(process.env.ENGINE_DEEP_NODES ?? 1_500_000)),
+  multipv: 3,
+};
 
 // Mỗi IP: 600 lần / 5 phút (phân tích một ván dài ~ 100–200 lần).
 const limiter = new RateLimiter(600, 5 * 60_000);
@@ -67,7 +72,7 @@ export async function POST(request: Request) {
     }
   }
 
-  const limits = body.purpose === "analysis" ? ANALYSIS : PLAY[Number(body.level)];
+  const limits = body.purpose === "analysis" ? ANALYSIS : body.purpose === "deep" ? DEEP : PLAY[Number(body.level)];
   if (!limits) return Response.json({ error: "Cấp độ không hợp lệ" }, { status: 400, headers: noStore });
 
   const legal = legalMoves(pos);

@@ -96,6 +96,97 @@
   outline: 2px solid var(--gold);
 }
 
+.switchRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.switchRow input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--gold);
+}
+
+.soundPacks {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.soundPacks:disabled {
+  opacity: 0.5;
+}
+
+.soundOption {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 48px 12px 14px;
+  border-radius: 12px;
+  border: 2px solid var(--line-strong);
+  background: var(--surface-sunken);
+  cursor: pointer;
+}
+
+.soundOption[data-checked] {
+  border-color: var(--gold);
+}
+
+.soundOption:has(input:focus-visible) {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.soundOption input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.soundName {
+  font-weight: 700;
+}
+
+.soundTag {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--gold);
+  color: var(--gold-text);
+  font-size: 11px;
+  font-weight: 700;
+  vertical-align: 2px;
+}
+
+.soundDesc {
+  font-size: 13px;
+  color: var(--text-muted, inherit);
+  opacity: 0.8;
+}
+
+.soundPlay {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  translate: 0 -50%;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--gold-text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .row {
   display: flex;
   flex-wrap: wrap;

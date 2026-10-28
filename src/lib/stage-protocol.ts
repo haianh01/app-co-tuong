@@ -3,7 +3,8 @@
 // điều khiển.
 //
 //   /ws/stage?room=<khóa>&role=control   trang điều khiển: gửi trạng thái, nhận số sân khấu đang mở
-//   /ws/stage?room=<khóa>&role=view      trang sân khấu: nhận trạng thái mới nhất ngay khi kết nối, rồi mọi cập nhật
+//   /ws/stage?room=<khóa>&role=view      trang sân khấu: nhận trạng thái mới nhất ngay khi kết nối, rồi mọi cập nhật;
+//                                        gửi ngược được đúng các lệnh trong STAGE_COMMANDS (vd. bấm "Lưu ván" trên sân khấu)
 //
 // Khóa phòng do trang điều khiển tự sinh ngẫu nhiên; ai có khóa thì điều khiển được sân khấu của phòng đó.
 
@@ -22,8 +23,17 @@ export type StageRelayMessage =
   | { t: "recap" }
   | { t: "voice"; event: StageVoiceEvent; text?: string };
 
+/** Lệnh sân khấu nhờ trang điều khiển làm, vì dữ liệu ván (mã ván, hàng đợi lưu offline) nằm ở trang điều khiển. */
+export const STAGE_COMMANDS = ["save"] as const;
+export type StageCommand = (typeof STAGE_COMMANDS)[number];
+
+/** Sân khấu → server → điều khiển. */
+export type StageViewMessage = { t: "cmd"; cmd: StageCommand };
+
+export const isStageCommand = (v: unknown): v is StageCommand => (STAGE_COMMANDS as readonly unknown[]).includes(v);
+
 /** Server → điều khiển. */
-export type StageServerMessage = { t: "viewers"; n: number };
+export type StageServerMessage = { t: "viewers"; n: number } | StageViewMessage;
 
 export function stageSocketUrl(loc: { protocol: string; host: string }, room: string, role: StageRole): string {
   const proto = loc.protocol === "https:" ? "wss:" : "ws:";

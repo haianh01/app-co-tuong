@@ -163,6 +163,8 @@ export interface StageReviewState {
   ply: number;
   totalPlies: number;
   board: Board;
+  /** Bên đến lượt ở thế đang chiếu (bản cũ không gửi). */
+  turn?: Side;
   lastMove: Move | null;
   evalScore: number | null;
   bestMove?: Move | null;
@@ -245,9 +247,20 @@ export interface StageState {
   review?: StageReviewState | null;
   /** Trạng thái chiếu cờ thế lên sân khấu (null: không chiếu cờ thế). Loại trừ với review. */
   puzzle?: StagePuzzleState | null;
+  /** Tình trạng lưu ván trên trang điều khiển, để nút "Lưu ván" trên sân khấu báo đã lưu hay chưa. */
+  archive?: StageArchiveView | null;
   moves: StageMoveItem[];
   activeCommentary?: StageCommentaryDetail | null;
   timestamp: number;
+}
+
+export interface StageArchiveView {
+  /** Mã ván đang ghi ("" khi chưa lưu lần nào). */
+  gameId: string;
+  status: "idle" | "saving" | "saved" | "error";
+  /** Ván số mấy vừa lưu xong; khác `settings.round` nghĩa là ván đang đánh chưa lưu. */
+  savedRound: number | null;
+  error: string | null;
 }
 
 export interface StageTrial {
@@ -454,6 +467,7 @@ export function buildStageState(params: {
   review?: StageReviewState | null;
   /** Chiếu cờ thế lên sân khấu. Loại trừ với review. */
   puzzle?: StagePuzzleState | null;
+  archive?: StageArchiveView | null;
   /** Danh sách toàn bộ nước đi của ván cờ (nếu không có sẽ tự dựng từ `notations`). */
   moves?: StageMoveItem[];
   activeCommentary?: StageCommentaryDetail | null;
@@ -510,6 +524,7 @@ export function buildStageState(params: {
     trial,
     review,
     puzzle,
+    archive: params.archive ?? null,
     moves,
     activeCommentary,
     timestamp: Date.now(),

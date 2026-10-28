@@ -19,7 +19,7 @@ import { changeResult, nextRound, resultOnBoard, type StageResult } from "./stag
 import { useStageArchive } from "./useStageArchive";
 import { findRepair } from "./board-repair";
 import { clockAfterMove, readClock, startClock, stopClock, type GameClock } from "./game-clock";
-import { buildStageState, canReview, mergePanelReading, type StageClocks, type StagePuzzleState, type StageReviewState } from "./stage-sync";
+import { buildStageState, canReview, mergePanelReading, type StageArchiveView, type StageClocks, type StagePuzzleState, type StageReviewState } from "./stage-sync";
 import { TrialBar, useTrialMoves } from "./trial";
 import { scrollMoveIntoBox } from "./scroll-moves";
 import { clockSeconds } from "@/lib/vision/zigavn-panels";
@@ -309,6 +309,20 @@ export function BroadcastClient() {
     roundResult,
     onBoardResult: onBoard,
   });
+  const stageArchive = useMemo<StageArchiveView>(
+    () => ({ gameId: archive.gameId, status: archive.status, savedRound: archive.savedRound, error: archive.error }),
+    [archive.gameId, archive.status, archive.savedRound, archive.error],
+  );
+  // Bấm "Lưu ván" trên sân khấu: lưu như nút trên bảng điều khiển.
+  const { onCommand } = stageLink;
+  const { saveNow } = archive;
+  useEffect(
+    () =>
+      onCommand((cmd) => {
+        if (cmd === "save") void saveNow();
+      }),
+    [onCommand, saveNow],
+  );
 
   const onAnnotate = useCallback(
     (from: number, to: number) => {
@@ -409,11 +423,12 @@ export function BroadcastClient() {
         clocks: live ? stageClocks : null,
         review: activeReview,
         puzzle: activePuzzle,
+        archive: stageArchive,
         // Đi thử: bàn cờ là biến thử, còn lượt đi / đồng hồ vẫn của ván thật đang chạy ngầm.
         ...(trial.stage && { ...trial.stage, turn: livePos.turn, ply: game.moves.length, capturedPiece: null, clocks: stageClocks }),
       }),
     });
-  }, [sendStage, pos, ply, lastMove, checkSquare, game.moves, sketch.present, mySide, stageSettings, lastCapturedPiece, live, stageClocks, trial.stage, livePos.turn, activeReview, activePuzzle]);
+  }, [sendStage, pos, ply, lastMove, checkSquare, game.moves, sketch.present, mySide, stageSettings, lastCapturedPiece, live, stageClocks, trial.stage, livePos.turn, activeReview, activePuzzle, stageArchive]);
 
   const toggleFullscreen = () => {
     if (typeof document === "undefined") return;

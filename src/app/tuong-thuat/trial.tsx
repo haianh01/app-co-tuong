@@ -83,6 +83,8 @@ export function useTrialMoves(liveNotations: string[]) {
   return {
     trial,
     stage,
+    /** Thế cờ hiện tại của biến thử (null = không thử). */
+    position: pos,
     onSquareClick,
     /** Ván thật có thay đổi kể từ lúc bắt đầu thử (nước mới, hoặc bị đặt lại). */
     realChanged: !!trial && liveNotations.length !== trial.startCount,

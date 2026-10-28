@@ -9,6 +9,7 @@ describe("StagePanel", () => {
     viewers: 2,
     online: true,
     send: vi.fn(),
+    onCommand: () => () => {},
   };
 
   const sampleReview: StageReviewState = {

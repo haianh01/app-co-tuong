@@ -75,6 +75,20 @@ describe("StageRelay", () => {
     expect(other.inbox).toEqual([]);
   });
 
+  it("sân khấu gửi ngược lệnh hợp lệ về điều khiển cùng phòng, lệnh lạ bị bỏ", async () => {
+    const control = await connect("control");
+    const otherControl = await connect("control", "zzzzzzzzzzzzzzzz_other");
+    const view = await connect("view");
+    await until(() => control.inbox.some((m) => (m as { n?: number }).n === 1));
+
+    view.ws.send(JSON.stringify({ t: "cmd", cmd: "delete-everything" }));
+    view.ws.send(JSON.stringify({ t: "cmd", cmd: "save", extra: "x" }));
+    await until(() => control.inbox.some((m) => (m as { t?: string }).t === "cmd"));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(control.inbox.filter((m) => (m as { t?: string }).t === "cmd")).toEqual([{ t: "cmd", cmd: "save" }]);
+    expect(otherControl.inbox.filter((m) => (m as { t?: string }).t === "cmd")).toEqual([]);
+  });
+
   it("từ chối khóa phòng sai dạng hoặc trang web lạ", async () => {
     await expect(connect("view", "short")).rejects.toThrow();
     await expect(connect("admin")).rejects.toThrow();

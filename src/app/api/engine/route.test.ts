@@ -68,4 +68,17 @@ describe("POST /api/engine", () => {
     const data2 = await res2.json();
     expect(data2.score).toBe(50);
   });
+
+  it("purpose \"deep\" tìm sâu hơn hẳn phân tích thường (≥ 500k nodes, MultiPV 3)", async () => {
+    const req = new Request("http://localhost/api/engine", {
+      method: "POST",
+      body: JSON.stringify({ fen: startFen, purpose: "deep" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    const limits = (globalForEngine.__enginePool!.search as ReturnType<typeof vi.fn>).mock.calls[0][1];
+    expect(limits.nodes).toBeGreaterThanOrEqual(500_000);
+    expect(limits.multipv).toBe(3);
+  });
 });

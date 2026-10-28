@@ -27,7 +27,7 @@ import { StagePanel, useStageLink, useStageSettings } from "../StagePanel";
 import { changeResult, nextRound, resultOnBoard, type StageResult } from "../stage-round";
 import { useStageArchive } from "../useStageArchive";
 import { clockAfterMove, readClock, startClock, stopClock, type GameClock } from "../game-clock";
-import { buildStageState, canReview, type StageClocks, type StagePlayer, type StageSettings, type StagePuzzleState, type StageReviewState } from "../stage-sync";
+import { buildStageState, canReview, type StageArchiveView, type StageClocks, type StagePlayer, type StageSettings, type StagePuzzleState, type StageReviewState } from "../stage-sync";
 import { TrialBar, useTrialMoves } from "../trial";
 import { scrollMoveIntoBox } from "../scroll-moves";
 import { generateTampermonkeyScript } from "@/lib/ziga/tampermonkey-script";
@@ -589,6 +589,38 @@ export function ZigaBroadcastClient() {
     };
   }, [clock, mySide, oppSide]);
 
+  const onBoard = resultOnBoard(game.history[game.moves.length], mySide);
+  const fens = useMemo(() => game.history.map(toFen), [game.history]);
+  const archive = useStageArchive({
+    room: stageLink.room,
+    site: "ziga",
+    round: stageSettings.round,
+    mySide,
+    me: stageSettings.me,
+    opponent: stageSettings.opponent,
+    moves: game.moves,
+    fens,
+    roundResult,
+    onBoardResult: onBoard,
+  });
+  useEffect(() => {
+    archiveRef.current = archive;
+  }, [archive]);
+  const stageArchive = useMemo<StageArchiveView>(
+    () => ({ gameId: archive.gameId, status: archive.status, savedRound: archive.savedRound, error: archive.error }),
+    [archive.gameId, archive.status, archive.savedRound, archive.error],
+  );
+  // Bấm "Lưu ván" trên sân khấu: lưu như nút trên bảng điều khiển.
+  const { onCommand } = stageLink;
+  const { saveNow } = archive;
+  useEffect(
+    () =>
+      onCommand((cmd) => {
+        if (cmd === "save") void saveNow();
+      }),
+    [onCommand, saveNow],
+  );
+
   const sendStage = stageLink.send;
   const lastCapturedPiece =
     lastMove && ply > 0 ? (game.history[ply - 1].board[lastMove.to] ?? null) : null;
@@ -621,6 +653,7 @@ export function ZigaBroadcastClient() {
         clocks: live ? stageClocks : null,
         review: activeReview,
         puzzle: activePuzzle,
+        archive: stageArchive,
         // Đi thử: bàn cờ là biến thử, còn lượt đi / đồng hồ vẫn của ván thật đang chạy ngầm.
         ...(trial.stage && { ...trial.stage, turn: livePos.turn, ply: game.moves.length, capturedPiece: null, clocks: stageClocks }),
       }),
@@ -644,6 +677,7 @@ export function ZigaBroadcastClient() {
     stageClocks,
     liveZigaSelection,
     stageReady,
+    stageArchive,
   ]);
 
   // Click ô đi quân bằng tay (hoặc bày lại thế cờ)
@@ -675,23 +709,6 @@ export function ZigaBroadcastClient() {
     setSelected(null);
   };
 
-  const onBoard = resultOnBoard(game.history[game.moves.length], mySide);
-  const fens = useMemo(() => game.history.map(toFen), [game.history]);
-  const archive = useStageArchive({
-    room: stageLink.room,
-    site: "ziga",
-    round: stageSettings.round,
-    mySide,
-    me: stageSettings.me,
-    opponent: stageSettings.opponent,
-    moves: game.moves,
-    fens,
-    roundResult,
-    onBoardResult: onBoard,
-  });
-  useEffect(() => {
-    archiveRef.current = archive;
-  }, [archive]);
 
   const onAnnotate = useCallback(
     (from: number, to: number) => {

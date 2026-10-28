@@ -7,7 +7,7 @@ import type { StagePuzzleState } from "./stage-puzzle";
 import Link from "next/link";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { newStageRoom, stageSocketUrl, type StageRelayMessage, type StageServerMessage } from "@/lib/stage-protocol";
+import { newStageRoom, stageSocketUrl, type StageCommand, type StageRelayMessage, type StageServerMessage } from "@/lib/stage-protocol";
 import styles from "./broadcast.module.css";
 import type { StageResult } from "./stage-round";
 import { formatClock } from "@/lib/vision/zigavn-panels";
@@ -92,6 +92,7 @@ export function useStageLink(enabled = true) {
   const [online, setOnline] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const lastState = useRef<string | null>(null);
+  const commandListeners = useRef(new Set<(cmd: StageCommand) => void>());
 
   useEffect(() => {
     if (!room) return;
@@ -110,6 +111,7 @@ export function useStageLink(enabled = true) {
         try {
           const msg = JSON.parse(String(e.data)) as StageServerMessage;
           if (msg.t === "viewers") setViewers(msg.n);
+          else if (msg.t === "cmd") for (const fn of commandListeners.current) fn(msg.cmd);
         } catch {}
       };
       ws.onclose = () => {
@@ -135,7 +137,16 @@ export function useStageLink(enabled = true) {
     if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(text);
   }, []);
 
-  return { room, viewers, online, send };
+  /** Nghe lệnh sân khấu gửi ngược (vd. bấm "Lưu ván" trên sân khấu); trả hàm hủy nghe. */
+  const onCommand = useCallback((fn: (cmd: StageCommand) => void) => {
+    const set = commandListeners.current;
+    set.add(fn);
+    return () => {
+      set.delete(fn);
+    };
+  }, []);
+
+  return { room, viewers, online, send, onCommand };
 }
 
 /** Đồng hồ đang chạy (xem trên trang điều khiển, để so với trang nguồn). */

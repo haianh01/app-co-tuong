@@ -4,7 +4,7 @@
 import type { IncomingMessage, Server as HttpServer } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
-import { STAGE_MAX_PAYLOAD, STAGE_ROOM_RE, STAGE_WS_PATH, type StageRole, type StageServerMessage } from "@/lib/stage-protocol";
+import { STAGE_MAX_PAYLOAD, STAGE_ROOM_RE, STAGE_WS_PATH, isStageCommand, type StageRole, type StageServerMessage } from "@/lib/stage-protocol";
 
 /** Số phòng tối đa giữ trong bộ nhớ; quá thì bỏ phòng không còn ai kết nối, cũ nhất trước. */
 const MAX_ROOMS = 200;
@@ -97,6 +97,19 @@ export class StageRelay {
       ws.on("close", () => {
         room.views.delete(ws);
         this.announceViewers(room);
+      });
+      // Sân khấu chỉ gửi ngược được lệnh trong danh sách; server dựng lại tin chứ không chuyển nguyên chuỗi.
+      ws.on("message", (data, isBinary) => {
+        if (isBinary) return;
+        let msg: { t?: unknown; cmd?: unknown };
+        try {
+          msg = JSON.parse(data.toString()) as { t?: unknown; cmd?: unknown };
+        } catch {
+          return;
+        }
+        if (msg.t !== "cmd" || !isStageCommand(msg.cmd)) return;
+        room.touchedAt = Date.now();
+        for (const c of room.controls) send(c, { t: "cmd", cmd: msg.cmd });
       });
       return;
     }

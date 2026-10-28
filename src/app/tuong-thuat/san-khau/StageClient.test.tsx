@@ -16,6 +16,9 @@ const ROOM = "abcdefghijklmnop_123";
 /** WebSocket giả: giữ lại các kết nối để test đẩy tin vào như server. */
 class FakeSocket {
   static all: FakeSocket[] = [];
+  static OPEN = 1;
+  readyState = 1;
+  sent: unknown[] = [];
   onopen: (() => void) | null = null;
   onmessage: ((e: { data: string }) => void) | null = null;
   onclose: (() => void) | null = null;
@@ -23,6 +26,9 @@ class FakeSocket {
     FakeSocket.all.push(this);
   }
   close() {}
+  send(text: string) {
+    this.sent.push(JSON.parse(text));
+  }
   receive(msg: unknown) {
     act(() => {
       this.onopen?.();
@@ -218,6 +224,53 @@ describe("StageClient", () => {
     expect(document.querySelector("[class*=trialDim]")).not.toBeNull();
   });
 
+  it("thanh công cụ live: có các nút Vẽ, Đi thử, 4 màu, Undo, Redo, Xóa nét vẽ và tương tác mượt mà", () => {
+    render(<StageClient />);
+    const ws = FakeSocket.all[0];
+    const state = stateAfterCentralCannon();
+    ws.receive({ t: "state", state });
+
+    const drawBtn = screen.getByRole("button", { name: /✏️/ });
+    const trialBtn = screen.getByRole("button", { name: /🧪/ });
+    const undoBtn = screen.getByRole("button", { name: /Hoàn tác nét vẽ/i });
+    const redoBtn = screen.getByRole("button", { name: /Làm lại nét vẽ/i });
+    const clearBtn = screen.getByRole("button", { name: "Xóa nét vẽ" });
+
+    expect(drawBtn).toBeDefined();
+    expect(trialBtn).toBeDefined();
+    expect(undoBtn).toBeDefined();
+    expect(redoBtn).toBeDefined();
+    expect(clearBtn).toBeDefined();
+
+    // Kiểm tra 4 nút màu
+    expect(screen.getByRole("button", { name: /Màu xanh dương/i })).toBeDefined();
+    expect(screen.getByRole("button", { name: /Màu xanh lá/i })).toBeDefined();
+    expect(screen.getByRole("button", { name: /Màu đỏ/i })).toBeDefined();
+    expect(screen.getByRole("button", { name: /Màu vàng/i })).toBeDefined();
+
+    // Bật tắt Vẽ
+    fireEvent.click(drawBtn);
+    expect(drawBtn.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText(/Đang vẽ/i)).toBeDefined();
+
+    // Chọn màu khác
+    const redSwatch = screen.getByRole("button", { name: /Màu đỏ/i });
+    fireEvent.click(redSwatch);
+    expect(redSwatch.getAttribute("aria-pressed")).toBe("true");
+
+    // Bật Đi thử trực tiếp trên sân khấu
+    fireEvent.click(trialBtn);
+    expect(screen.getByText("BIẾN THỬ")).toBeDefined();
+    expect(screen.getAllByRole("status").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("NƯỚC THỬ")).toBeDefined();
+    expect(screen.getByText("Bấm quân để bày biến")).toBeDefined();
+
+    // Thoát Đi thử
+    const exitTrialBtn = screen.getByRole("button", { name: /Thoát đi thử/i });
+    fireEvent.click(exitTrialBtn);
+    expect(screen.queryByText("NƯỚC THỬ")).toBeNull();
+  });
+
 
   it("chế độ review: hiển thị huy hiệu AI phân tích, bước ngoặt trận đấu và điểm số", () => {
     render(<StageClient />);
@@ -248,12 +301,9 @@ describe("StageClient", () => {
     };
     ws.receive({ t: "state", state });
 
-    expect(screen.getByText(/PHÂN TÍCH VÁN 5/i)).toBeDefined();
     expect(screen.getByText(/AI PHÂN TÍCH · VÁN 5/i)).toBeDefined();
-    expect(screen.getAllByText(/🔴 Đỏ ưu \(\+4\.5\)/i).length).toBeGreaterThanOrEqual(1);
-    // Khung giới thiệu tách nhãn và giá trị thành hai span trên cùng một dòng.
-    expect(screen.getByText("Tối ưu:").closest("li")?.textContent).toContain("X1.1");
-    expect(screen.getByText(/Bên Đỏ xuất tướng vội vàng/i)).toBeDefined();
+    // Khung giới thiệu (tên kênh, nước, đánh giá, tối ưu) không hiện ở màn phân tích.
+    expect(screen.queryByText("Tối ưu:")).toBeNull();
   });
 
 
@@ -281,7 +331,7 @@ describe("StageClient", () => {
       },
     };
     ws.receive({ t: "state", state: reviewState });
-    expect(screen.getByText(/PHÂN TÍCH VÁN 5/i)).toBeDefined();
+    expect(screen.getByText(/AI PHÂN TÍCH · VÁN 5/i)).toBeDefined();
 
     // 3. Tắt review (trở về ván trực tiếp)
     ws.receive({ t: "state", state: base });
@@ -289,7 +339,7 @@ describe("StageClient", () => {
 
     // 4. Bật review lần thứ 2
     ws.receive({ t: "state", state: reviewState });
-    expect(screen.getByText(/PHÂN TÍCH VÁN 5/i)).toBeDefined();
+    expect(screen.getByText(/AI PHÂN TÍCH · VÁN 5/i)).toBeDefined();
   });
 
   it("khoảnh khắc chiếu tướng hiện con ấn chữ Hán 將軍 nhỏ gọn không che bàn cờ", () => {
@@ -459,4 +509,95 @@ describe("sân khấu Thử thách cờ thế", () => {
     ws.receive({ t: "state", state: base });
     expect(screen.queryByText("將軍")).toBeNull();
   });
+
+  it("nút Lưu ván gửi lệnh về trang điều khiển và hiện dấu đã lưu khi điều khiển báo xong", () => {
+    render(<StageClient />);
+    const ws = FakeSocket.all[0];
+    const base = stateAfterCentralCannon();
+    ws.receive({ t: "state", state: base });
+
+    fireEvent.click(screen.getByRole("button", { name: "Lưu ván đấu" }));
+    expect(ws.sent).toEqual([{ t: "cmd", cmd: "save" }]);
+
+    ws.receive({ t: "state", state: { ...base, archive: { gameId: "stg_abc", status: "saved", savedRound: 5, error: null } } });
+    expect(screen.getByRole("button", { name: /Lưu ván đấu \(đã lưu\)/ })).toBeDefined();
+    expect(screen.getByText("✓ Đã lưu Ván 5")).toBeDefined();
+
+    // Sang ván 6: nút về trạng thái chưa lưu.
+    ws.receive({
+      t: "state",
+      state: { ...base, settings: { ...base.settings, round: 6 }, archive: { gameId: "stg_abc", status: "saved", savedRound: 5, error: null } },
+    });
+    expect(screen.getByRole("button", { name: "Lưu ván đấu" })).toBeDefined();
+  });
+
+  it("Lịch sử mở danh sách ván trên bàn cờ, chọn ván thì vào chế độ phân tích ngay trên sân khấu", async () => {
+    const start = initialPosition();
+    const moves = [
+      { from: 7 * 9 + 7, to: 7 * 9 + 4 },
+      { from: 2 * 9 + 1, to: 2 * 9 + 4 },
+    ];
+    const game = {
+      id: "stg_hist0001",
+      round: 3,
+      playedOn: new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }),
+      mySide: "r",
+      me: { name: "Tôi" },
+      opponent: { name: "Nmk0325" },
+      result: "win",
+      startFen: "rnbakabnr/9/1c5c1/p1p1p1p1p/9/9/P1P1P1P1P/1C5C1/9/RNBAKABNR w",
+      moves: moves.map((m) => ({ ...m, notation: moveNotation(start.board, m) })),
+      plies: 2,
+      endedAt: new Date().toISOString(),
+    };
+    const analysis = [
+      { score: 20, best: moves[0] },
+      { score: -30, best: moves[1] },
+      { score: 40, best: null },
+    ];
+    const fetchMock = vi.fn(async (url: string) => {
+      // AI sâu cho thế đang xem: nước tốt nhất là Mã 2 tiến 3 (b0c2).
+      if (url === "/api/engine")
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            move: { from: 82, to: 65 },
+            score: 35,
+            depth: 22,
+            lines: [{ move: { from: 82, to: 65 }, score: 35, depth: 22, pv: ["b0c2"], pvMoves: [{ from: 82, to: 65 }] }],
+          }),
+        };
+      if (url === "/api/engine/threat") return { ok: false, status: 503, json: async () => ({}) };
+      return { ok: true, status: 200, json: async () => (url.includes("/games/") ? { game, analysis } : { games: [game] }) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<StageClient />);
+    const ws = FakeSocket.all[0];
+    ws.receive({ t: "state", state: stateAfterCentralCannon() });
+
+    fireEvent.click(screen.getByRole("button", { name: "Lịch sử – chọn ván đấu" }));
+    const row = await screen.findByText("Ván 3 · vs Nmk0325");
+    expect(screen.getByText("1 thắng · 0 hòa · 0 thua")).toBeDefined();
+
+    fireEvent.click(row);
+    fireEvent.click(screen.getByRole("button", { name: "Phân tích ván này" }));
+    expect(screen.queryByRole("region", { name: "Lịch sử ván đấu" })).toBeNull();
+
+    // Có phân tích sẵn nên không chạy lại cả ván; AI sâu chỉ tính thế đang xem. Ô góc trái đổi sang điều hướng.
+    await screen.findByText("Thế cờ xuất phát");
+    expect(await screen.findByText(/AI gợi ý: .*Đỏ/, undefined, { timeout: 2000 })).toBeDefined();
+    const deepCall = fetchMock.mock.calls.find(([u]) => u === "/api/engine") as unknown as [string, { body: string }];
+    expect(JSON.parse(deepCall[1].body).purpose).toBe("deep");
+    expect(screen.getByText(/AI PHÂN TÍCH · VÁN 3/)).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Nước sau" }));
+    expect(screen.getByText(/Nước 1:/)).toBeDefined();
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/api/engine/batch"))).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Về trực tiếp" }));
+    expect(screen.getByRole("button", { name: "Phân tích ván đấu" })).toBeDefined();
+    vi.unstubAllGlobals();
+  });
 });
+

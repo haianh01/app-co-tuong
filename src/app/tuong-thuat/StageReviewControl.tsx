@@ -1,13 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import type { BoardArrow } from "@/components/board/XiangqiBoard";
-import { findTurningPoints, reviewGame, type PositionEval, type TurningPoint } from "@/lib/xiangqi/analysis";
-import { replayMoves } from "@/lib/xiangqi/game";
-import { moveNotation } from "@/lib/xiangqi/notation";
-import type { StageGame } from "@/server/db/schema";
+import { useCallback, useEffect, useState } from "react";
+import type { TurningPoint } from "@/lib/xiangqi/analysis";
 import styles from "./broadcast.module.css";
 import { formatEvalScore, type StageReviewState } from "./stage-sync";
+import { useGameReview, useStageGames } from "./useGameReview";
 
 export interface StageReviewControlProps {
   room: string | null;
@@ -23,231 +20,45 @@ export function StageReviewControl({
   onUpdateReview,
   lastSavedGameId,
 }: StageReviewControlProps) {
-  const [games, setGames] = useState<StageGame[]>([]);
-  const [loadingGames, setLoadingGames] = useState(false);
-  const [selectedGameId, setSelectedGameId] = useState<string>("");
-  const [activeGame, setActiveGame] = useState<StageGame | null>(null);
-  const [analysis, setAnalysis] = useState<PositionEval[] | null>(null);
-  const [loadingGameData, setLoadingGameData] = useState(false);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [analyzeProgress, setAnalyzeProgress] = useState(0);
+  // 1. Danh sách ván gần đây (tải lại khi vừa lưu ván mới)
+  const { games, loading: loadingGames, error: gamesError } = useStageGames(room, lastSavedGameId);
+  const [pickedGameId, setPickedGameId] = useState<string>("");
   const [isAutoTour, setIsAutoTour] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  // 1. Tải danh sách ván gần đây
-  useEffect(() => {
-    if (!room) return;
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (!cancelled) setLoadingGames(true);
-    });
-    fetch(`/api/tuong-thuat/games?room=${encodeURIComponent(room)}`, {
-      headers: { "X-Stage-Room": room },
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Không thể tải danh sách ván");
-        return res.json();
-      })
-      .then((data) => {
-        if (cancelled) return;
-        const list = Array.isArray(data.games) ? (data.games as StageGame[]) : [];
-        setGames(list);
-        if (list.length > 0) {
-          // Ưu tiên chọn ván vừa lưu gần nhất hoặc ván đầu danh sách
-          const target = (lastSavedGameId && list.find((g) => g.id === lastSavedGameId)?.id) || list[0].id;
-          setSelectedGameId(target);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Lỗi tải ván cờ");
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingGames(false);
-      });
+  // Chưa chọn tay: ưu tiên ván vừa lưu gần nhất, không có thì ván đầu danh sách.
+  const selectedGameId =
+    (pickedGameId && games.some((g) => g.id === pickedGameId) && pickedGameId) ||
+    (lastSavedGameId && games.find((g) => g.id === lastSavedGameId)?.id) ||
+    games[0]?.id ||
+    "";
+  const selectGame = (id: string) => {
+    setPickedGameId(id);
+    setIsAutoTour(false);
+  };
 
-    return () => {
-      cancelled = true;
-    };
-  }, [room, lastSavedGameId]);
+  // 2–5. Chi tiết ván, phân tích engine, bước ngoặt
+  const {
+    game: activeGame,
+    analysis,
+    loading: loadingGameData,
+    error: reviewError,
+    analyzing,
+    progress: analyzeProgress,
+    runAnalysis: runAiAnalysis,
+    turningPoints,
+    totalPlies,
+    reviewAt,
+  } = useGameReview(room, selectedGameId || null);
+  const error = reviewError ?? gamesError;
 
-  // 2. Tải chi tiết ván cờ được chọn
-  useEffect(() => {
-    if (!selectedGameId || !room) return;
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (!cancelled) {
-        setLoadingGameData(true);
-        setError(null);
-        setIsAutoTour(false);
-      }
-    });
-
-    fetch(`/api/tuong-thuat/games/${selectedGameId}?room=${encodeURIComponent(room)}`, {
-      headers: { "X-Stage-Room": room },
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Không thể tải chi tiết ván cờ");
-        return res.json();
-      })
-      .then((data) => {
-        if (cancelled) return;
-        setActiveGame(data.game ?? null);
-        setAnalysis(Array.isArray(data.analysis) ? data.analysis : null);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Lỗi tải chi tiết ván");
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingGameData(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedGameId, room]);
-
-  // 3. Tái hiện thế cờ và phân tích
-  const gameState = useMemo(() => {
-    if (!activeGame) return null;
-    const moves = Array.isArray(activeGame.moves) ? activeGame.moves : [];
-    return replayMoves(moves, activeGame.startFen);
-  }, [activeGame]);
-
-  const reviewResult = useMemo(() => {
-    if (!gameState || !analysis) return null;
-    try {
-      return reviewGame(gameState, analysis);
-    } catch {
-      return null;
-    }
-  }, [gameState, analysis]);
-
-  const turningPoints = useMemo<TurningPoint[]>(() => {
-    if (!reviewResult) return [];
-    try {
-      return findTurningPoints(reviewResult.moves, 3);
-    } catch {
-      return [];
-    }
-  }, [reviewResult]);
-
-  // 4. Phát nước đi lên sân khấu
+  // Phát nước đi lên sân khấu
   const broadcastPly = useCallback(
     (targetPly: number, tpOverride?: TurningPoint) => {
-      if (!activeGame || !gameState) return;
-      const movesCount = gameState.moves.length;
-      const validPly = Math.max(0, Math.min(movesCount, targetPly));
-      const pos = gameState.history[validPly];
-      if (!pos) return;
-
-      const lastM = validPly > 0 ? gameState.moves[validPly - 1].move : null;
-      const ev = analysis?.[validPly] ?? null;
-      const tp = tpOverride ?? turningPoints.find((t) => t.ply === validPly);
-      const bestM = ev?.best ?? null;
-      const bestNot = bestM && pos ? moveNotation(pos.board, bestM) : null;
-
-      const arrows: BoardArrow[] = [];
-      if (bestM) {
-        arrows.push({ from: bestM.from, to: bestM.to, color: "rgba(34, 197, 94, 0.9)" });
-      }
-      if (lastM && tp && (tp.cls === "blunder" || tp.cls === "mistake")) {
-        arrows.push({ from: lastM.from, to: lastM.to, color: "rgba(239, 68, 68, 0.85)" });
-      }
-
-      onUpdateReview({
-        gameId: activeGame.id,
-        round: activeGame.round,
-        ply: validPly,
-        totalPlies: movesCount,
-        board: pos.board,
-        lastMove: lastM,
-        evalScore: ev?.score ?? null,
-        bestMove: bestM,
-        bestNotation: bestNot,
-        arrows,
-        turningPoint: tp
-          ? {
-              index: turningPoints.indexOf(tp),
-              ply: tp.ply,
-              notation: tp.notation,
-              side: tp.side,
-              cls: tp.cls,
-              winDrop: tp.winDrop,
-              description: tp.description,
-            }
-          : null,
-        commentary:
-          tp?.description ??
-          (validPly > 0 ? `Nước ${validPly}: ${gameState.moves[validPly - 1].notation}` : "Thế cờ xuất phát"),
-      });
+      const next = reviewAt(targetPly, tpOverride);
+      if (next) onUpdateReview(next);
     },
-    [activeGame, gameState, analysis, turningPoints, onUpdateReview],
+    [reviewAt, onUpdateReview],
   );
-
-  // 5. Chạy phân tích AI nếu ván chưa được phân tích
-  const runAiAnalysis = async () => {
-    if (!activeGame || !gameState || !room) return;
-    setAnalyzing(true);
-    setAnalyzeProgress(0);
-    setError(null);
-
-    try {
-            const { toFen } = await import("@/lib/xiangqi/engine");
-      const accurateFens = gameState.history.map((p) => toFen(p));
-
-      const res = await fetch("/api/engine/batch", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Stage-Room": room,
-        },
-        body: JSON.stringify({
-          fens: accurateFens,
-          stageGameId: activeGame.id,
-          room,
-        }),
-      });
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.error || "Lỗi khi gọi batch engine");
-      }
-
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error("Không thể đọc phản hồi phân tích");
-
-      const decoder = new TextDecoder();
-      let buffer = "";
-      const evals: (PositionEval | null)[] = new Array(accurateFens.length).fill(null);
-      let count = 0;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const data = JSON.parse(line);
-            if (typeof data.index === "number" && data.eval) {
-              evals[data.index] = data.eval;
-              count++;
-              setAnalyzeProgress(Math.round((count / accurateFens.length) * 100));
-            }
-          } catch {}
-        }
-      }
-
-      setAnalysis(evals as PositionEval[]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Lỗi khi phân tích ván");
-    } finally {
-      setAnalyzing(false);
-    }
-  };
 
   // 6. Chế độ phát tự động 3 bước ngoặt
   useEffect(() => {
@@ -264,7 +75,6 @@ export function StageReviewControl({
     return () => clearInterval(interval);
   }, [isAutoTour, turningPoints, broadcastPly]);
 
-  const totalPlies = gameState?.moves.length ?? 0;
   const currentPly = currentReview?.ply ?? 0;
 
   return (
@@ -297,7 +107,7 @@ export function StageReviewControl({
             className={styles.stageInput}
             style={{ flex: 1, minWidth: 220 }}
             value={selectedGameId}
-            onChange={(e) => setSelectedGameId(e.target.value)}
+            onChange={(e) => selectGame(e.target.value)}
           >
             {games.map((g) => {
               const resText = g.result === "win" ? "Thắng" : g.result === "loss" ? "Thua" : g.result === "draw" ? "Hòa" : "";

@@ -69,20 +69,22 @@ export function ZhaoPositionModal({
   const exampleNo = sameLesson.indexOf(benchmarkItem) + 1;
 
   const isOpening = benchmarkItem.book === "opening";
-  const priorMoves: Move[] = useMemo(() => {
-    if (!isOpening || !benchmarkItem.historyMoves) return [];
-    return benchmarkItem.historyMoves.map(uciToMove).filter((m): m is Move => m !== null);
-  }, [isOpening, benchmarkItem.historyMoves]);
+  // Khai cuộc: dựng lại từ đầu ván để chấm có ngữ cảnh. Chuỗi nước hỏng (không đọc được, không hợp lệ,
+  // hoặc không về đúng thế FEN) thì bỏ, quay về thế FEN như trung/tàn cuộc.
+  const { priorMoves, startState } = useMemo(() => {
+    const fenState = newGame(benchmarkItem.fen);
+    if (!isOpening || !benchmarkItem.historyMoves?.length) return { priorMoves: [] as Move[], startState: fenState };
+    const moves = benchmarkItem.historyMoves.map(uciToMove);
+    if (moves.some((m) => m === null)) return { priorMoves: [] as Move[], startState: fenState };
+    const s = replayMoves(moves as Move[]);
+    const ok = s.moves.length === moves.length && toFen(s.history[s.history.length - 1]) === toFen(fenState.history[0]);
+    return ok ? { priorMoves: moves as Move[], startState: s } : { priorMoves: [] as Move[], startState: fenState };
+  }, [isOpening, benchmarkItem.historyMoves, benchmarkItem.fen]);
 
-  const startState = useMemo(() => {
-    if (isOpening && priorMoves.length > 0) {
-      return replayMoves(priorMoves);
-    }
-    return newGame(benchmarkItem.fen);
-  }, [isOpening, priorMoves, benchmarkItem.fen]);
-
-  const moveIndex = isOpening && priorMoves.length > 0 ? priorMoves.length : 0;
-  const initialPos = isOpening && priorMoves.length > 0 ? startState.history[moveIndex] : startState.history[0];
+  const moveIndex = priorMoves.length;
+  const initialPos = startState.history[moveIndex];
+  // Ván dựng từ FEN: số nửa nước đã đi trước thế này trong ván gốc, để reviewMove biết còn trong khai cuộc hay không
+  const startPly = priorMoves.length > 0 ? undefined : benchmarkItem.game.ply - 1;
 
   const zhaoMove: Move | null = useMemo(() => uciToMove(benchmarkItem.move), [benchmarkItem.move]);
   const zhaoLegal = !!zhaoMove && legalMovesFrom(initialPos, zhaoMove.from).some((m) => m.to === zhaoMove.to);
@@ -94,12 +96,9 @@ export function ZhaoPositionModal({
   // Với trung/tàn: ván một nước
   const moveState = useMemo(() => {
     if (!activeMove) return null;
-    if (isOpening && priorMoves.length > 0) {
-      return replayMoves([...priorMoves, activeMove]);
-    }
     const s = gameReducer(startState, { type: "move", move: activeMove });
-    return s.moves.length === 1 ? s : null;
-  }, [isOpening, priorMoves, startState, activeMove]);
+    return s.moves.length === moveIndex + 1 ? s : null;
+  }, [startState, moveIndex, activeMove]);
 
   const currentBoard = hasPlayedMove && moveState ? moveState.history[moveIndex + 1].board : initialPos.board;
 
@@ -153,6 +152,9 @@ export function ZhaoPositionModal({
       undefined,
       isOpening ? undefined : [],
       isOpening ? undefined : ["—"],
+      undefined,
+      undefined,
+      startPly,
     );
     const facts = review.facts.filter(
       (f): f is LessonFact =>
@@ -168,7 +170,7 @@ export function ZhaoPositionModal({
       // Điểm sau nước đi theo bên vừa đi
       scoreAfter: afterEval ? -afterEval.score : null,
     };
-  }, [evals, fenBefore, fenAfter, moveState, moveIndex, isOpening, terminal, benchmarkItem, initialPos.turn]);
+  }, [evals, fenBefore, fenAfter, moveState, moveIndex, isOpening, startPly, terminal, benchmarkItem, initialPos.turn]);
 
   const scoreBefore = evals[fenBefore]?.score ?? null;
 

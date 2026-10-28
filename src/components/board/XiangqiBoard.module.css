@@ -64,7 +64,7 @@
 /* Quân cờ: tâm đặt tại giao điểm (left/top), kích thước theo % bề rộng bàn. */
 .piece {
   position: absolute;
-  width: var(--piece-size);
+  width: calc(var(--piece-size) * var(--piece-scale, 1));
   aspect-ratio: 1;
   translate: -50% -50%;
   border-radius: 50%;
@@ -114,6 +114,7 @@
   font-weight: 900;
   font-size: calc(var(--han-size) * var(--han-scale, 1));
   line-height: 1;
+  text-shadow: var(--han-shadow, none);
 }
 
 .red {
@@ -195,7 +196,7 @@
   --len: 30%;
   --thick: var(--last-corner-thick, 7%);
   position: absolute;
-  width: calc(var(--piece-size) * 1.22);
+  width: calc(var(--piece-size) * var(--piece-scale, 1) * 1.22);
   aspect-ratio: 1;
   translate: -50% -50%;
   pointer-events: none;
@@ -338,7 +339,7 @@
 .selectedCorners {
   position: absolute;
   box-sizing: border-box;
-  width: calc(var(--piece-size) * 1.18);
+  width: calc(var(--piece-size) * var(--piece-scale, 1) * 1.18);
   aspect-ratio: 1;
   translate: -50% -50%;
   transform-origin: center center;

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { findBestMove } from "./ai";
-import { applyMove, legalMoves, parseFen, play, sq } from "./engine";
+import { applyMove, legalMoves, parseFen, play, sq, toFen } from "./engine";
 import { replayMoves } from "./game";
+import { convertChineseGame } from "./chinese-notation";
+import { MASTER_GAMES } from "./master-games.generated";
+import { uciMovesToMoves } from "./uci";
 import {
   classify,
   classifyWinDrop,
@@ -547,5 +550,29 @@ describe("Nguyên lý tàn cuộc trong reviewMove / reviewGame", () => {
     suppressRepeatedZhaoFacts(plies);
     expect([0, 4, 5, 20].map((i) => plies[i].facts.length)).toEqual([1, 0, 1, 1]);
     expect([1, 33].map((i) => plies[i].facts.length)).toEqual([1, 0]);
+  });
+});
+
+describe("Kỳ lý khai cuộc chỉ xét trong 24 nửa nước đầu tính từ đầu ván thật", () => {
+  // Ván đại sư Game 5446 ply 19: Đỏ Mã b4 nhảy sâu ăn Tốt a6 một mình (chê Bài 28). Điểm và biến Pikafish 30k nodes.
+  const game = MASTER_GAMES.find((g) => g.id === 5446)!;
+  const moves = convertChineseGame(game.movesCN).moves.slice(0, 19);
+  const before: PositionEval = { score: 83, best: { from: sq(8, 5), to: sq(8, 3) } };
+  const afterEval: PositionEval = { score: -31, best: null, pv: uciMovesToMoves(["c7c8", "f1f7", "d8d6", "f7g7"]) };
+  const opening = (r: MoveReview) => r.facts.filter((f) => f.kind === "zhaoOpening").map((f) => f.kind === "zhaoOpening" && f.tactic);
+
+  it("ván đi từ thế khai cuộc chuẩn: nước 19 vẫn trong khai cuộc", () => {
+    const state = replayMoves(moves);
+    expect(opening(reviewMove(state.moves[18], 18, state, before, afterEval).review)).toEqual(["maDonDocTienSau"]);
+  });
+
+  it("ván nạp từ FEN giữa ván: không biết đã đi bao nhiêu nước thì không xét, biết thì tính theo số nước thật", () => {
+    const fen = toFen(replayMoves(moves.slice(0, 18)).history[18]);
+    const state = replayMoves([moves[18]], fen);
+    const review = (startPly?: number) =>
+      reviewMove(state.moves[0], 0, state, before, afterEval, undefined, undefined, undefined, undefined, undefined, startPly).review;
+    expect(opening(review())).toEqual([]);
+    expect(opening(review(18))).toEqual(["maDonDocTienSau"]);
+    expect(opening(review(30))).toEqual([]);
   });
 });

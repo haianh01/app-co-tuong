@@ -38,6 +38,18 @@ function card(lesson: number): ZhaoOpeningLessonCard {
   return ZHAO_OPENING_LESSONS[lesson]!;
 }
 
+/** Mốc câu trích nói đúng kỳ lý mà detector nhận diện (câu đầu của bài nhiều khi bàn chuyện khác). */
+export const OPENING_QUOTE_AT: Record<string, string> = {
+  daiXuatXe: "03:25",
+  taPhaoPhongXe: "00:24",
+  phaoDoiMaKhaiCuoc: "02:13",
+  tuongKhongDong: "16:19",
+  xeDeMa: "02:50",
+  maDonDocTienSau: "26:15",
+  luongDauXa: "05:56",
+  phiTuongTanTrungBinh: "08:54",
+};
+
 function buildFact(
   before: Board,
   move: Move,
@@ -49,7 +61,7 @@ function buildFact(
 ): ZhaoOpeningFact {
   const p = before[move.from]!;
   const c = card(lesson);
-  const q = c.quotes[0];
+  const q = c.quotes.find((x) => x.at === OPENING_QUOTE_AT[tactic]);
   const [m, s] = q ? q.at.split(":").map((x) => parseInt(x, 10)) : [0, 0];
   const sec = (m || 0) * 60 + (s || 0);
   return {
@@ -171,8 +183,11 @@ export function checkTaPhaoPhongXe(
   const toR = rowOf(move.to);
   const toC = colOf(move.to);
 
-  // Pháo tiến lên hàng tuần hà hoặc hàng tốt địch
-  const isTargetRow = mover === "r" ? (toR === 6 || toR === 5) : (toR === 3 || toR === 4);
+  // Pháo tiến thẳng (vd. Pháo 2 tiến 4) lên tuần hà hoặc tuyến tốt bên địch: Đỏ ở dưới nên là hàng 4/3, Đen là hàng 5/6
+  if (colOf(move.from) !== toC || (mover === "r" ? toR >= rowOf(move.from) : toR <= rowOf(move.from))) {
+    return { ok: false, layer: 1, reason: "Pháo không tiến thẳng lên" };
+  }
+  const isTargetRow = mover === "r" ? (toR === 4 || toR === 3) : (toR === 5 || toR === 6);
   if (!isTargetRow) {
     return { ok: false, layer: 1, reason: "Pháo không dâng lên hàng tuần hà hoặc tuyến chốt đối phương" };
   }
@@ -181,13 +196,20 @@ export function checkTaPhaoPhongXe(
     return { ok: false, layer: 1, reason: "Pháo không nằm trên cánh xuất Xe của đối phương" };
   }
 
-  // Đối phương còn Xe ở góc xuất phát
+  // Xe đối phương bị phong: đứng cùng cột phía sau Pháo (chưa qua được), hoặc còn ở góc xuất phát cánh này
+  const isOppRook = (s: number) => {
+    const x = before[s];
+    return !!x && sideOf(x) === opp && typeOf(x) === "r";
+  };
   const oppRookCorner = mover === "r"
     ? (toC <= 1 ? sq(0, 0) : sq(0, 8))
     : (toC <= 1 ? sq(9, 0) : sq(9, 8));
-  const oppRook = before[oppRookCorner];
-  if (!oppRook || sideOf(oppRook) !== opp || typeOf(oppRook) !== "r") {
-    return { ok: false, layer: 1, reason: "Đối phương không còn Xe ở góc ban đầu trên cánh này" };
+  let rookBehind = false;
+  for (let r = mover === "r" ? 0 : 9; r !== toR; r += mover === "r" ? 1 : -1) {
+    if (isOppRook(sq(r, toC))) rookBehind = true;
+  }
+  if (!rookBehind && !isOppRook(oppRookCorner)) {
+    return { ok: false, layer: 1, reason: "Không có Xe đối phương trên lộ bị Pháo phong" };
   }
 
   // Tầng 2: Mục đích - không phải ăn quân có sẵn, không phải đang bị chiếu
@@ -468,12 +490,16 @@ export function checkMaDonDocTienSau(
     return { ok: false, layer: 1, reason: "Mã chưa qua sông" };
   }
 
-  // Các quân lớn khác của phe mình (Xe, Pháo) chưa qua sông cùng cánh
+  // Đếm Xe, Pháo phe mình đã qua sông cùng cánh với Mã (lộ giữa tính cho cả hai cánh)
+  const wing = (c: number) => Math.sign(c - 4);
+  const knightWing = wing(colOf(move.to));
   let helpers = 0;
   after.forEach((piece, idx) => {
     if (piece && sideOf(piece) === mover && (typeOf(piece) === "r" || typeOf(piece) === "c")) {
       const r = rowOf(idx);
-      if (mover === "r" ? r <= 4 : r >= 5) helpers++;
+      const w = wing(colOf(idx));
+      const sameWing = knightWing === 0 || w === 0 || w === knightWing;
+      if (sameWing && (mover === "r" ? r <= 4 : r >= 5)) helpers++;
     }
   });
 
@@ -543,8 +569,10 @@ export function checkLuongDauXa(
   const mover = sideOf(p);
   const toC = colOf(move.to);
 
-  // Nước đi là thúc chốt 3 hoặc chốt 7 (cột 2 hoặc cột 6)
-  if (toC !== 2 && toC !== 6) {
+  // Nước đi là thúc chốt 3 hoặc chốt 7 (cột 2 hoặc cột 6) từ hàng xuất phát lên một bước
+  const homeRow = mover === "r" ? 6 : 3;
+  const pushed = colOf(move.from) === toC && rowOf(move.from) === homeRow && rowOf(move.to) === (mover === "r" ? 5 : 4);
+  if ((toC !== 2 && toC !== 6) || !pushed) {
     return { ok: false, layer: 1, reason: "Không phải nước thúc chốt 3 hoặc chốt 7" };
   }
 
@@ -616,8 +644,9 @@ export function checkPhiTuongTanTrungBinh(
   const mover = sideOf(p);
   const fromC = colOf(move.from);
 
-  // Nước đi là thúc chốt giữa (cột 4)
-  if (fromC !== 4) {
+  // Nước đi là thúc chốt giữa (cột 4) từ hàng xuất phát lên một bước
+  const pushed = colOf(move.to) === 4 && rowOf(move.from) === (mover === "r" ? 6 : 3) && rowOf(move.to) === (mover === "r" ? 5 : 4);
+  if (fromC !== 4 || !pushed) {
     return { ok: false, layer: 1, reason: "Không phải nước thúc trung binh (chốt giữa)" };
   }
 

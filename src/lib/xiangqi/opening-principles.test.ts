@@ -12,11 +12,15 @@ import {
   detectTuongKhongDong,
   checkXeDeMa,
   detectXeDeMa,
+  checkMaDonDocTienSau,
+  detectMaDonDocTienSau,
   checkLuongDauXa,
   detectLuongDauXa,
   checkPhiTuongTanTrungBinh,
   detectPhiTuongTanTrungBinh,
+  OPENING_QUOTE_AT,
 } from "./opening-principles";
+import { ZHAO_OPENING_LESSONS } from "./zhao48-opening-lessons";
 
 const real = (fen: string, from: number, to: number, uciPv: string[], scoreForMover: number, loss = 0) => {
   const pos = parseFen(fen);
@@ -94,15 +98,17 @@ describe("opening-principles: bộ nhận diện 4 tầng kỳ lý khai cuộc",
   });
 
   // ==========================================================================
-  // Bài 16: Tả Pháo phong Xe (checkTaPhaoPhongXe) — Game 386 ply 12
+  // Bài 16: Tả Pháo phong Xe (checkTaPhaoPhongXe) — Game 386 ply 10
   // ==========================================================================
   describe("Bài 16: Tả Pháo phong Xe", () => {
-    // Ván thật: Game 386 ply 12 (Đỏ Pháo c2 dâng lên c4 phong tỏa Xe Đen)
-    const fen = "rn1akabr1/9/3cb1n2/p1p1p3p/6p2/8P/P1P1P1Pc1/1CN1B1C1N/9/R2AKABR1 w - - 0 7";
-    const uciPv = ["b2b4", "c6c5", "b0c2", "c5c4"];
+    // Ván thật: Game 386 ply 10 (Đen Pháo h7 tiến 4 xuống h3, tuyến tốt bên Đỏ, chặn Xe Đỏ h0 cùng cột)
+    const fen = "rn1akabr1/9/1c2b1nc1/p1p1p3p/6p2/9/P1P1P1P1P/1CN1B1C1N/9/R2AKABR1 b - - 0 6";
+    const uciPv = ["d0e1", "b7c7", "a0d0", "b9a7"];
+    const from = sq(2, 7);
+    const to = sq(6, 7);
 
-    it("ok: true - dâng Pháo kiềm chế đường xuất Xe đối phương (Game 386)", () => {
-      const t = real(fen, 64, 46, uciPv, 52, 0);
+    it("ok: true - Pháo tiến 4 lên tuyến tốt bên địch phong Xe cùng cột (Game 386)", () => {
+      const t = real(fen, from, to, uciPv, -26, 7);
       const res = checkTaPhaoPhongXe(t.before, t.move, t.after, t.options);
       expect(res.ok).toBe(true);
       if (res.ok) {
@@ -113,19 +119,24 @@ describe("opening-principles: bộ nhận diện 4 tầng kỳ lý khai cuộc",
       expect(fact?.tactic).toBe("taPhaoPhongXe");
     });
 
-    it("Tầng 1 trượt: đối phương đã xuất Xe khỏi góc ban đầu", () => {
+    it("Tầng 1 trượt: Pháo chỉ dâng lên tuần hà bên nhà thì không phải phong Xe", () => {
+      const t = real(fen, from, sq(4, 7), uciPv, -26, 7);
+      expect(checkTaPhaoPhongXe(t.before, t.move, t.after, t.options)).toMatchObject({ ok: false, layer: 1 });
+    });
+
+    it("Tầng 1 trượt: không còn Xe đối phương trên lộ bị phong", () => {
       const pos = parseFen(fen);
       const board = [...pos.board];
-      board[0] = null; // Xe Đen ở góc a9 không còn
-      const move = { from: 64, to: 46 };
+      board[sq(9, 7)] = null; // Xe Đỏ ở h0 không còn
+      const move = { from, to };
       const after = play(board, move);
-      const res = checkTaPhaoPhongXe(board, move, after, { pv: uciMovesToMoves(uciPv), evalAfter: { score: 0 }, loss: 0 });
+      const res = checkTaPhaoPhongXe(board, move, after, { pv: uciMovesToMoves(uciPv), evalAfter: { score: 26 }, loss: 7 });
       expect(res).toMatchObject({ ok: false, layer: 1 });
     });
 
     it("Tầng 3 trượt: không có dữ liệu engine thì không gắn", () => {
       const pos = parseFen(fen);
-      const move = { from: 64, to: 46 };
+      const move = { from, to };
       const after = play(pos.board, move);
       const res = checkTaPhaoPhongXe(pos.board, move, after, undefined);
       expect(res).toMatchObject({ ok: false, layer: 3 });
@@ -177,6 +188,8 @@ describe("opening-principles: bộ nhận diện 4 tầng kỳ lý khai cuộc",
       const fact = detectTuongKhongDong(t.before, t.move, t.after, t.options);
       expect(fact?.tone).toBe("critique");
       expect(fact?.lesson).toBe(19);
+      // Câu về lên Tướng sớm, không phải câu mở bài về tranh lộ trong
+      expect(fact?.quote?.at).toBe("16:19");
     });
 
     it("Tầng 2 trượt: Tướng chạy khi đang bị chiếu thì không phê bình", () => {
@@ -223,6 +236,47 @@ describe("opening-principles: bộ nhận diện 4 tầng kỳ lý khai cuộc",
   });
 
   // ==========================================================================
+  // Bài 28: Mã đơn độc tiến sâu (checkMaDonDocTienSau) — Game 5446 ply 19
+  // ==========================================================================
+  describe("Bài 28: Mã đơn độc tiến sâu", () => {
+    // Ván thật: Game 5446 ply 19 (Đỏ Mã b4 nhảy sâu ăn Tốt a6 khi chưa Xe Pháo nào qua sông; loss 52)
+    const fen = "2bakac1r/3r5/n1c1b1n2/p3p3p/6p2/1NP6/P3P1P1P/1C2B2CN/5R3/2BAKA2R w - - 0 10";
+    const uciPv = ["c7c8", "f1f7", "d8d6", "f7g7"];
+    const move = { from: sq(5, 1), to: sq(3, 0) };
+    // Dời hai Xe Đỏ (f1, i0) sang ô qua sông cho trước
+    const withRooksAt = (a: number, b: number) => {
+      const board = [...parseFen(fen).board];
+      board[sq(8, 5)] = null;
+      board[sq(9, 8)] = null;
+      board[a] = "R";
+      board[b] = "R";
+      return board;
+    };
+    const opts = { pv: uciMovesToMoves(uciPv), evalAfter: { score: -31 }, loss: 52 };
+
+    it("ok: true - chê Mã nhảy sâu một mình (Game 5446)", () => {
+      const t = real(fen, move.from, move.to, uciPv, 31, 52);
+      expect(checkMaDonDocTienSau(t.before, t.move, t.after, t.options).ok).toBe(true);
+      const fact = detectMaDonDocTienSau(t.before, t.move, t.after, t.options);
+      expect(fact?.lesson).toBe(28);
+      expect(fact?.tone).toBe("critique");
+      // Trích đúng câu "đơn độc tiến sâu… đại kỵ", không phải câu mở bài về Mã linh hoạt
+      expect(fact?.quote?.at).toBe("26:15");
+      expect(fact?.videoUrl).toContain("t=1575");
+    });
+
+    it("Hai Xe qua sông ở cánh kia không cứu được Mã đơn độc bên này", () => {
+      const board = withRooksAt(sq(4, 7), sq(4, 8));
+      expect(checkMaDonDocTienSau(board, move, play(board, move), opts).ok).toBe(true);
+    });
+
+    it("Tầng 1 trượt: hai Xe đã qua sông cùng cánh thì Mã không đơn độc", () => {
+      const board = withRooksAt(sq(4, 1), sq(4, 2));
+      expect(checkMaDonDocTienSau(board, move, play(board, move), opts)).toMatchObject({ ok: false, layer: 1 });
+    });
+  });
+
+  // ==========================================================================
   // Bài 42: Lưỡng đầu xà (checkLuongDauXa) — Game 606 ply 14
   // ==========================================================================
   describe("Bài 42: Lưỡng đầu xà", () => {
@@ -249,6 +303,14 @@ describe("opening-principles: bộ nhận diện 4 tầng kỳ lý khai cuộc",
       const move = { from: 56, to: 47 };
       const after = play(board, move);
       const res = checkLuongDauXa(board, move, after, { pv: uciMovesToMoves(uciPv), evalAfter: { score: 0 }, loss: 0 });
+      expect(res).toMatchObject({ ok: false, layer: 1 });
+    });
+
+    it("Tầng 1 trượt: Tốt đã qua sông đi ngang sang lộ 3 không phải thúc chốt", () => {
+      const board = [...parseFen(fen).board];
+      board[sq(3, 1)] = "P";
+      const move = { from: sq(3, 1), to: sq(3, 2) };
+      const res = checkLuongDauXa(board, move, play(board, move), { pv: uciMovesToMoves(uciPv), evalAfter: { score: -30 }, loss: 0 });
       expect(res).toMatchObject({ ok: false, layer: 1 });
     });
   });
@@ -281,5 +343,24 @@ describe("opening-principles: bộ nhận diện 4 tầng kỳ lý khai cuộc",
       const res = checkPhiTuongTanTrungBinh(board, move, after, { pv: uciMovesToMoves(uciPv), evalAfter: { score: 0 }, loss: 0 });
       expect(res).toMatchObject({ ok: false, layer: 1 });
     });
+
+    it("Tầng 1 trượt: Tốt giữa đã qua sông đi ngang không phải tấn trung binh", () => {
+      const board = [...parseFen(fen).board];
+      board[sq(5, 4)] = "p";
+      const move = { from: sq(5, 4), to: sq(5, 5) };
+      const res = checkPhiTuongTanTrungBinh(board, move, play(board, move), { pv: uciMovesToMoves(uciPv), evalAfter: { score: -12 }, loss: 0 });
+      expect(res).toMatchObject({ ok: false, layer: 1 });
+    });
+  });
+
+  it("mỗi kỳ lý trích một câu có thật trong bài của nó", () => {
+    const lessonOf: Record<string, number> = {
+      daiXuatXe: 11, taPhaoPhongXe: 16, phaoDoiMaKhaiCuoc: 17, tuongKhongDong: 19,
+      xeDeMa: 27, maDonDocTienSau: 28, luongDauXa: 42, phiTuongTanTrungBinh: 45,
+    };
+    expect(Object.keys(OPENING_QUOTE_AT).sort()).toEqual(Object.keys(lessonOf).sort());
+    for (const [tactic, at] of Object.entries(OPENING_QUOTE_AT)) {
+      expect(ZHAO_OPENING_LESSONS[lessonOf[tactic]]!.quotes.map((q) => q.at), tactic).toContain(at);
+    }
   });
 });

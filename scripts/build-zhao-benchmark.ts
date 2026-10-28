@@ -228,7 +228,8 @@ async function main() {
     const after = s1.result
       ? { score: s1.result.winner === s1.moves[0].side ? -MATE_SCORE : 0, best: null, pv: [] }
       : await liveEval(toFen(s1.history[1]));
-    const { review } = reviewMove(s1.moves[0], 0, s1, before, after, undefined, [], ["—"]);
+    // Như modal: ván dựng từ FEN kèm số nửa nước đã đi trong ván gốc
+    const { review } = reviewMove(s1.moves[0], 0, s1, before, after, undefined, [], ["—"], undefined, undefined, c.ply - 1);
     return review.facts.some((f) =>
       c.book === "middlegame"
         ? f.kind === "zhaoMiddlegame" && (f.lesson === c.lesson || f.tactic === c.tactic)

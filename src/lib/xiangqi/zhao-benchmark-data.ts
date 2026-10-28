@@ -66,6 +66,7 @@ export const ZHAO_BENCHMARK_LESSONS: ZhaoBenchmarkItem[] = ZHAO_BENCHMARK_ROWS.f
 export function practiceHref(item: ZhaoBenchmarkItem): string {
   const params = new URLSearchParams({ fen: item.fen, lesson: String(item.lesson) });
   if (item.book !== "middlegame") params.set("book", item.book);
+  params.set("ply", String(item.game.ply - 1));
   return `/play?${params.toString()}`;
 }
 

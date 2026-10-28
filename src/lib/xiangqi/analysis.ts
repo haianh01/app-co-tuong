@@ -1,6 +1,6 @@
 import { findBestMove } from "./ai";
 import { assessPosition, type PositionAssessment } from "./assess";
-import { attackersOf, inCheck, isDefended, legalMoves, opponent, play, PIECE_VALUES, sideOf, typeOf, type Board, type Move, type Side } from "./engine";
+import { attackersOf, inCheck, isDefended, legalMoves, opponent, parseFen, play, PIECE_VALUES, sideOf, START_FEN, typeOf, type Board, type Move, type Side } from "./engine";
 import { explainMove, personaFacts, type Fact } from "./explain";
 import { endgamePrincipleFacts } from "./endgame-principles";
 import { detectAllOpeningTactics } from "./opening-principles";
@@ -379,6 +379,18 @@ export function suppressRepeatedZhaoFacts(reviews: MoveReview[], window = 12): v
   });
 }
 
+const START_BOARD = parseFen(START_FEN).board;
+
+/**
+ * Số nửa nước đã đi trước thế đầu của ván: 0 nếu ván bắt đầu từ thế khai cuộc chuẩn,
+ * `null` nếu nạp từ FEN mà không biết đã đi bao nhiêu nước (khi đó không xét kỳ lý khai cuộc).
+ */
+function plyBeforeStart(state: GameState, startPly?: number): number | null {
+  if (startPly !== undefined) return startPly;
+  const first = state.history[0];
+  return first.turn === "r" && first.board.every((p, k) => p === START_BOARD[k]) ? 0 : null;
+}
+
 export function reviewMove(
   m: { move: Move; side: Side; notation: string },
   i: number,
@@ -390,6 +402,8 @@ export function reviewMove(
   playedNotationsOverride?: string[],
   thresholds: WinLossThresholds = WIN_LOSS_THRESHOLDS,
   phases?: PhaseSummary[],
+  /** Số nửa nước đã đi trước thế đầu của `state` (ván nạp từ FEN giữa ván), xem plyBeforeStart. */
+  startPly?: number,
 ): {
   review: MoveReview;
   scoreLoss: number | null;
@@ -494,6 +508,10 @@ export function reviewMove(
   const highlights = cls ? computeHighlights(m.move, afterEval?.best ?? null, isFault ? (before.best ?? null) : null) : undefined;
   let better = isFault && before.best ? moveNotation(state.history[i].board, before.best) : null;
 
+  // Số nửa nước tính từ đầu ván thật (undefined nếu ván nạp từ FEN mà không rõ): lỗi và kỳ lý khai cuộc dựa vào đây
+  const offset = plyBeforeStart(state, startPly);
+  const gamePly = offset === null ? undefined : offset + i;
+
   let facts: Fact[] = [];
   if (isFault) {
     facts = explainMove({
@@ -503,7 +521,7 @@ export function reviewMove(
       evalBefore: before,
       evalAfter: afterEval,
       loss,
-      ply: i,
+      ply: gamePly,
       opening,
       historyMoves,
     });
@@ -564,8 +582,8 @@ export function reviewMove(
     }).filter((f) => keepEndgameFact(f, isFault)),
   );
 
-  // Kỳ lý khai cuộc Triệu Hâm Hâm: tối đa 1 kỳ lý mỗi nước, chỉ xét ≤ 24 nửa nước đầu, không trùng openingFault
-  if (i < 24) {
+  // Kỳ lý khai cuộc Triệu Hâm Hâm: tối đa 1 kỳ lý mỗi nước, chỉ xét ≤ 24 nửa nước đầu tính từ đầu ván thật, không trùng openingFault
+  if (gamePly !== undefined && gamePly < 24) {
     const openingCandidates = detectAllOpeningTactics(state.history[i].board, m.move, state.history[i + 1].board, {
       pv: afterEval?.pv,
       loss,

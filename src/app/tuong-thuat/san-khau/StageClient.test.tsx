@@ -88,8 +88,6 @@ describe("StageClient", () => {
     expect(screen.getByText("BẠN")).toBeDefined();
     expect(screen.getByText("Cờ Tướng Hải Anh")).toBeDefined();
     expect(screen.getByText("Đang chơi trên zigavn.com")).toBeDefined();
-    // Vừa đi xong nước của mình: tới lượt đối thủ.
-    expect(screen.getByText("Đối thủ đang nghĩ…")).toBeDefined();
     expect(screen.getByText("ĐANG NGHĨ")).toBeDefined();
     expect(container.textContent).not.toMatch(/[+-]\d\.\d/);
   });
@@ -210,32 +208,13 @@ describe("StageClient", () => {
     expect(screen.queryByText(/"Người đâu Cứu trẫm"/)).toBeNull();
   });
 
-  it("hết ván: ribbon hiện kết quả thay cho lượt đi", () => {
-    render(<StageClient />);
-    const ws = FakeSocket.all[0];
-    // Tướng đen bị Xe đỏ ở cột 4 chiếu, hai ô bên bị Xe đỏ ở cột 3/5 khống chế → đỏ chiếu bí.
-    const board: (string | null)[] = Array(90).fill(null);
-    board[4] = "k";
-    board[9 * 9 + 4] = "K";
-    board[9 * 9 + 3] = "R";
-    board[9 * 9 + 5] = "R";
-    board[5 * 9 + 4] = "R";
-    const state = stateAfterCentralCannon();
-    ws.receive({ t: "state", state: { ...state, board: board as typeof state.board, turn: "b" } });
-
-    expect(screen.getByText("Kết thúc: Bạn thắng")).toBeDefined();
-    expect(screen.queryByText("Đối thủ đang nghĩ…")).toBeNull();
-  });
-
-  it("đi thử: bàn cờ có nhãn BIẾN THỬ, ribbon hiện chuỗi nước thử thay cho nước thật", () => {
+  it("đi thử: bàn cờ có nhãn BIẾN THỬ và sân khấu tối đi", () => {
     render(<StageClient />);
     const ws = FakeSocket.all[0];
     const state = stateAfterCentralCannon();
     ws.receive({ t: "state", state: { ...state, trial: { notations: ["Mã 2 tiến 3", "Mã 8 tiến 7"] } } });
 
-    expect(screen.getAllByText("BIẾN THỬ").length).toBe(2);
-    expect(screen.getByText("Mã 2 tiến 3 → Mã 8 tiến 7")).toBeDefined();
-    expect(screen.getByText("Không phải nước thật")).toBeDefined();
+    expect(screen.getAllByText("BIẾN THỬ").length).toBe(1);
     expect(document.querySelector("[class*=trialDim]")).not.toBeNull();
   });
 
@@ -272,7 +251,6 @@ describe("StageClient", () => {
     expect(screen.getByText(/PHÂN TÍCH VÁN 5/i)).toBeDefined();
     expect(screen.getByText(/AI PHÂN TÍCH · VÁN 5/i)).toBeDefined();
     expect(screen.getAllByText(/🔴 Đỏ ưu \(\+4\.5\)/i).length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText(/⚡ Bước ngoặt #1: P2-5/i)).toBeDefined();
     // Khung giới thiệu tách nhãn và giá trị thành hai span trên cùng một dòng.
     expect(screen.getByText("Tối ưu:").closest("li")?.textContent).toContain("X1.1");
     expect(screen.getByText(/Bên Đỏ xuất tướng vội vàng/i)).toBeDefined();
@@ -329,7 +307,7 @@ describe("StageClient", () => {
     expect(screen.queryByText("CHIẾU TƯỚNG!")).toBeNull();
   });
 
-  it("bấm nút 💬 hoặc dải ribbon mở Bảng Trận cờ & Lời bình chuyên gia", () => {
+  it("bấm nút 💬 mở Bảng Trận cờ & Lời bình chuyên gia", () => {
     render(<StageClient />);
     const ws = FakeSocket.all[0];
     const state = stateAfterCentralCannon();
@@ -351,8 +329,8 @@ describe("StageClient", () => {
   });
 });
 
-describe("dải nước đi dưới bàn cờ", () => {
-  it("ván trực tiếp chỉ hiện nước vừa đi, không hiện lời bình", () => {
+describe("dưới bàn cờ", () => {
+  it("không có dải chữ: số nước, lượt đi, lời bình chỉ xem trong bảng Trận cờ", () => {
     render(<StageClient />);
     const ws = FakeSocket.all[0];
     const state = stateAfterCentralCannon();
@@ -375,7 +353,8 @@ describe("dải nước đi dưới bàn cờ", () => {
     };
     ws.receive({ t: "state", state });
 
-    expect(screen.getAllByText("Pháo 2 bình 5").length).toBeGreaterThan(0);
+    expect(screen.queryByText("NƯỚC 1")).toBeNull();
+    expect(screen.queryByText("Đối thủ đang nghĩ…")).toBeNull();
     expect(screen.queryByText("Bạn đi Pháo đầu")).toBeNull();
     expect(screen.queryByText(/Uy hiếp tốt đầu/)).toBeNull();
     expect(screen.queryByText(/Triệu Hâm Hâm #3/)).toBeNull();

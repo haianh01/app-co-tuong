@@ -29,7 +29,7 @@ interface CachedCoachItem {
   betterPlan: string;
 }
 
-export function LiveCoach({ state, player }: { state: GameState; player: Side }) {
+export function LiveCoach({ state, player, startPly }: { state: GameState; player: Side; startPly?: number }) {
   const think = useEngine();
   const [commentaryStyle, setCommentaryStyle] = useState<CommentaryStyle>("default");
   const [cache, setCache] = useState<Record<string, PositionEval>>({});
@@ -110,7 +110,7 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
 
       if (!cached) {
         // Chỉ tính nước mới chưa có trong cache
-        const { review, scoreLoss, accuracy: moveAcc } = reviewMove(m, i, state, beforeEval, afterEval, opening);
+        const { review, scoreLoss, accuracy: moveAcc } = reviewMove(m, i, state, beforeEval, afterEval, opening, undefined, undefined, undefined, undefined, startPly);
         const best = sameMove(beforeEval?.best, m.move);
         const historyMoves = state.moves.slice(0, i).map((x) => x.move);
         // Nước không bị chấm lỗi thì không chê (kể cả lỗi khai cuộc), tránh "Nước tốt" đi kèm câu chê
@@ -177,7 +177,7 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
       const key = `${fens[i]}->${fens[i + 1]}`;
       let r = machineCache.get(key);
       if (!r) {
-        r = reviewMove(m, i, state, before, after, opening).review;
+        r = reviewMove(m, i, state, before, after, opening, undefined, undefined, undefined, undefined, startPly).review;
         machineCache.set(key, r);
       }
       return r;
@@ -191,7 +191,7 @@ export function LiveCoach({ state, player }: { state: GameState; player: Side })
 
     const avg = accScores.length ? Math.round(accScores.reduce((a, b) => a + b, 0) / accScores.length) : null;
     return { mine: items.reverse(), accuracy: avg };
-  }, [state, player, fens, cache, opening, coachCache, machineCache]);
+  }, [state, player, fens, cache, opening, coachCache, machineCache, startPly]);
 
   return (
     <div className={`card ${styles.panel}`} aria-live="polite">

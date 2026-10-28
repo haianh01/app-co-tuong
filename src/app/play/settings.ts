@@ -11,6 +11,8 @@ export interface PlaySettings {
   /** Bài giảng Triệu Hâm Hâm của thế cờ, `book` cho biết bộ bài (khai cuộc, trung cuộc hay tàn cuộc, đánh số riêng). */
   lesson?: number;
   book?: "endgame" | "opening";
+  /** Số nửa nước đã đi trước thế `fen` trong ván gốc (để huấn luyện biết còn trong khai cuộc hay không). */
+  startPly?: number;
 }
 
 export const TIME_OPTIONS = [
@@ -28,6 +30,7 @@ export function parseSettings(params: Params): PlaySettings {
   const level = Number(first(params.level));
   const minutes = Number(first(params.time));
   const lesson = Number(first(params.lesson)) || undefined;
+  const ply = Number(first(params.ply));
   // FEN lạ từ URL thì bỏ qua (về thế khai cuộc) thay vì làm hỏng ván
   let fen = first(params.fen);
   let fenTurn: Side | undefined;
@@ -53,6 +56,7 @@ export function parseSettings(params: Params): PlaySettings {
     fen: fen || undefined,
     lesson,
     book: lesson && (bookParam === "endgame" || bookParam === "opening") ? bookParam : undefined,
+    startPly: fen && Number.isInteger(ply) && ply >= 0 ? ply : undefined,
   };
 }
 
@@ -65,5 +69,6 @@ export function settingsHref(s: PlaySettings): string {
   if (s.fen) params.set("fen", s.fen);
   if (s.lesson) params.set("lesson", String(s.lesson));
   if (s.lesson && s.book) params.set("book", s.book);
+  if (s.fen && s.startPly !== undefined) params.set("ply", String(s.startPly));
   return `/play?${params.toString()}`;
 }

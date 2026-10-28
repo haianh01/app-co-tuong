@@ -321,7 +321,7 @@ function GameSession({ settings, onNewGame, setup }: { settings: PlaySettings; o
 
       <div className={styles.side}>
         <div className={styles.review}>
-          {coach && !result && <LiveCoach state={state} player={player} />}
+          {coach && !result && <LiveCoach state={state} player={player} startPly={settings.startPly} />}
           {result && state.moves.length > 0 && (
             <AnalysisPanel
               state={state}

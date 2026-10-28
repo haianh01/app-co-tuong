@@ -76,8 +76,17 @@ describe("parseSettings — thế cờ từ bài giảng (?fen=&lesson=)", () =>
     expect(parseSettings({ lesson: "abc" }).lesson).toBeUndefined();
   });
 
-  it("settingsHref giữ fen và lesson khi đọc lại", () => {
-    const s: PlaySettings = { level: 4, side: "b", minutes: 0, fen: BLACK_TO_MOVE, lesson: 4 };
+  it("ply (số nửa nước đã đi trước thế FEN) chỉ có nghĩa khi có fen hợp lệ", () => {
+    expect(parseSettings({ fen: BLACK_TO_MOVE, ply: "11" }).startPly).toBe(11);
+    expect(parseSettings({ fen: BLACK_TO_MOVE, ply: "0" }).startPly).toBe(0);
+    expect(parseSettings({ fen: BLACK_TO_MOVE, ply: "-1" }).startPly).toBeUndefined();
+    expect(parseSettings({ fen: BLACK_TO_MOVE, ply: "2.5" }).startPly).toBeUndefined();
+    expect(parseSettings({ fen: BLACK_TO_MOVE }).startPly).toBeUndefined();
+    expect(parseSettings({ ply: "11" }).startPly).toBeUndefined();
+  });
+
+  it("settingsHref giữ fen, lesson và ply khi đọc lại", () => {
+    const s: PlaySettings = { level: 4, side: "b", minutes: 0, fen: BLACK_TO_MOVE, lesson: 4, startPly: 11 };
     const params = Object.fromEntries(new URL(settingsHref(s), "http://x").searchParams);
     expect(parseSettings(params)).toEqual(s);
   });

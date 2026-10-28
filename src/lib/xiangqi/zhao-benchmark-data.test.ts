@@ -66,6 +66,7 @@ describe("thế cờ đối chiếu Triệu Hâm Hâm", () => {
       const s = parseSettings(Object.fromEntries(new URL(practiceHref(item), "http://x").searchParams));
       expect(s).toMatchObject({ fen: item.fen, lesson: item.lesson, side: parseSettings({ fen: item.fen }).side });
       expect(s.book).toBe(book === "middlegame" ? undefined : book);
+      expect(s.startPly).toBe(item.game.ply - 1);
     }
   });
 });

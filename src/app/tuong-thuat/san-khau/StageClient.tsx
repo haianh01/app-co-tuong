@@ -10,7 +10,7 @@ import { PIECE_CHAR } from "@/lib/xiangqi/notation";
 import { applyMove, inCheck, initialPosition, outcome, type Board, type PieceType, type Side } from "@/lib/xiangqi/engine";
 import { MatchCommentaryDrawer } from "./MatchCommentaryDrawer";
 import { playStageVoiceEvent, unlockAudio } from "@/lib/stage-voice";
-import { DEFAULT_STAGE_VOICE_LINES, formatEvalScore, liveClocks, zigaEloRank, type BigMoment, type StageClocks, type StageCommentaryDetail, type StageMoveItem, type StagePlayer, type StageState, type StageZhaoLesson, type ZigaRankTier } from "../stage-sync";
+import { DEFAULT_STAGE_VOICE_LINES, formatEvalScore, liveClocks, zigaEloRank, type BigMoment, type StageClocks, type StagePlayer, type StageState, type ZigaRankTier } from "../stage-sync";
 import { PuzzleShow, getPreviewPuzzleState } from "./PuzzleShow";
 import styles from "./stage.module.css";
 
@@ -1176,37 +1176,6 @@ export function StageClient() {
   );
 }
 
-const MOVE_TAG_LABEL: Record<NonNullable<StageMoveItem["tag"]>, string> = {
-  brilliant: "!! Xuất sắc",
-  good: "! Nước tốt",
-  inaccuracy: "?! Thiếu chính xác",
-  mistake: "? Sai lầm",
-  blunder: "?? Sai nghiêm trọng",
-};
-
-/**
- * Lời bình của nước `ply`: lời bình chi tiết (activeCommentary) chỉ thuộc nước mới nhất, nên khi lùi xem
- * nước cũ thì lấy lời bình ngắn, điểm và bài học Triệu Hâm Hâm đã lưu trong danh sách nước.
- */
-export function moveAnalysis(moves: StageMoveItem[], detail: StageCommentaryDetail | null, ply: number) {
-  const move = moves.find((m) => m.ply === ply);
-  const d = detail && detail.ply === ply ? detail : null;
-  const summary = d?.summary || move?.commentary || "";
-  const assessment = d?.assessment || (move?.evalCp != null ? formatEvalScore(move.evalCp) : "");
-  const intent = d?.intent || "";
-  const betterMove = d?.betterMove || "";
-  const zhao: StageZhaoLesson | null = move?.zhaoLesson ?? d?.zhaoLesson ?? null;
-  return {
-    summary,
-    assessment,
-    intent,
-    betterMove,
-    zhao,
-    tag: move?.tag ?? null,
-    empty: !summary && !assessment && !intent && !betterMove && !zhao,
-  };
-}
-
 function Stage({
   state,
   connected,
@@ -1222,7 +1191,7 @@ function Stage({
   speechBubble: { text: string; type: StageVoiceEvent } | null;
   onTestVoice?: () => void;
 }) {
-  const { settings, mySide, turn, commentary } = state;
+  const { settings, mySide, turn } = state;
   const oppSide: Side = mySide === "r" ? "b" : "r";
   const shaking = moment?.type === "check";
   const now = useNow(250, !!state.clocks);
@@ -1258,37 +1227,12 @@ function Stage({
     return null;
   }, [selectedPly, state.ply, state.moves, state.lastMove, review]);
 
-  const recentMoves = useMemo(() => {
-    const allMoves = state.moves || [];
-    const current = selectedPly ?? state.ply;
-    const idx = allMoves.findIndex((m) => m.ply === current);
-    if (idx < 0) return allMoves.slice(-2);
-    return allMoves.slice(Math.max(0, idx - 1), idx + 1);
-  }, [state.moves, selectedPly, state.ply]);
-
-  const analysis = useMemo(
-    () => moveAnalysis(state.moves || [], state.activeCommentary ?? null, selectedPly ?? state.ply),
-    [state.moves, state.activeCommentary, selectedPly, state.ply],
-  );
   const meClock = clockView(state.clocks, "me", now);
   const oppClock = clockView(state.clocks, "opponent", now);
-  const over = outcome({ board: state.board, turn });
-  const turnText = trial
-    ? "Không phải nước thật"
-    : over.over
-      ? over.winner
-        ? over.winner === mySide
-          ? "Kết thúc: Bạn thắng"
-          : "Kết thúc: Đối thủ thắng"
-        : "Kết thúc: Hòa"
-      : turn === mySide
-        ? "Đến lượt bạn"
-        : "Đối thủ đang nghĩ…";
-
   return (
     <>
       {!connected && <div className={styles.offline}>Mất kết nối, đang nối lại…</div>}
-      {/* Đi thử: làm tối cả sân khấu, chỉ bàn cờ biến thử và ribbon nổi lên, để người xem biết đây không phải ván thật. */}
+      {/* Đi thử: làm tối cả sân khấu, chỉ bàn cờ biến thử nổi lên, để người xem biết đây không phải ván thật. */}
       {trial && <div className={styles.trialDim} aria-hidden="true" />}
 
       {review && <StageHeader state={state} recap={recap} onTestVoice={onTestVoice} />}
@@ -1402,116 +1346,6 @@ function Stage({
           </aside>
         )}
       </div>
-
-      {/* Bảng phân tích dưới bàn cờ (ván trực tiếp); phân tích ván / biến thử dùng dải một dòng vì đã có khung trên. */}
-      {review || trial ? (
-        <section
-          className={styles.ribbon}
-          data-check={commentary?.isCheck || undefined}
-          data-trial={trial ? true : undefined}
-          data-review={review ? true : undefined}
-          onClick={() => setDrawerOpen(true)}
-          role="button"
-          tabIndex={0}
-          aria-label="Xem biên bản trận cờ và lời bình"
-          title="Bấm để mở bảng trận cờ và lời bình chuyên gia"
-        >
-          <span className={styles.ribbonTag}>
-            {review ? "AI PHÂN TÍCH" : trial ? "BIẾN THỬ" : `NƯỚC ${Math.ceil((selectedPly ?? state.ply) / 2)}`}
-          </span>
-          {review ? (
-            <span className={styles.ribbonMove}>
-              {review.turningPoint
-                ? `⚡ Bước ngoặt #${review.turningPoint.index + 1}: ${review.turningPoint.notation} (${review.turningPoint.description})`
-                : review.bestNotation
-                  ? `Nước tối ưu: ${review.bestNotation}`
-                  : `Đang phân tích nước ${review.ply} / ${review.totalPlies}`}
-            </span>
-          ) : trial ? (
-            <span className={styles.ribbonMove}>
-              {trial.notations.length
-                ? `${trial.notations.length > 3 ? "… " : ""}${trial.notations.slice(-3).join(" → ")}`
-                : "Đang bày biến thử…"}
-            </span>
-          ) : null}
-          <span className={styles.ribbonTurn}>
-            {review ? (formatEvalScore(review.evalScore) || "Đang phân tích") : turnText}
-          </span>
-        </section>
-      ) : (
-        <section
-          className={styles.analysisPanel}
-          data-check={commentary?.isCheck || undefined}
-          onClick={() => setDrawerOpen(true)}
-          role="button"
-          tabIndex={0}
-          aria-label="Xem biên bản trận cờ và lời bình"
-          title="Bấm để mở bảng trận cờ và lời bình chuyên gia"
-        >
-          <div className={styles.apHead}>
-            <span className={styles.ribbonTag}>NƯỚC {Math.ceil((selectedPly ?? state.ply) / 2)}</span>
-            {recentMoves.length > 0 ? (
-              <div className={styles.ribbonMovesRecent}>
-                {recentMoves.map((rm) => (
-                  <span
-                    key={rm.ply}
-                    className={`${styles.recentMoveBadge} ${rm.ply === (selectedPly ?? state.ply) ? styles.recentMoveActive : ""}`}
-                  >
-                    <span className={styles.recentMoveDot} data-side={rm.side} aria-hidden="true" />
-                    {rm.notation}
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <span className={styles.ribbonMove}>Ván mới bắt đầu</span>
-            )}
-            {analysis.tag && (
-              <span className={styles.apTag} data-tag={analysis.tag}>
-                {MOVE_TAG_LABEL[analysis.tag]}
-              </span>
-            )}
-            {commentary?.isCheck && commentary.note && <span className={styles.ribbonNote}>{commentary.note}</span>}
-            <span className={styles.apTurn}>{turnText}</span>
-          </div>
-          {analysis.empty ? (
-            <p className={styles.apSummary} data-muted>
-              Lời bình sẽ hiện ở đây sau mỗi nước đi.
-            </p>
-          ) : (
-            <div className={styles.apBody}>
-              {(analysis.assessment || analysis.summary) && (
-                <p className={styles.apSummary}>
-                  {analysis.assessment && <span className={styles.apEval}>{analysis.assessment}</span>}
-                  {analysis.summary}
-                </p>
-              )}
-              {(analysis.intent || analysis.betterMove) && (
-                <p className={styles.apIntent}>
-                  {analysis.intent && (
-                    <>
-                      <b>🎯 Ý đồ:</b> {analysis.intent}
-                    </>
-                  )}
-                  {analysis.intent && analysis.betterMove && <span className={styles.apSep}>·</span>}
-                  {analysis.betterMove && (
-                    <>
-                      <b>💡 Nên đi:</b> <span className={styles.apBetter}>{analysis.betterMove}</span>
-                    </>
-                  )}
-                </p>
-              )}
-              {analysis.zhao && (
-                <p className={styles.apZhao} title={analysis.zhao.quote}>
-                  <b>
-                    📖 Triệu Hâm Hâm #{analysis.zhao.lesson} · {analysis.zhao.title}
-                  </b>
-                  {analysis.zhao.quote && <span className={styles.apQuote}> — “{analysis.zhao.quote}”</span>}
-                </p>
-              )}
-            </div>
-          )}
-        </section>
-      )}
 
       {/* Hàng dưới chuẩn Ziga: 3 nút đồng bên trái (Menu, Chat, Thả tim) và thông tin kỳ thủ bạn bên phải */}
       <ZigaBottomBar

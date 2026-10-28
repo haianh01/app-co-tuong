@@ -1,6 +1,6 @@
 /* Sân khấu livestream 1080×1920 (dọc), bố cục theo kiểu kênh cờ tướng phổ biến, từ trên xuống:
-   khung giới thiệu 16–284 · dải chữ chạy 292–344 · bàn cờ 356–1441 · dòng nước đi 1453–1511 ·
-   hàng dưới 1524–1908 (Bạn · tỉ số · camera · tỉ số · Đối thủ). */
+   Đối thủ · camera 0–364 · dải chữ chạy 374–458 · bàn cờ 960 px 488–1599 ·
+   hàng dưới 1659–1920 (nút · Bạn). Dưới bàn cờ không có dải chữ: lời bình xem trong bảng Trận cờ. */
 
 .viewport {
   position: fixed;
@@ -1094,12 +1094,12 @@
 }
 
 /* Bàn cờ */
-/* Bàn cờ chuẩn Ziga: thu ngắn chiều dọc, căn giữa có lề 2 bên, viền gỗ bo góc 3D nổi bật */
+/* Bàn cờ chuẩn Ziga: căn giữa có lề 70px 2 bên, kéo dài xuống dưới lấp đầy không gian, viền gỗ bo góc 3D nổi bật */
 .boardWrap {
   position: relative;
-  width: 860px;
-  /* Bàn cờ giữ sát dải chữ chạy: phần đáy khung hay bị bình luận TikTok che, nên phần trống dồn xuống dưới dải nước đi. */
-  margin: 24px auto 4px;
+  width: 940px;
+  /* Cân bằng khoảng cách giữa Ticker phía trên và hàng người chơi bên dưới */
+  margin: 36px auto 16px;
   display: flex;
   justify-content: center;
   flex: none;
@@ -1118,13 +1118,13 @@
 }
 
 .boardRim {
-  width: 860px !important;
-  max-width: 860px !important;
+  width: 940px !important;
+  max-width: 940px !important;
   padding: 0 !important;
-  border-radius: 20px !important;
+  border-radius: 22px !important;
   box-shadow:
-    0 20px 48px rgba(60, 40, 20, 0.45),
-    0 4px 12px rgba(60, 40, 20, 0.25),
+    0 22px 52px rgba(60, 40, 20, 0.45),
+    0 4px 14px rgba(60, 40, 20, 0.25),
     inset 0 0 0 5px #8c5523,
     inset 0 0 0 7px #dcb383 !important;
   border: 4px solid #6b3e15 !important;
@@ -1157,9 +1157,11 @@
   --board-label-opacity: 0.92;
   --board-label-size: 24px;
   --board-label-weight: 800;
+  --piece-scale: 1.07;
   --piece-border: 2.8px;
-  --piece-ring: 1.8px;
+  --piece-ring: 1.4px;
   --han-scale: 1.15;
+  --han-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
   /* Dấu nước vừa đi & góc chọn quân: 4 góc xanh neon Ziga */
   --last-from-size: 5%;
   --last-from-border: 4px;
@@ -1182,9 +1184,7 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
-
-.boardWrap[data-trial],
-.ribbon[data-trial] {
+.boardWrap[data-trial] {
   position: relative;
   z-index: 7;
 }
@@ -1208,19 +1208,6 @@
   letter-spacing: 3px;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
   pointer-events: none;
-}
-
-.ribbon[data-trial] .ribbonMove {
-  min-width: 0;
-  font-size: 26px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.ribbon[data-trial] .ribbonTag {
-  background: #3d8bd9;
-  color: #fff;
 }
 
 .momentOverlay {
@@ -1473,71 +1460,6 @@
   100% { transform: translate(-50%, 0); }
 }
 
-/* Dòng nước vừa đi */
-.ribbon {
-  flex: none;
-  width: 860px;
-  height: 50px;
-  margin: 6px auto 0;
-  box-sizing: border-box;
-  padding-right: 12px;
-  border-radius: 12px;
-  overflow: hidden;
-  border: 1.5px solid #8a6a2a;
-  background: linear-gradient(180deg, #302012 0%, #1c1209 100%);
-  color: var(--ink);
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  white-space: nowrap;
-  box-shadow: 0 8px 24px rgba(50, 30, 15, 0.35);
-}
-
-.ribbonTag {
-  align-self: stretch;
-  display: flex;
-  align-items: center;
-  padding: 0 18px;
-  background: var(--accent);
-  color: #1a1408;
-  font-size: 20px;
-  font-weight: 800;
-}
-
-.ribbon[data-check] .ribbonTag {
-  background: var(--red);
-  color: #fff;
-}
-
-
-.ribbonMove {
-  font-size: 28px;
-  font-weight: 800;
-}
-
-.ribbonNote {
-  padding: 2px 12px;
-  border-radius: 8px;
-  background: var(--red);
-  color: #fff;
-  font-size: 22px;
-  font-weight: 800;
-}
-
-.ribbonTurn {
-  margin-left: auto;
-  font-size: 22px;
-  font-weight: 600;
-  color: #ffd257;
-}
-
-.ribbonTools {
-  margin-left: 8px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 /* Khung camera giữa hàng dưới: OBS đặt nguồn camera đè lên đúng ô này. */
 .camFrame {
   flex: none;
@@ -1596,21 +1518,6 @@
   box-shadow: 0 6px 18px rgba(124, 58, 237, 0.5);
   pointer-events: none;
 }
-
-.ribbon[data-review] .ribbonTag {
-  background: linear-gradient(135deg, #7c3aed, #a855f7);
-  color: #fff;
-}
-
-.ribbon[data-review] .ribbonMove {
-  min-width: 0;
-  font-size: 24px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: #f3e8ff;
-}
-
 
 /* ==========================================================================
    BẢNG TRẬN CỜ & LỜI BÌNH CHUYÊN GIA (DRAWER 1080×1920)
@@ -2256,36 +2163,8 @@
 }
 
 /* ==========================================================================
-   MINI MATCH BAR & INSPECT BANNER
+   INSPECT BANNER
    ========================================================================== */
-
-.ribbonMovesRecent {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.recentMoveBadge {
-  padding: 4px 10px;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  font-size: 15px;
-  font-weight: 600;
-  color: #d1d5db;
-}
-
-.recentMoveActive {
-  background: rgba(227, 168, 58, 0.25);
-  border-color: #e3a83a;
-  color: #fef08a;
-  font-weight: 700;
-}
-
-
-
-
-
 .inspectFloatBanner {
   position: absolute;
   top: 14px;
@@ -2323,34 +2202,4 @@
 
 .inspectReturnBtn:hover {
   transform: scale(1.08);
-}
-
-/* ==========================================================================
-   DẢI NƯỚC ĐI DƯỚI BÀN CỜ (ván trực tiếp): số nước · 2 nước gần nhất · lượt đi.
-   Không hiện lời bình — lời bình chỉ dùng khi AI phân tích lại ván.
-   ========================================================================== */
-.ribbon .ribbonMovesRecent {
-  min-width: 0;
-  gap: 8px;
-}
-
-.ribbon .recentMoveBadge {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 22px;
-}
-
-.recentMoveDot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #1a1a1a;
-  border: 1.5px solid #9ca3af;
-  flex: none;
-}
-
-.recentMoveDot[data-side="r"] {
-  background: #e23b2b;
-  border-color: #ffb4a8;
 }

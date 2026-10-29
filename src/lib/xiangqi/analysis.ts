@@ -316,6 +316,8 @@ function keepZhaoFact(f: Fact, cls: MoveClass | null, isFault: boolean, before: 
   if (!outcome) return false;
   if (!zhaoOutcomeAllows(f.tactic, outcome, f.side)) return false;
   if (f.tone === "critique") return isFault;
+  // Bài 24 khen chính nước lặng: bộ kiểm đã đòi nước hơn rõ nước thứ hai của engine, đó là tiêu chí "đáng bình" của nó
+  if (f.tactic === "datDungViTri") return !isFault;
   return !isFault && isSignificantMove(before, move, after, cls);
 }
 
@@ -589,7 +591,7 @@ export function reviewMove(
       loss,
       evalBefore: before,
       evalAfter: afterEval,
-    }).filter((f) => keepOpeningFact(f, cls, isFault));
+    }, offset === 0 ? notations[0] : undefined).filter((f) => keepOpeningFact(f, cls, isFault));
     const hasOpeningFault = facts.some((f) => f.kind === "openingFault");
     const chosenOpening = openingCandidates[0] ?? null;
     if (chosenOpening && !hasOpeningFault) {

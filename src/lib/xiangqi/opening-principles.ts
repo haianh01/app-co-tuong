@@ -14,6 +14,8 @@ import { soundMove, type ZhaoTacticsOptions } from "./middlegame";
 import { engineLine, narrate, tally, type EngineLine } from "./engine-line";
 import { moveNotation, PIECE_NAME } from "./notation";
 import { ZHAO_OPENING_LESSONS, type ZhaoOpeningLessonCard } from "./zhao48-opening-lessons";
+import { classifyOpeningType, detectShapes, fileOf, type OpeningType, type ShapeId } from "./opening-shapes";
+import { advance } from "./strategy";
 
 export type PrincipleCheck =
   | { ok: true; mechanism: string; summary: string; acted?: number[] }
@@ -57,11 +59,12 @@ function buildFact(
   tactic: string,
   summary: string,
   details: string,
-  tone?: "critique",
+  tone?: "critique" | "note",
 ): ZhaoOpeningFact {
   const p = before[move.from]!;
   const c = card(lesson);
-  const q = c.quotes.find((x) => x.at === OPENING_QUOTE_AT[tactic]);
+  // Kỳ lý chưa chọn mốc riêng (ghi chú bố cục) thì lấy câu đầu của bài
+  const q = c.quotes.find((x) => x.at === OPENING_QUOTE_AT[tactic]) ?? (OPENING_QUOTE_AT[tactic] ? undefined : c.quotes[0]);
   const [m, s] = q ? q.at.split(":").map((x) => parseInt(x, 10)) : [0, 0];
   const sec = (m || 0) * 60 + (s || 0);
   return {
@@ -714,16 +717,182 @@ export const OPENING_DETECTORS = [
   detectPhiTuongTanTrungBinh,
 ];
 
+// ============================================================================
+// Bài bố cục (kind "evaluative" và các bài "detectable" nói về một hình cờ):
+// nhận xét khi nước đi đưa ván vào bố cục của bài — hình mới xuất hiện sau nước đi (opening-shapes.ts),
+// do chính quân vừa đi tạo nên, biến engine có và nước đi không bị hớ.
+// Hình xấu của chính bên đi (Song biên Mã, Tượng biên) là lời chê, chỉ gắn khi engine chê nước đi.
+// ============================================================================
+interface FormationRule {
+  /** Số bài; bài Xe trực / Xe hoành tùy loại khai cuộc (cần nước đầu ván). */
+  lesson: number | ((type: OpeningType | null) => number | null);
+  /** Loại quân vừa đi tạo nên hình. */
+  pieces: string;
+  /** Hình nằm ở phe đối phương (vd. Xe đối phương bị phong) — bên đi là bên tạo thế. */
+  victim?: boolean;
+  tone: "note" | "critique";
+}
+
+const byType = (m: Record<OpeningType, number>) => (t: OpeningType | null) => (t ? m[t] : null);
+
+/** Thứ tự là thứ tự ưu tiên khi một nước tạo nhiều hình: hình cụ thể trước, hình chung sau. */
+const FORMATION_RULES: Partial<Record<ShapeId, FormationRule>> = {
+  songPhaoPhongXe: { lesson: 17, pieces: "c", victim: true, tone: "note" },
+  maPhongXe: { lesson: 18, pieces: "n", victim: true, tone: "note" },
+  phaoPhongXe: { lesson: 16, pieces: "c", victim: true, tone: "note" },
+  caiMaTamChuy: { lesson: 25, pieces: "n", tone: "note" },
+  loiCongPhao: { lesson: 34, pieces: "c", tone: "note" },
+  tamBoHo: { lesson: 43, pieces: "cr", tone: "note" },
+  songPhaoQuaHa: { lesson: 41, pieces: "c", tone: "note" },
+  songBienPhao: { lesson: 38, pieces: "c", tone: "note" },
+  nguLucPhao: { lesson: 29, pieces: "c", tone: "note" },
+  nguThatPhao: { lesson: 30, pieces: "c", tone: "note" },
+  nguBatPhao: { lesson: 31, pieces: "c", tone: "note" },
+  nguCuuPhao: { lesson: 32, pieces: "c", tone: "note" },
+  tuanHaPhao: { lesson: 33, pieces: "c", tone: "note" },
+  siGiacPhao: { lesson: 37, pieces: "c", tone: "note" },
+  maBanHa: { lesson: 26, pieces: "n", tone: "note" },
+  maQuaiCuoc: { lesson: 24, pieces: "n", tone: "note" },
+  songBienMa: { lesson: 23, pieces: "n", tone: "critique" },
+  xeTamThat: { lesson: 12, pieces: "r", tone: "note" },
+  xeDeMa: { lesson: 27, pieces: "r", tone: "note" },
+  xeApMa: { lesson: 27, pieces: "r", tone: "note" },
+  daiXuatXe: { lesson: 11, pieces: "r", tone: "note" },
+  tieuXuatXe: { lesson: 11, pieces: "r", tone: "note" },
+  luongDauXa: { lesson: (t) => (t === "tanThu" ? 44 : 42), pieces: "p", tone: "note" },
+  phiTuongTrungBinh: { lesson: 45, pieces: "pb", tone: "note" },
+  tuongBien: { lesson: 46, pieces: "b", tone: "critique" },
+};
+
+/** Bố cục không có trong opening-shapes: xét riêng theo nước đi. */
+function extraFormations(before: Board, move: Move, after: Board, mover: Side, type: OpeningType | null): { id: string; lesson: number; name: string; note: string; tone: "note" | "critique" }[] {
+  const out: { id: string; lesson: number; name: string; note: string; tone: "note" | "critique" }[] = [];
+  const t = typeOf(before[move.from]!);
+  // Xe trực / Xe hoành (bài 3–10): bài nói về Xe của bên Đỏ, chia theo loại khai cuộc Đỏ chọn
+  if (t === "r" && mover === "r" && type) {
+    const from = fileOf(move.from, mover);
+    const to = fileOf(move.to, mover);
+    const a0 = advance(move.from, mover);
+    const a1 = advance(move.to, mover);
+    const straight = from === to && a1 > a0;
+    const edge = (f: number) => f === 1 || f === 9;
+    const trucLo = to === 2 || to === 8;
+    // Bài 3: trong cấp công, Trực Xe là Xe lộ 2/8 tiến thẳng qua sông dừng ở bờ sông / hàng tốt đối phương (Xe 2 tiến 6),
+    // không phải Xe xuống sâu công sát; các loại khác: Xe góc bình sang lộ 2/8 hoặc Xe trực tiến thẳng
+    const truc = type === "capCong"
+      ? trucLo && straight && (a1 === 5 || a1 === 6)
+      : trucLo && ((a0 === 0 && a1 === 0 && edge(from)) || straight);
+    const hoanh = edge(from) && straight && a0 === 0 && a1 === 1;
+    if (truc) {
+      const lesson = byType({ capCong: 3, hoanCong: 5, linhHoat: 7, tanThu: 9 })(type)!;
+      const note = type === "capCong" ? "Xe trực tiến thẳng qua sông, mũi nhọn kiềm chế và công Mã đối phương" : "Xe ra theo lộ dọc 2/8, xuất động thẳng";
+      out.push({ id: "xeTruc", lesson, name: "Trực Xe", note, tone: "note" });
+    } else if (hoanh) {
+      const lesson = byType({ capCong: 4, hoanCong: 6, linhHoat: 8, tanThu: 10 })(type)!;
+      out.push({ id: "xeHoanh", lesson, name: "Hoành Xe", note: "Xe biên lên một bước để đi ngang, chuẩn bị chiếm lộ trong 4/6", tone: "note" });
+    }
+  }
+  const own = (b: Board, s: Side, type: string) => b.flatMap((p, i) => (p && sideOf(p) === s && typeOf(p) === type ? [i] : []));
+  if (t === "n") {
+    // Chính Mã: Mã lên lộ 3/7 hàng Pháo; Biên Mã: lộ 1/9
+    const horses = own(after, mover, "n").filter((n) => advance(n, mover) === 2);
+    const chinh = horses.filter((n) => fileOf(n, mover) === 3 || fileOf(n, mover) === 7);
+    const bien = horses.filter((n) => fileOf(n, mover) === 1 || fileOf(n, mover) === 9);
+    if (horses.includes(move.to) && chinh.length === 2) {
+      out.push({ id: "songChinhMa", lesson: 21, name: "Song chính Mã", note: "Hai Mã cùng lên chính Mã, kiểm soát trung tâm và bảo vệ Tốt đầu", tone: "note" });
+    } else if (horses.includes(move.to) && chinh.length === 1 && bien.length === 1) {
+      out.push({ id: "chinhMaBienMa", lesson: 22, name: "Chính Mã – Biên Mã", note: "Một Mã chính, một Mã biên: ít sơ hở chân Mã nhưng trung lộ mỏng hơn", tone: "note" });
+    }
+  }
+  if (t === "c" && advance(move.from, mover) === 2 && advance(move.to, mover) === 2) {
+    const from = fileOf(move.from, mover);
+    const to = fileOf(move.to, mover);
+    // Pháo đầu đối Pháo đầu: Thuận Pháo / Liệt Pháo
+    const oppCenter = own(before, opponent(mover), "c").some((c) => fileOf(c, opponent(mover)) === 5);
+    if (to === 5 && oppCenter) {
+      out.push({ id: "phaoDoiPhao", lesson: 35, name: "Pháo đầu đối Pháo đầu", note: "Hai bên cùng Pháo đầu (Thuận Pháo / Liệt Pháo), Mã chính dễ thành điểm yếu", tone: "note" });
+    }
+    // Quá cung Pháo: Pháo 2 bình 6 / Pháo 8 bình 4, đi ngang qua cung sang cánh kia
+    if ((from === 2 && to === 6) || (from === 8 && to === 4)) {
+      out.push({ id: "quaCungPhao", lesson: 39, name: "Quá cung Pháo", note: "Pháo đi qua cung sang cánh kia: một cánh mạnh, một cánh yếu, coi chừng ùn quân", tone: "note" });
+    }
+  }
+  // Lên Sĩ sớm khi cả hai Xe còn ở góc
+  if (t === "a" && own(before, mover, "r").every((r) => advance(r, mover) === 0 && (fileOf(r, mover) === 1 || fileOf(r, mover) === 9))) {
+    out.push({ id: "lenSiSom", lesson: 47, name: "Lên Sĩ sớm", note: "Bổ Sĩ khi hai Xe chưa ra, làm chậm quân chủ lực", tone: "critique" });
+  }
+  return out;
+}
+
+export function detectOpeningFormations(
+  before: Board,
+  move: Move,
+  after: Board,
+  options?: ZhaoTacticsOptions,
+  firstMove?: string,
+): ZhaoOpeningFact[] {
+  const p = before[move.from];
+  if (!p) return [];
+  const mover = sideOf(p);
+  const opp = opponent(mover);
+  if (inCheck(before, mover)) return [];
+  const line = engineLine(before, move, options);
+  if (!line) return [];
+  const sound = soundMove(options, 40);
+  const type = classifyOpeningType(firstMove, after);
+
+  const found: { id: string; lesson: number; name: string; note: string; tone: "note" | "critique" }[] = [];
+  const shapesOf = (s: Side) => {
+    const was = new Set(detectShapes(before, s).map((x) => x.id));
+    return detectShapes(after, s).filter((x) => !was.has(x.id));
+  };
+  const fresh = [...shapesOf(mover), ...shapesOf(opp)];
+  for (const [id, rule] of Object.entries(FORMATION_RULES) as [ShapeId, FormationRule][]) {
+    const shape = fresh.find((x) => x.id === id && x.side === (rule.victim ? opp : mover));
+    if (!shape || !rule.pieces.includes(typeOf(p))) continue;
+    const lesson = typeof rule.lesson === "number" ? rule.lesson : rule.lesson(type);
+    if (lesson === null) continue;
+    found.push({ id, lesson, name: shape.name, note: shape.note, tone: rule.tone });
+  }
+  found.push(...extraFormations(before, move, after, mover, type));
+
+  const facts: ZhaoOpeningFact[] = [];
+  for (const f of found) {
+    // Tầng 4: ghi chú bố cục đi với nước không hớ, lời chê đi với nước engine chê
+    if (f.tone === "critique" ? sound : !sound) continue;
+    if (facts.some((x) => x.lesson === f.lesson)) continue;
+    const c = card(f.lesson);
+    // Bài tổng kết không gắn vào nước nào; bài thực chiến là lời khen, chỉ bài đánh giá mới là ghi chú
+    if (c.kind === "summary") continue;
+    const tone = f.tone === "critique" ? "critique" : c.kind === "evaluative" ? "note" : undefined;
+    facts.push(buildFact(
+      before,
+      move,
+      f.lesson,
+      f.id,
+      `${f.name} (${c.title}): ${f.note.replace(/\.$/, "")} (${narrate(line, Math.min(3, line.plies.length))})`,
+      c.principle,
+      tone,
+    ));
+  }
+  return facts;
+}
+
+/** Đòn thế khai cuộc trước, ghi chú bố cục sau (reviewMove chỉ lấy kỳ lý đầu tiên). */
 export function detectAllOpeningTactics(
   before: Board,
   move: Move,
   after: Board,
   options?: ZhaoTacticsOptions,
+  firstMove?: string,
 ): ZhaoOpeningFact[] {
   const facts: ZhaoOpeningFact[] = [];
   for (const det of OPENING_DETECTORS) {
     const f = det(before, move, after, options);
     if (f) facts.push(f);
+  }
+  for (const f of detectOpeningFormations(before, move, after, options, firstMove)) {
+    if (!facts.some((x) => x.lesson === f.lesson)) facts.push(f);
   }
   return facts;
 }

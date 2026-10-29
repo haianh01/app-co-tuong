@@ -329,6 +329,9 @@ export function StagePanel({
         <Link href="/tuong-thuat/lich-su" className={styles.btn} title="Xem danh sách ván đấu đã lưu">
           📜 Lịch sử
         </Link>
+        <Link href="/tuong-thuat/tro-ly" className={styles.btn} title="Mở bảng điều khiển AI trợ lý đọc chat TikTok và tường thuật OBS">
+          🤖 Trợ lý Live AI
+        </Link>
         {onUpdateReview && (
           <button
             type="button"

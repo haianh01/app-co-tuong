@@ -148,6 +148,29 @@ Kết quả sinh lại sau khi mở rộng thêm 32 ván đại sư vào MASTER_
 - Trung cuộc còn trống: 4, 7, 9, 12, 15, 18, 23, 26, 27, 31, 33, 34, 37 (trong đó 7, 26, 27 để tắt).
 - Tàn cuộc còn trống: 2, 3, 17, 19, 29, 33, 34, 36, 39, 40, 41.
 
+### 4.4. Bài 24 — Đặt đúng quân vào đúng vị trí (phương hướng, 2026-10-29)
+
+Trước đây là thẻ `summary` (không gắn). Nay là `evaluative`, tactic `datDungViTri`, code ở
+[direction.ts](../src/lib/xiangqi/direction.ts), test ở [direction.test.ts](../src/lib/xiangqi/direction.test.ts).
+Ý bài: không có vị trí đúng tuyệt đối, chỉ đúng so với mục tiêu giai đoạn. Ở đây **chiến trường** (trung lộ / cánh lộ 1–3 /
+cánh lộ 7–9) đọc từ biến tốt nhất của engine: nơi quân bên đi dồn tới (nước sớm nặng hơn) cộng quân đã qua sông.
+Chỉ xét trung cuộc (≥ 6 Xe/Mã/Pháo trên bàn) và nước lặng của Xe/Mã/Pháo.
+
+| Bộ kiểm | Tầng 1 hình | Tầng 2 mục đích | Tầng 3 cơ chế | Tầng 4 kết quả |
+|---|---|---|---|---|
+| `checkLechHuong` (chê) | quân rời xa chiến trường; nước tốt nhất đặt **quân lớn** vào chiến trường | quân không bị dọa | cùng độ sâu, biến tốt nhất khống chế chiến trường hơn ≥ 3 ô; đối phương đưa quân vào đó; đối phương **không** phạt bằng ăn quân lớn (thì là lỗi chiến thuật) | loss ≥ 50 |
+| `checkDatDungViTri` (khen) | chính nước tốt nhất; vào chiến trường từ ngoài, hoặc làm căn cho Xe/Mã/Pháo đang không căn | quân không bị dọa | quân trụ 6 nửa nước; quân được làm căn không bị ăn; vào chiến trường thì khống chế hơn biến của nước thứ hai ≥ 2 ô | không hớ, hơn nước thứ hai (MultiPV) ≥ 40, bên đi không thua rõ |
+
+Lời khen bỏ qua `isSignificantMove` (analysis.ts) vì chính bài này khen nước lặng; tiêu chí "đáng bình" của nó là hơn rõ nước thứ hai.
+Luật trong `RULES`: không `losesMaterial`, `materialSettled ≥ -50`.
+
+Audit phễu `checkLechHuong` trên 240 ván (cache 30k, 18.726 nước có điểm): 10 nước gắn (≈ 0,4% số nước thiệt ≥ 50).
+Rớt nhiều nhất ở tầng 1 (quân không rời chiến trường 2.820; biến không có hướng rõ 864). Bộ khen chưa audit được trên kỳ phổ
+vì cache không có MultiPV.
+
+Còn lại: thế chuẩn của 3 ví dụ trong bài (Vương Gia Lương – Dương Quang Lân: Xe 4 bình 1 / Xe 4 thoái 2; thế "Tiên nhân chỉ lộ":
+Pháo 2 bình 9; Hồ Vinh Hoa – Vương Gia Lương 1965) — chờ người dùng gửi FEN để làm test chuẩn và benchmark.
+
 ## 5. Cách làm và kiểm
 
 **Test** ([zhao-principles.test.ts](../src/lib/xiangqi/zhao-principles.test.ts), xem khối "Pháo Trầm Đáy" làm mẫu):

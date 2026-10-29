@@ -19,15 +19,24 @@ async function main() {
   const { promoteAdmins } = await import("./src/server/admin");
   const { awardPreviousSeasonIfDue } = await import("./src/server/economy");
   const { StageRelay } = await import("./src/server/stage-relay");
+  const { LiveBotService } = await import("./src/server/bot/service");
+  const { handleBotRequest } = await import("./src/server/bot/handler");
 
   const port = Number(process.env.PORT ?? 3000);
   const server = createServer();
   const app = next({ dev, hostname: "localhost", port, httpServer: server });
   const [dbHandle] = await Promise.all([getDbHandle(), app.prepare()]);
 
+  const bot = new LiveBotService();
+
   const handle = app.getRequestHandler();
   server.on("request", (req, res) => {
-    void handle(req, res);
+    void (async () => {
+      const handled = await handleBotRequest(req, res, bot);
+      if (!handled) {
+        handle(req, res);
+      }
+    })();
   });
 
   const games = new GameServer({

@@ -450,8 +450,10 @@ export const ZHAO_LESSONS: Record<number, ZhaoLessonCard> = {
       { text: "Câu nói quan trọng nhất là đặt đúng quân cờ vào đúng vị trí.", at: "20:25" },
       { text: "Như vậy là chúng ta đã khép lại phần mưu thế với một ván cờ đầy cảm xúc giữa Hồ Vinh Hoa và Vương Gia Lương.", at: "51:13" },
     ],
-    kind: "summary",
+    // Tổng kết nhưng vẫn gắn được: vị trí đúng là so với chiến trường của biến tốt nhất (direction.ts)
+    kind: "evaluative",
     video: "Z5179E1yznE",
+    tacticId: "datDungViTri",
   },
   25: {
     lesson: 25,

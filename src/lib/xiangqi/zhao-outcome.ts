@@ -81,6 +81,9 @@ const RULES: Record<string, Rule> = {
   kiemCheDinhCung: (o) => o.kind === "mate" || (o.kind !== "losesMaterial" && o.materialSettled >= 0),
   khongCheKyHa: (o) => o.kind === "mate" || (o.kind !== "losesMaterial" && o.materialSettled >= 0),
   phongToaLoXe: (o) => o.kind === "mate" || (o.kind !== "losesMaterial" && o.materialSettled >= 0),
+  // Phương hướng (checkLechHuong, checkDatDungViTri): chuyện vị trí chứ không phải vật chất — nước mất quân thì
+  // lời giải thích đúng là chiến thuật, không phải lệch hướng
+  datDungViTri: (o) => o.kind !== "losesMaterial" && o.materialSettled >= -50,
   // Cố ý KHÔNG có trong bảng (để tắt), vì một biến engine không đo được điều bài giảng nói:
   //  - voSuTienTotBien (bài 7): giá trị của nước là chờ đối phương tự phá thế giằng co, không hiện ra trong vài nửa nước.
   //  - phaoGanh (bài 26), lienHoanMa (bài 27): kỳ lý phòng thủ — muốn biết nước có dập được đe dọa không phải chấm thêm

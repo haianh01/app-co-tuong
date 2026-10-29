@@ -461,6 +461,7 @@ export type ZhaoTactics =
   | "tranhDoatLo3Lo7"      // Tranh đoạt lộ 3 và lộ 7 (Triệu Hâm Hâm Bài 21)
   | "phongToaLoXe"         // Phong tỏa & phản phong tỏa lộ Xe (Triệu Hâm Hâm Bài 22)
   | "totBienDaiNao"       // Tập kích đường biên - Tốt biên đại náo (Triệu Hâm Hâm Bài 23)
+  | "datDungViTri"        // Đặt đúng quân vào đúng vị trí / lệch hướng (Triệu Hâm Hâm Bài 24), xem direction.ts
   | "songXePhoiHop"      // Sự kết hợp bá đạo của Song Xe (Triệu Hâm Hâm Bài 25)
   | "phaoGanh"           // Pháo gánh & Đạn tử pháo (Triệu Hâm Hâm Bài 26)
   | "lienHoanMa"         // Liên hoàn Mã (Triệu Hâm Hâm Bài 27)
@@ -508,7 +509,13 @@ export interface ZhaoTacticsOptions {
   pv?: Move[];
   loss?: number;
   /** Điểm thế TRƯỚC nước đi theo bên đi, kèm nước tốt nhất và PV của nó. */
-  evalBefore?: { score: number; best?: Move | null; pv?: Move[] } | null;
+  evalBefore?: {
+    score: number;
+    best?: Move | null;
+    pv?: Move[];
+    /** MultiPV của thế trước nước đi (theo bên đi), mỗi biến bắt đầu bằng nước `best` của nó. */
+    lines?: { best: Move | null; score: number; pv?: Move[] }[];
+  } | null;
   /** Điểm thế SAU nước đi theo đối phương (dương = đối phương hơn). */
   evalAfter?: { score: number } | null;
   /** Các nước đã đi trước nước này theo thứ tự thời gian (nước cuối là nước vừa rồi của đối phương). */

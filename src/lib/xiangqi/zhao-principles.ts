@@ -24,6 +24,7 @@ import { decisiveBlow, engineLine, mateEnd, mateText, narrate, pieceRole, tally,
 import { classifyMoveOutcome } from "./move-outcome";
 import { MATE_SCORE, MATE_THRESHOLD } from "./uci";
 import { advance, attackPressure } from "./strategy";
+import { checkDatDungViTri, checkLechHuong } from "./direction";
 
 type Detector = (before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions) => ZhaoMiddlegameFact | null;
 
@@ -1498,6 +1499,20 @@ export function detectDeepCannonBottom(
   const r = checkDeepCannonBottom(before, move, after, options);
   if (!r?.ok) return null;
   return fact(before, move, "phaoTramDay", r.summary, "Pháo trầm đáy");
+}
+
+/**
+ * Bài 24 — Đặt đúng quân vào đúng vị trí: chê khi quân lớn rời chiến trường của biến tốt nhất (checkLechHuong),
+ * khen khi nước lặng đặt quân đúng chỗ hơn rõ nước tự nhiên thứ hai (checkDatDungViTri). Chỉ gắn khi qua cả bốn tầng.
+ */
+export function detectDatDungViTri(
+  before: Board, move: Move, after: Board, options?: ZhaoTacticsOptions,
+): ZhaoMiddlegameFact | null {
+  const off = checkLechHuong(before, move, after, options);
+  if (off?.ok) return fact(before, move, "datDungViTri", off.summary, "Lệch hướng", "critique");
+  const on = checkDatDungViTri(before, move, after, options);
+  if (on?.ok) return fact(before, move, "datDungViTri", on.summary, "Đặt đúng quân vào đúng vị trí");
+  return null;
 }
 
 // ============================================================================
@@ -4138,6 +4153,8 @@ const PRIORITY: Detector[] = [
   detectPhongToaLoXe,
   detectKiemCheDinhCung,
   detectVoSuTienTotBien,
+  // Phương hướng đứng sau các kỳ lý cụ thể: nước đã có tên kỳ lý riêng thì gọi tên đó
+  detectDatDungViTri,
   detectFlankSwitch,
   detectProphylaxis,
   detectWorstPieceImprovement,

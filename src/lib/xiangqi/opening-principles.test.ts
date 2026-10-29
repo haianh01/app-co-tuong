@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseFen, play, sq, type Board, type Move, isLegal } from "./engine";
+import { parseFen, play, sq, type Board, type Move, isLegal, START_FEN } from "./engine";
 import { uciMovesToMoves } from "./uci";
 import {
   checkDaiXuatXe,
@@ -18,8 +18,10 @@ import {
   detectLuongDauXa,
   checkPhiTuongTanTrungBinh,
   detectPhiTuongTanTrungBinh,
+  detectOpeningFormations,
   OPENING_QUOTE_AT,
 } from "./opening-principles";
+import { uciToMove } from "./uci";
 import { ZHAO_OPENING_LESSONS } from "./zhao48-opening-lessons";
 
 const real = (fen: string, from: number, to: number, uciPv: string[], scoreForMover: number, loss = 0) => {
@@ -362,5 +364,69 @@ describe("opening-principles: bộ nhận diện 4 tầng kỳ lý khai cuộc",
     for (const [tactic, at] of Object.entries(OPENING_QUOTE_AT)) {
       expect(ZHAO_OPENING_LESSONS[lessonOf[tactic]]!.quotes.map((q) => q.at), tactic).toContain(at);
     }
+  });
+
+  describe("Bài bố cục: ghi chú khi nước đi đưa ván vào hình của bài", () => {
+    /** Đi chuỗi nước uci từ thế đầu, trả về thế trước và sau nước cuối. */
+    const line = (ucis: string[]) => {
+      let board = parseFen(START_FEN).board;
+      const moves = ucis.map((u) => uciToMove(u)!);
+      for (const m of moves.slice(0, -1)) board = play(board, m);
+      const move = moves[moves.length - 1];
+      return { before: board, move, after: play(board, move) };
+    };
+    const sound = (pv: string[]) => ({ pv: uciMovesToMoves(pv), loss: 0, evalAfter: { score: 0 } });
+
+    it("Pháo đầu đối Pháo đầu: Đen đáp Pháo đầu → bài 35", () => {
+      const t = line(["h2e2", "h7e7"]);
+      const facts = detectOpeningFormations(t.before, t.move, t.after, sound(["h0g2", "h9g7", "i0h0"]), "P2-5");
+      expect(facts.map((f) => f.lesson)).toContain(35);
+      expect(facts.find((f) => f.lesson === 35)).toMatchObject({ kind: "zhaoOpening", side: "b", tone: "note" }); // bài 35 loại đánh giá
+    });
+
+    it("Xe hoành: bài theo loại khai cuộc của nước đầu ván", () => {
+      const t = line(["h2e2", "h9g7", "a0a1"]);
+      expect(detectOpeningFormations(t.before, t.move, t.after, sound(["i9h9", "a1f1", "a9a8"]), "P2-5").map((f) => f.lesson)).toContain(6);
+      expect(detectOpeningFormations(t.before, t.move, t.after, sound(["i9h9", "a1f1", "a9a8"]), "B3.1").map((f) => f.lesson)).toContain(8);
+      // Không rõ nước đầu (ván nạp giữa chừng) thì không đoán loại khai cuộc
+      expect(detectOpeningFormations(t.before, t.move, t.after, sound(["i9h9", "a1f1", "a9a8"])).map((f) => f.lesson)).not.toContain(6);
+    });
+
+    it("Trực Xe cấp công (bài 3) là Xe lộ 2 tiến thẳng qua sông, không phải Xe bình sang lộ 2", () => {
+      const pv = sound(["h9g7", "b9c7", "b0c2"]);
+      const qh = line(["h2e2", "h9g7", "i0h0", "i9h9", "h0h6"]);
+      expect(detectOpeningFormations(qh.before, qh.move, qh.after, pv, "P2-5").map((f) => f.lesson)).toContain(3);
+      // Xe 1 bình 2 ở thế Pháo đầu chưa qua sông: hoãn công, bài 5
+      const binh = line(["h2e2", "h9g7", "i0h0"]);
+      expect(detectOpeningFormations(binh.before, binh.move, binh.after, sound(["i9h9", "h0h6", "b9c7"]), "P2-5").map((f) => f.lesson)).toEqual(expect.not.arrayContaining([3]));
+    });
+
+    it("Bài Xe trực / Xe hoành chỉ xét Xe Đỏ", () => {
+      const t = line(["h2e2", "h9g7", "h0g2", "i9h9"]);
+      expect(detectOpeningFormations(t.before, t.move, t.after, sound(["i0h0", "b9c7", "b0c2"]), "P2-5").map((f) => f.lesson)).toEqual([]);
+    });
+
+    it("Song chính Mã → bài 21", () => {
+      const t = line(["h2e2", "h9g7", "h0g2", "b9c7", "b0c2"]);
+      expect(detectOpeningFormations(t.before, t.move, t.after, sound(["i9h9", "a1f1", "a9a8"]), "P2-5").map((f) => f.lesson)).toContain(21);
+    });
+
+    it("Tượng biên là lời chê: chỉ gắn khi engine chê nước đi", () => {
+      const t = line(["h2e2", "g9i7"]);
+      expect(detectOpeningFormations(t.before, t.move, t.after, sound(["h0g2", "h9g7", "i0h0"]), "P2-5").map((f) => f.lesson)).not.toContain(46);
+      const bad = { pv: uciMovesToMoves(["h0g2", "h9g7", "i0h0"]), loss: 80, evalAfter: { score: 80 } };
+      expect(detectOpeningFormations(t.before, t.move, t.after, bad, "P2-5").find((f) => f.lesson === 46)).toMatchObject({ tone: "critique" });
+    });
+
+    it("Không có biến engine thì không ghi chú", () => {
+      const t = line(["h2e2", "h7e7"]);
+      expect(detectOpeningFormations(t.before, t.move, t.after, undefined, "P2-5")).toEqual([]);
+    });
+
+    it("Ghi chú bố cục có câu trích thật của bài", () => {
+      const t = line(["h2e2", "h7e7"]);
+      const f = detectOpeningFormations(t.before, t.move, t.after, sound(["h0g2", "h9g7", "i0h0"]), "P2-5").find((x) => x.lesson === 35)!;
+      expect(ZHAO_OPENING_LESSONS[35]!.quotes).toContainEqual(f.quote);
+    });
   });
 });

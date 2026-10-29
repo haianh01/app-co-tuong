@@ -609,19 +609,43 @@ function PlayerCard({
   );
 }
 
+/** Nhân vật AI (trang /avatar của live-bot-demo) nhúng vào khung camera.
+ *  ?ai=1 → máy này cổng 4000; ?ai=<địa chỉ http(s)> → trang avatar ở chỗ khác. */
+export function aiAvatarSrc(sp: URLSearchParams): string | null {
+  const raw = sp.get("ai");
+  if (!raw || raw === "0") return null;
+  let url: URL;
+  try {
+    url = raw === "1" ? new URL("http://localhost:4000/avatar") : new URL(raw);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  if (!url.searchParams.has("voice")) url.searchParams.set("voice", "1");
+  url.searchParams.set("compact", "1");
+  return url.toString();
+}
+
 /** Khung Camera Streamer / OBS góc trên phải: kích thước 590×340 (tỉ lệ chuẩn 16:9 của webcam) */
 function ZigaLiveCard({
   state,
   recap,
   onTestVoice,
+  aiSrc,
 }: {
   state: StageState;
   recap: { shown: boolean; toggle: () => void };
   onTestVoice?: () => void;
+  /** Có thì nhân vật AI đứng trong khung: thay chỗ ngắm camera, hoặc đứng nửa phải khi đang bật webcam. */
+  aiSrc?: string | null;
 }) {
   const [webcamActive, setWebcamActive] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  // ?cam=obs: camera OBS đặt đè lên nửa trái khung, nên nhân vật nhường chỗ sang nửa phải như khi bật webcam.
+  const obsCam = new URLSearchParams(useLocationSearch()).get("cam") === "obs";
+  const splitCam = webcamActive || obsCam;
 
   const toggleWebcam = useCallback(async () => {
     if (webcamActive) {
@@ -688,6 +712,15 @@ function ZigaLiveCard({
 
       {/* Vùng Camera chính: hiển thị video webcam hoặc khung ngắm OBS */}
       <div className={styles.liveCamArea}>
+        {aiSrc && (
+          <iframe
+            src={aiSrc}
+            title="Nhân vật AI"
+            className={styles.aiAvatarFrame}
+            data-beside-cam={splitCam || undefined}
+            allow="autoplay"
+          />
+        )}
         {webcamActive ? (
           <video
             ref={videoRef}
@@ -696,7 +729,12 @@ function ZigaLiveCard({
             muted
             className={styles.cameraVideo}
           />
-        ) : (
+        ) : aiSrc && obsCam ? (
+          <div className={styles.obsCamSlot}>
+            <span className={styles.camTitle}>CAMERA OBS</span>
+            <span className={styles.camSubtitle}>Đặt nguồn camera vào nửa này</span>
+          </div>
+        ) : aiSrc ? null : (
           <div className={styles.camPlaceholder}>
             {/* 4 góc ngắm camera chuẩn chuyên nghiệp */}
             <div className={styles.camCornerTL} aria-hidden="true" />
@@ -1053,6 +1091,7 @@ export function StageClient() {
   const isTransparent = sp.get("bg") === "transparent" || sp.get("transparent") === "1";
   const isPreview = sp.get("preview") === "1" || sp.get("demo") === "1" || param === "preview" || param === "demo";
   const isPuzzlePreview = sp.get("preview") === "puzzle" || sp.get("puzzle") === "1";
+  const aiSrc = useMemo(() => aiAvatarSrc(sp), [sp]);
 
   const [ply, setPly] = useState(0);
   const recap = useRecap();
@@ -1163,6 +1202,7 @@ export function StageClient() {
             moment={moment}
             recap={recap}
             speechBubble={speechBubble}
+            aiSrc={aiSrc}
             onTestVoice={() => {
               unlockAudio();
               const lines = state.settings.voiceLines ?? DEFAULT_STAGE_VOICE_LINES;
@@ -1185,6 +1225,7 @@ function Stage({
   recap,
   speechBubble,
   onTestVoice,
+  aiSrc,
 }: {
   state: StageState;
   /** Mã phòng khi đang nối trang điều khiển thật (bản xem trước: null, các nút hành động bị tắt). */
@@ -1195,6 +1236,7 @@ function Stage({
   recap: { shown: boolean; toggle: () => void; close: () => void };
   speechBubble: { text: string; type: StageVoiceEvent } | null;
   onTestVoice?: () => void;
+  aiSrc?: string | null;
 }) {
   const { settings, mySide, turn } = state;
   const oppSide: Side = mySide === "r" ? "b" : "r";
@@ -1492,6 +1534,7 @@ function Stage({
           state={state}
           recap={recap}
           onTestVoice={onTestVoice}
+          aiSrc={aiSrc}
         />
       </section>
 

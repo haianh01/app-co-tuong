@@ -445,6 +445,41 @@
   background: #000;
 }
 
+/* Nhân vật AI nền trong suốt, chồng trên nền khung; khi bật webcam thì đứng nửa phải, đè lên video. */
+.aiAvatarFrame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color-scheme: normal;
+  z-index: 1;
+}
+
+.aiAvatarFrame[data-beside-cam] {
+  left: auto;
+  width: 48%;
+  z-index: 2;
+}
+
+/* Ô chờ camera OBS ở nửa trái khi chia đôi với nhân vật AI; nguồn camera trong OBS sẽ phủ lên ô này. */
+.obsCamSlot {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 10px;
+  width: calc(52% - 16px);
+  border: 1.5px dashed rgba(227, 168, 58, 0.45);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  text-align: center;
+}
+
 .camPlaceholder {
   width: 100%;
   height: 100%;

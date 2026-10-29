@@ -5,7 +5,7 @@ import { PUZZLES, findPuzzle, type Puzzle } from "@/lib/xiangqi/puzzles";
 import { buildPuzzleStage, type StagePuzzleLive, type StagePuzzleState } from "../stage-puzzle";
 import { moveNotation } from "@/lib/xiangqi/notation";
 import { DEFAULT_STAGE_SETTINGS, buildStageState } from "../stage-sync";
-import { StageClient } from "./StageClient";
+import { StageClient, aiAvatarSrc } from "./StageClient";
 
 vi.mock("@/components/session/SessionProvider", () => ({
   useSession: () => ({ user: null }),
@@ -601,3 +601,26 @@ describe("sân khấu Thử thách cờ thế", () => {
   });
 });
 
+
+describe("nhân vật AI trong khung camera", () => {
+  const src = (q: string) => aiAvatarSrc(new URLSearchParams(q));
+
+  it("ai=1 trỏ về trang avatar máy này, tự bật giọng và chế độ ô nhỏ", () => {
+    expect(src("ai=1")).toBe("http://localhost:4000/avatar?voice=1&compact=1");
+  });
+
+  it("giữ tham số riêng của địa chỉ tự nhập", () => {
+    const url = new URL(src(`ai=${encodeURIComponent("http://192.168.1.5:4000/avatar?zoom=3&voice=0")}`)!);
+    expect(url.host).toBe("192.168.1.5:4000");
+    expect(url.searchParams.get("zoom")).toBe("3");
+    expect(url.searchParams.get("voice")).toBe("0");
+    expect(url.searchParams.get("compact")).toBe("1");
+  });
+
+  it("không có, tắt, hoặc địa chỉ lạ thì không nhúng", () => {
+    expect(src("")).toBeNull();
+    expect(src("ai=0")).toBeNull();
+    expect(src("ai=javascript:alert(1)")).toBeNull();
+    expect(src("ai=khong-phai-url")).toBeNull();
+  });
+});

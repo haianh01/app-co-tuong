@@ -17,7 +17,18 @@
   .q { font-size: 14px; color: #d6d6d6; margin-top: 2px; }
   .a { margin-top: 4px; }
   #hint { position: fixed; top: 8px; left: 8px; right: 8px; padding: 8px 12px; border-radius: 8px; background: #fff3cd; color: #5c4400; font-size: 14px; cursor: pointer; }
+  /* compact=1: nhúng trong khung camera của Sân khấu (~590×340), phụ đề gọn hơn, chỉ hiện lời đáp. */
+  .compact #box { left: 8px; right: 8px; bottom: 6px; padding: 6px 10px; border-radius: 10px; font-size: 15px; line-height: 1.35; border-left-width: 4px; }
+  .compact .who { font-size: 12px; }
+  .compact .q { display: none; }
+  .compact .a { margin-top: 1px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .compact #hint, .compact #error { top: 4px; left: 4px; right: 4px; padding: 4px 8px; font-size: 12px; }
   #error { position: fixed; top: 8px; left: 8px; right: 8px; padding: 8px 12px; border-radius: 8px; background: #ffe0e0; color: #7a1010; font-size: 14px; }
+  /* perch=…: nhân vật nhỏ ngồi trên vai streamer, phụ đề lên mép trên cho khỏi che người. */
+  .perch #box { top: 6px; bottom: auto; transform: translateY(-8px); }
+  .perch #box.show { transform: none; }
+  .perch canvas.grab { cursor: grab; }
+  .perch canvas.grabbing { cursor: grabbing; }
 </style>
 </head>
 <body>
@@ -32,20 +43,34 @@
 <script>
 // Tham số trên địa chỉ:
 //   voice=1  tự đọc to (dùng cái này trong OBS, thay cho /overlay)
-//   model=…  đường dẫn file .model3.json (mặc định Haru mẫu của Live2D)
+//   model=…  đường dẫn file .model3.json (mặc định Mao, mẫu miễn phí của Live2D; Haru: /live-bot/models/haru/haru_greeter_t03.model3.json)
 //   name=…   tên hiện trên khung phụ đề
 //   zoom=…   1 là cả người, 1.8 là nửa người (mặc định)
+//   perch=right|left  ngồi trên vai phải/trái (theo màn hình) của streamer, chồng lên hình webcam.
+//            Kéo nhân vật để dời chỗ, lăn chuột để đổi cỡ, bấm đúp để về mặc định; nhớ theo trình duyệt.
+//   pose=stand  đứng hẳn trên vai (mặc định ngồi: cắt ngang hông, phần dưới như khuất sau vai)
 const params = new URLSearchParams(location.search);
+// compact=1: ô nhỏ trong khung camera của Sân khấu (phụ đề gọn, mặc định zoom 2.6).
+const COMPACT = params.get("compact") === "1";
+if (COMPACT) document.documentElement.classList.add("compact");
+const PERCH = ["left", "right"].includes(params.get("perch")) ? params.get("perch") : null;
+if (PERCH) document.documentElement.classList.add("perch");
+const SIT = params.get("pose") !== "stand";
 const withVoice = params.get("voice") === "1";
-const MODEL_URL = params.get("model") || "/live-bot/models/haru/haru_greeter_t03.model3.json";
+const MODEL_URL = params.get("model") || "/live-bot/models/mao/Mao.model3.json";
 const NAME = params.get("name") || "🤖 AI trợ lý";
-const ZOOM = Number(params.get("zoom") || 1.8);
+const ZOOM = Number(params.get("zoom") || (COMPACT ? 2.6 : 1.8));
+// Không đặt ?name= thì lấy tên nhân vật trong .env (BOT_NAME).
+if (!params.get("name")) fetch("/api/bot/status").then((r) => r.json()).then((s) => (document.getElementById("who").textContent = "🤖 " + s.botName)).catch(() => {});
 document.getElementById("who").textContent = NAME;
 
 // Âm lượng giọng đọc → độ mở miệng; làm mượt để miệng không giật.
 let level = 0;
 let mouth = 0;
 let model = null;
+// Mỗi model đặt tên tham số miệng và nhóm động tác khác nhau (Haru: ParamMouthOpenY/Tap, Mao: ParamA/TapBody).
+let lipIds = ["ParamMouthOpenY"];
+let tapGroup = null;
 
 const speaker = window.createSpeaker({
   onLevel: (v) => (level = v),
@@ -54,7 +79,7 @@ const speaker = window.createSpeaker({
     show(r);
     if (!model) return;
     model.expression(); // đổi ngẫu nhiên biểu cảm mỗi lần trả lời
-    if (Math.random() < 0.5) model.motion("Tap");
+    if (tapGroup && Math.random() < 0.5) model.motion(tapGroup);
   },
 });
 
@@ -65,25 +90,86 @@ const app = new PIXI.Application({
   antialias: true,
 });
 
+// Ngồi trên vai: x, y là chỗ vai (tỉ lệ khung), size là chiều cao phần nhân vật lộ ra (tỉ lệ chiều cao khung).
+// Mặc định canh webcam 16:9 người ngồi giữa khung: vai ở khoảng 1/5 và 4/5 bề ngang, gần mép dưới.
+const PERCH_DEFAULT = { x: PERCH === "left" ? 0.24 : 0.76, y: 0.82, size: 0.5 };
+const PERCH_KEY = "kydai.avatar.perch." + PERCH;
+// Tỉ lệ chiều cao model (tính từ đỉnh khung model) tới ngang hông, chỗ cắt khi ngồi; ?cut= để chỉnh cho model khác.
+const CUT = Number(params.get("cut") || 0.64);
+let perch = { ...PERCH_DEFAULT };
+try { Object.assign(perch, JSON.parse(localStorage.getItem(PERCH_KEY) || "{}")); } catch {}
+const savePerch = () => { try { localStorage.setItem(PERCH_KEY, JSON.stringify(perch)); } catch {} };
+// Ngồi: cắt canvas ngang vai (mask của PIXI không ăn với model Live2D vì nó tự vẽ WebGL), phần dưới hông như khuất sau vai.
+const canvasEl = document.getElementById("canvas");
+
 function fit() {
   if (!model) return;
   model.scale.set(1);
+  if (PERCH) {
+    const shown = SIT ? CUT : 1;
+    model.scale.set((perch.size * innerHeight) / (model.height * shown));
+    model.anchor.set(0.5, shown);
+    model.position.set(perch.x * innerWidth, perch.y * innerHeight);
+    canvasEl.style.clipPath = SIT ? `inset(0 0 ${(1 - perch.y) * 100}% 0)` : "";
+    return;
+  }
   const s = Math.min(innerWidth / model.width, innerHeight / model.height) * ZOOM;
   model.scale.set(s);
   model.anchor.set(0.5, 0);
-  model.position.set(innerWidth / 2, innerHeight * 0.02);
+  // Ô nhỏ: hạ đầu xuống một chút cho cân khung.
+  model.position.set(innerWidth / 2, innerHeight * (COMPACT ? 0.06 : 0.02));
+}
+
+// Kéo thả / lăn chuột để đặt nhân vật đúng lên vai thật trong hình webcam.
+function enablePerchEditing(canvas) {
+  let drag = null;
+  const onModel = (e) => model && model.getBounds().contains(e.clientX, e.clientY);
+  canvas.addEventListener("pointermove", (e) => {
+    if (!drag) return canvas.classList.toggle("grab", onModel(e));
+    perch.x = Math.min(1, Math.max(0, drag.x + (e.clientX - drag.cx) / innerWidth));
+    perch.y = Math.min(1, Math.max(0.1, drag.y + (e.clientY - drag.cy) / innerHeight));
+    fit();
+  });
+  canvas.addEventListener("pointerdown", (e) => {
+    if (!onModel(e)) return;
+    drag = { x: perch.x, y: perch.y, cx: e.clientX, cy: e.clientY };
+    canvas.setPointerCapture(e.pointerId);
+    canvas.classList.add("grabbing");
+  });
+  canvas.addEventListener("pointerup", () => {
+    if (!drag) return;
+    drag = null;
+    canvas.classList.remove("grabbing");
+    savePerch();
+  });
+  canvas.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    perch.size = Math.min(1.2, Math.max(0.15, perch.size * (e.deltaY < 0 ? 1.08 : 1 / 1.08)));
+    fit();
+    savePerch();
+  }, { passive: false });
+  canvas.addEventListener("dblclick", () => {
+    perch = { ...PERCH_DEFAULT };
+    fit();
+    savePerch();
+  });
 }
 
 PIXI.live2d.Live2DModel.from(MODEL_URL, { autoInteract: false })
   .then((m) => {
     model = m;
+    const json = model.internalModel.settings.json;
+    const lip = json.Groups?.find((g) => g.Name === "LipSync")?.Ids;
+    if (lip?.length) lipIds = lip;
+    tapGroup = Object.keys(json.FileReferences?.Motions ?? {}).find((g) => g !== "Idle") ?? null;
     app.stage.addChild(model);
+    if (PERCH) enablePerchEditing(app.view);
     fit();
     window.addEventListener("resize", fit);
     // Chạy sau chuyển động có sẵn, trước khi vẽ: ghi đè độ mở miệng theo giọng đọc.
     model.internalModel.on("beforeModelUpdate", () => {
       mouth += (level - mouth) * 0.5;
-      model.internalModel.coreModel.setParameterValueById("ParamMouthOpenY", Math.min(1, mouth * 1.4));
+      for (const id of lipIds) model.internalModel.coreModel.setParameterValueById(id, Math.min(1, mouth * 1.4));
     });
   })
   .catch((err) => {
@@ -92,8 +178,11 @@ PIXI.live2d.Live2DModel.from(MODEL_URL, { autoInteract: false })
     e.hidden = false;
   });
 
-// Trình duyệt thường chặn tiếng khi chưa bấm vào trang; OBS thì không chặn.
-if (withVoice && !window.obsstudio) {
+// Trình duyệt thường chặn tiếng khi chưa bấm vào trang; OBS thì không chặn
+// (trong iframe của Sân khấu, OBS có thể chỉ gắn window.obsstudio ở trang cha).
+let inObs = !!window.obsstudio;
+try { inObs = inObs || !!window.parent.obsstudio; } catch {}
+if (withVoice && !inObs) {
   const hint = document.getElementById("hint");
   hint.hidden = false;
   document.addEventListener("click", () => (hint.hidden = true), { once: true });
@@ -103,7 +192,7 @@ const box = document.getElementById("box");
 let hideTimer;
 function show(r) {
   clearTimeout(hideTimer);
-  document.getElementById("q").textContent = r.origin === "game" ? "♟ Diễn biến ván" : "@" + r.user + ": " + r.question;
+  document.getElementById("q").textContent = r.origin === "game" ? "♟ Diễn biến ván" : r.origin === "tip" ? "💡 Mẹo kỳ lý" : r.origin === "remind" ? "🧭 Nhắc anh chủ kênh" : "@" + r.user + ": " + r.question;
   document.getElementById("a").textContent = r.reply;
   box.classList.add("show");
 }
@@ -113,6 +202,7 @@ function hideAfter(ms) {
 }
 new EventSource("/api/bot/events").onmessage = (e) => {
   const r = JSON.parse(e.data);
+  if (r.botName && !params.get("name")) document.getElementById("who").textContent = "🤖 " + r.botName;
   if (!r.reply) return;
   // Có giọng: xếp hàng, đọc xong câu này mới hiện và đọc câu sau.
   if (withVoice && !r.silent) return speaker.say(r.reply, r);

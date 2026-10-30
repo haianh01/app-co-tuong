@@ -7,7 +7,7 @@ import { useLocationSearch } from "@/hooks/useLocationSearch";
 import { STAGE_ROOM_RE, stageSocketUrl, type StageCommand, type StageRelayMessage, type StageViewMessage, type StageVoiceEvent } from "@/lib/stage-protocol";
 import { formatClock } from "@/lib/vision/zigavn-panels";
 import { PIECE_CHAR } from "@/lib/xiangqi/notation";
-import { applyMove, initialPosition, outcome, parseFen, toFen, type Board, type PieceType, type Side } from "@/lib/xiangqi/engine";
+import { applyMove, initialPosition, outcome, parseFen, toFen, sideOf, type Board, type PieceType, type Side } from "@/lib/xiangqi/engine";
 import { usePositionAnalysis } from "@/hooks/usePositionAnalysis";
 import type { PositionAnalysisResult } from "@/lib/xiangqi/position-analysis";
 import { MatchCommentaryDrawer } from "./MatchCommentaryDrawer";
@@ -30,6 +30,9 @@ const STAGE_DRAWING_COLORS = [
   { value: "#ef4444", label: "đỏ" },
   { value: "#f59e0b", label: "vàng" },
 ] as const;
+/** Mũi tên vẽ từ quân đối thủ: màu riêng, khác cả bảng màu ở trên, để khán giả phân biệt hướng đi hai bên. Mũi tên từ quân
+ *  mình (và khoanh ô) vẫn theo màu đang chọn. */
+const OPPONENT_ARROW_COLOR = "#a855f7";
 
 /** Thẻ tóm tắt cho người mới vào: chỉ hiện khi người dùng bấm hoặc nhận tin recap từ trang điều khiển. */
 const RECAP_SHOW_MS = 10_000;
@@ -609,20 +612,27 @@ function PlayerCard({
   );
 }
 
-/** Nhân vật AI (trang avatar của trợ lý live) nhúng vào khung camera.
- *  ?ai=1 → cùng máy chủ với trang này; ?ai=<địa chỉ http(s)> → trang avatar ở chỗ khác. */
+/** Nhân vật AI (trang avatar của trợ lý live) nhúng vào khung camera. Mặc định BẬT (mở sân khấu là có AI):
+ *  không ghi hoặc ?ai=1 → avatar cùng máy chủ với trang này; ?ai=0 → tắt; ?ai=<địa chỉ http(s)> → avatar ở chỗ khác. */
 export function aiAvatarSrc(sp: URLSearchParams, origin?: string): string | null {
-  const raw = sp.get("ai");
-  if (!raw || raw === "0") return null;
+  const raw = sp.get("ai") ?? "1";
+  if (raw === "0") return null;
   let url: URL;
   try {
-    url = raw === "1" ? new URL("/live-bot/avatar.html", origin ?? window.location.origin) : new URL(raw);
+    url = raw === "1" || raw === "" ? new URL("/live-bot/avatar.html", origin ?? window.location.origin) : new URL(raw);
   } catch {
     return null;
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return null;
   if (!url.searchParams.has("voice")) url.searchParams.set("voice", "1");
   url.searchParams.set("compact", "1");
+  return url.toString();
+}
+
+/** Địa chỉ avatar khi đã bật webcam: nhân vật nhỏ ngồi trên vai streamer (kéo thả trong ô để đổi vai). */
+export function aiPerchSrc(aiSrc: string): string {
+  const url = new URL(aiSrc);
+  if (!url.searchParams.has("perch")) url.searchParams.set("perch", "right");
   return url.toString();
 }
 
@@ -683,10 +693,43 @@ function ZigaLiveCard({
     };
   }, []);
 
+  // Video chỉ render sau khi bật cam, nên gắn luồng camera lúc thẻ <video> xuất hiện.
+  const attachVideo = useCallback((el: HTMLVideoElement | null) => {
+    videoRef.current = el;
+    if (el && streamRef.current && el.srcObject !== streamRef.current) el.srcObject = streamRef.current;
+  }, []);
+
   if (aiSrc) {
     return (
       <div className={styles.aiOnlyCard}>
-        <iframe src={aiSrc} title="Nhân vật AI" className={styles.aiAvatarFrame} allow="autoplay" />
+        {/* Bật cam: hình streamer phủ cả ô, nhân vật thu nhỏ ngồi trên vai (avatar.html?perch=…). */}
+        {webcamActive && <video ref={attachVideo} autoPlay playsInline muted className={styles.aiCamVideo} />}
+        <iframe
+          key={webcamActive ? "perch" : "solo"}
+          src={webcamActive ? aiPerchSrc(aiSrc) : aiSrc}
+          title="Nhân vật AI"
+          className={styles.aiAvatarFrame}
+          allow="autoplay"
+        />
+        {/* AI bật mặc định nên vẫn giữ nút Tóm tắt / Thử tiếng của khung camera, thu nhỏ ở góc cho khỏi che nhân vật. */}
+        <div className={styles.aiCardTools} data-cam={webcamActive || undefined}>
+          <button
+            type="button"
+            className={`${styles.miniToolBtn} ${webcamActive ? styles.camActiveBtn : ""}`}
+            onClick={toggleWebcam}
+            title={webcamActive ? "Tắt camera trình duyệt" : "Bật camera: nhân vật AI ngồi trên vai bạn"}
+          >
+            {webcamActive ? "✕ Tắt Cam" : "📷 Bật Camera"}
+          </button>
+          {onTestVoice && (
+            <button type="button" className={styles.miniToolBtn} onClick={onTestVoice} title="Thử âm thanh loa">
+              🔊 Thử tiếng
+            </button>
+          )}
+          <button type="button" className={styles.miniToolBtn} onClick={recap.toggle} title="Bật/ẩn tóm tắt ván">
+            {recap.shown ? "✕ Ẩn tóm tắt" : "📋 Tóm tắt"}
+          </button>
+        </div>
       </div>
     );
   }
@@ -718,7 +761,7 @@ function ZigaLiveCard({
       <div className={styles.liveCamArea}>
         {webcamActive ? (
           <video
-            ref={videoRef}
+            ref={attachVideo}
             autoPlay
             playsInline
             muted
@@ -884,7 +927,7 @@ const channelName = (s: StageState["settings"]) => s.host.trim() || s.me.name;
 
 /** Dải chữ chạy lớn trên cùng: hiển thị ván đấu, tên kênh, khai cuộc, thành tích, lời kêu gọi. */
 /** Dòng giới thiệu AI trên dải chữ chạy khi bật nhân vật AI (?ai=); đổi bằng ?aitext=... */
-export const DEFAULT_AI_TICKER = "🤖 Hôm nay thử nghiệm AI trợ lý: comment câu hỏi về cờ tướng, AI sẽ trả lời bằng giọng nói!";
+export const DEFAULT_AI_TICKER = "🧙 Tiểu Tốt đang ngồi trên vai anh chủ kênh: comment câu hỏi về cờ tướng, Tiểu Tốt sẽ trả lời bằng giọng nói!";
 
 function Ticker({ state, aiText }: { state: StageState; aiText?: string | null }) {
   const { settings } = state;
@@ -1091,6 +1134,8 @@ export function StageClient() {
   const isPreview = sp.get("preview") === "1" || sp.get("demo") === "1" || param === "preview" || param === "demo";
   const isPuzzlePreview = sp.get("preview") === "puzzle" || sp.get("puzzle") === "1";
   const aiSrc = useMemo(() => aiAvatarSrc(sp), [sp]);
+  // Avatar của chính app (không phải địa chỉ ngoài) thì bot là bot của app: tự cho nó theo dõi phòng này.
+  const aiBotHere = !!aiSrc && new URL(aiSrc).origin === (typeof window === "undefined" ? "" : window.location.origin);
   const aiTicker = aiSrc ? sp.get("aitext")?.trim() || DEFAULT_AI_TICKER : null;
 
   const [ply, setPly] = useState(0);
@@ -1123,6 +1168,15 @@ export function StageClient() {
   );
   const state = socketState ?? preview;
   const connected = socketConnected || isPreview || isPuzzlePreview;
+
+  // Mở sân khấu là bot trợ lý tự vào phòng, khỏi dán link trên trang Trợ lý. Gửi lại mỗi lần nối lại
+  // (máy chủ khởi động lại thì bot quên phòng); bot đã ở đúng phòng thì bỏ qua, không reset ván.
+  useEffect(() => {
+    if (!aiBotHere || !room || !socketConnected) return;
+    fetch("/api/bot/stage", { method: "POST", body: room }).catch(() => {
+      // Bot chưa chạy: nhân vật vẫn hiện, chỉ là chưa có tường thuật.
+    });
+  }, [aiBotHere, room, socketConnected]);
 
   useEffect(() => {
     stateRef.current = state;
@@ -1367,6 +1421,11 @@ function Stage({
   const trialControls = useTrialMoves(liveNotations);
   const isTrialActive = Boolean(trialControls.trial);
   const isTrialMode = Boolean(trial || isTrialActive);
+  const annotateBoard = isTrialActive && trialControls.stage ? trialControls.stage.board : displayBoard;
+  const arrowColorAt = (from: number) => {
+    const piece = annotateBoard[from];
+    return piece && sideOf(piece) === oppSide ? OPPONENT_ARROW_COLOR : color;
+  };
   const drawingBeforeTrial = useRef(false);
 
   const toggleTrial = useCallback(() => {
@@ -1565,7 +1624,7 @@ function Stage({
           <EvalBar redScore={deepRedScore ?? (isTrialActive ? null : (gameReview.redScores?.[localReview?.ply ?? 0] ?? null))} bottom={mySide} />
         )}
         <XiangqiBoard
-          board={isTrialActive && trialControls.stage ? trialControls.stage.board : displayBoard}
+          board={annotateBoard}
           orientation={mySide}
           lastMove={isTrialActive && trialControls.stage ? trialControls.stage.lastMove : displayLastMove}
           checkSquare={
@@ -1598,8 +1657,9 @@ function Stage({
           riverWatermark="Cờ Ziga"
           intro={introId !== null && liveFxOn}
           sketchColor={color}
+          sketchColorAt={arrowColorAt}
           onSquareClick={isTrialActive && trialControls.stage ? trialControls.onSquareClick : undefined}
-          onAnnotate={drawing ? (from, to) => draw({ type: "annotate", from, to, color }) : undefined}
+          onAnnotate={drawing ? (from, to) => draw({ type: "annotate", from, to, color: from === to ? color : arrowColorAt(from) }) : undefined}
           disabled={!drawing && !isTrialActive}
         />
         {moment && (

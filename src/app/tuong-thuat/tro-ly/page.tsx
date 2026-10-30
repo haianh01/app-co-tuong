@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import styles from "./tro-ly.module.css";
+import type { BotStyle } from "@/server/bot/types";
 
 interface BotStatus {
   provider: "gemini" | "claude";
@@ -16,7 +17,17 @@ interface BotStatus {
   };
   settings: {
     inGame: boolean;
-    style: "coach" | "humorous" | "zhaoXinxin";
+    style: BotStyle;
+    tips: boolean;
+    remind: boolean;
+    tipMinutes: number;
+    remindMinutes: number;
+    name: string;
+    self: string;
+    persona: string;
+    hostProfile: string;
+    ttsEngine: "piper" | "edge";
+    voice: "female" | "male";
   };
   tiktok: string | null;
   kydai: string | null;
@@ -33,7 +44,7 @@ interface LogEntry {
   question: string;
   reply: string | null;
   source: "ai" | "template" | "skipped";
-  origin: "panel" | "tiktok" | "game";
+  origin: "panel" | "tiktok" | "game" | "tip" | "remind";
   /** Người live đã tắt giọng trên sân khấu. */
   silent?: boolean;
   reason?: string;
@@ -51,6 +62,15 @@ const SAMPLE_COMMENTS = [
   "Có mẹo nào đánh trung cuộc kiểu Triệu Hâm Hâm không ạ?",
 ];
 
+/** Gợi ý những gì nên viết về mình cho AI (chỉ hiện khi ô còn trống). */
+const HOST_PROFILE_HINT = `Ví dụ:
+Người xem gọi tôi là: anh ...
+Nghề: ... · Quê: ...
+Chơi cờ từ năm ..., trình độ khoảng ..., thích đi khai cuộc ..., kỳ thủ yêu thích: ...
+Lịch live: tối ... từ ... giờ
+Sở thích ngoài cờ: ...
+Không muốn AI nhắc tới: ...`;
+
 /** Hàng đợi giọng đọc dùng chung với overlay/avatar (public/live-bot/speech.js). */
 type Speaker = { say: (text: string) => void };
 declare global {
@@ -64,8 +84,13 @@ export default function BotAssistantPage() {
   const [user, setUser] = useState("minhcotuong");
   const [commentText, setCommentText] = useState("");
   const [inGame, setInGame] = useState(false);
-  const [style, setStyle] = useState<"coach" | "humorous" | "zhaoXinxin">("coach");
+  const [style, setStyle] = useState<BotStyle>("coach");
   const [speakVoice, setSpeakVoice] = useState(true);
+  const [tips, setTips] = useState(true);
+  const [remind, setRemind] = useState(true);
+  // Nhân vật: sửa trong ô rồi bấm Lưu (không gửi theo từng phím gõ).
+  const [character, setCharacter] = useState({ name: "", self: "", persona: "", hostProfile: "" });
+  const [characterSaved, setCharacterSaved] = useState(false);
   const [stageInput, setStageInput] = useState("");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [latestPreview, setLatestPreview] = useState<{
@@ -100,6 +125,10 @@ export default function BotAssistantPage() {
         setStatus(data);
         setInGame(data.settings.inGame);
         setStyle(data.settings.style);
+        setTips(data.settings.tips);
+        setRemind(data.settings.remind);
+        // Chỉ nạp nhân vật lần đầu, để lần làm mới trạng thái sau không xóa chữ đang gõ dở.
+        setCharacter((c) => (c.name ? c : { name: data.settings.name, self: data.settings.self, persona: data.settings.persona, hostProfile: data.settings.hostProfile }));
         if (data.stage) setStageInput(data.stage);
       }
     } catch (e) {
@@ -123,7 +152,7 @@ export default function BotAssistantPage() {
 
         if (entry.reply) {
           setLatestPreview({
-            who: entry.origin === "game" ? "♟ Diễn biến ván" : `@${entry.user}`,
+            who: entry.origin === "game" ? "♟ Diễn biến ván" : entry.origin === "tip" ? "💡 Mẹo kỳ lý" : entry.origin === "remind" ? "🧭 Nhắc anh chủ kênh" : `@${entry.user}`,
             question: entry.question,
             reply: entry.reply,
           });
@@ -144,7 +173,7 @@ export default function BotAssistantPage() {
     };
   }, [speakVoice]);
 
-  const handleUpdateSettings = async (nextInGame: boolean, nextStyle: "coach" | "humorous" | "zhaoXinxin") => {
+  const handleUpdateSettings = async (nextInGame: boolean, nextStyle: BotStyle) => {
     setInGame(nextInGame);
     setStyle(nextStyle);
     try {
@@ -152,6 +181,46 @@ export default function BotAssistantPage() {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ inGame: nextInGame, style: nextStyle }),
+      });
+    } catch {}
+  };
+
+  const handleToggleTips = async (next: boolean) => {
+    setTips(next);
+    try {
+      await fetch("/api/bot/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ tips: next }),
+      });
+    } catch {}
+  };
+
+  /** Gửi một phần cài đặt lên server (server lưu lại, khởi động lại vẫn giữ). */
+  const saveSettings = async (patch: Partial<BotStatus["settings"]>) => {
+    setStatus((s) => (s ? { ...s, settings: { ...s.settings, ...patch } } : s));
+    try {
+      await fetch("/api/bot/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+    } catch {}
+  };
+
+  const handleSaveCharacter = async () => {
+    await saveSettings(character);
+    setCharacterSaved(true);
+    setTimeout(() => setCharacterSaved(false), 2500);
+  };
+
+  const handleToggleRemind = async (next: boolean) => {
+    setRemind(next);
+    try {
+      await fetch("/api/bot/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ remind: next }),
       });
     } catch {}
   };
@@ -283,7 +352,7 @@ export default function BotAssistantPage() {
               <span>🎭 Nhân Vật Ảo Live2D (Avatar)</span>
             </div>
             <p className={styles.obsDesc}>
-              Nhân vật Haru cử động, thở, nhép miệng theo giọng AI trả lời. Thêm vào OBS dạng Browser Source (Width 600, Height 800).
+              Tiểu Tốt (cô phù thủy tí hon) cử động, thở, nhép miệng theo giọng AI trả lời. Thêm vào OBS dạng Browser Source (Width 600, Height 800).
             </p>
           </div>
           <div className={styles.obsAction}>
@@ -297,6 +366,136 @@ export default function BotAssistantPage() {
             <a href="/live-bot/avatar.html?voice=1" target="_blank" rel="noreferrer" className={styles.openLink}>
               Mở thử ↗
             </a>
+          </div>
+        </div>
+
+        <div className={styles.obsCard}>
+          <div>
+            <div className={styles.obsHeader}>
+              <span>🧙 Ngồi Trên Vai (Webcam OBS)</span>
+            </div>
+            <p className={styles.obsDesc}>
+              Nhân vật nhỏ ngồi trên vai bạn. Thêm Browser Source cùng cỡ với nguồn webcam, đặt ngay trên webcam. Kéo nhân vật lên đúng vai, lăn chuột để đổi cỡ (Interact trong OBS). Khi đó mở Sân khấu với ?ai=0 để không bị hai giọng.
+            </p>
+          </div>
+          <div className={styles.obsAction}>
+            <button
+              type="button"
+              className={styles.copyBtn}
+              onClick={() => copyObsUrl("/live-bot/avatar.html?voice=1&perch=right", "perch")}
+            >
+              {copiedLink === "perch" ? "✓ Đã chép link!" : "📋 Sao chép URL OBS"}
+            </button>
+            <a href="/live-bot/avatar.html?voice=1&perch=right" target="_blank" rel="noreferrer" className={styles.openLink}>
+              Mở thử ↗
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section className={styles.card} style={{ marginBottom: 20 }}>
+        <h2 className={styles.cardTitle}>🧙 Nhân Vật AI &amp; Giọng Đọc</h2>
+        <div className={styles.characterGrid}>
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="bot-name">Tên nhân vật (hiện trên phụ đề)</label>
+            <input
+              id="bot-name"
+              className={styles.input}
+              maxLength={40}
+              value={character.name}
+              onChange={(e) => setCharacter({ ...character, name: e.target.value })}
+            />
+          </div>
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="bot-self">Tự xưng là</label>
+            <input
+              id="bot-self"
+              className={styles.input}
+              maxLength={20}
+              placeholder="tớ, mình, tôi…"
+              value={character.self}
+              onChange={(e) => setCharacter({ ...character, self: e.target.value })}
+            />
+          </div>
+        </div>
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor="bot-persona">Lý lịch và tính cách (AI đọc để nói đúng vai)</label>
+          <textarea
+            id="bot-persona"
+            className={`${styles.textarea} ${styles.personaInput}`}
+            rows={4}
+            maxLength={1200}
+            value={character.persona}
+            onChange={(e) => setCharacter({ ...character, persona: e.target.value })}
+          />
+        </div>
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor="bot-host">
+            Về anh chủ kênh (AI chỉ kể về bạn theo đúng phần này; không ghi thì nó trả lời là chưa biết)
+          </label>
+          <textarea
+            id="bot-host"
+            className={`${styles.textarea} ${styles.personaInput}`}
+            rows={5}
+            maxLength={2000}
+            placeholder={HOST_PROFILE_HINT}
+            value={character.hostProfile}
+            onChange={(e) => setCharacter({ ...character, hostProfile: e.target.value })}
+          />
+        </div>
+        <button type="button" className={styles.btnPrimary} onClick={handleSaveCharacter}>
+          {characterSaved ? "✓ Đã lưu nhân vật" : "💾 Lưu nhân vật"}
+        </button>
+
+        <div className={styles.characterGrid} style={{ marginTop: 16 }}>
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="bot-tts">Bộ đọc giọng</label>
+            <select
+              id="bot-tts"
+              className={styles.select}
+              value={status?.settings.ttsEngine ?? "piper"}
+              onChange={(e) => saveSettings({ ttsEngine: e.target.value as "piper" | "edge" })}
+            >
+              <option value="piper">Piper: chạy trên máy, ổn định</option>
+              <option value="edge">Edge (Microsoft): giọng tự nhiên hơn, hay bị cắt</option>
+            </select>
+          </div>
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="bot-voice">Giọng Edge</label>
+            <select
+              id="bot-voice"
+              className={styles.select}
+              value={status?.settings.voice ?? "female"}
+              disabled={status?.settings.ttsEngine !== "edge"}
+              onChange={(e) => saveSettings({ voice: e.target.value as "female" | "male" })}
+            >
+              <option value="female">Nữ (Hoài My)</option>
+              <option value="male">Nam (Nam Minh)</option>
+            </select>
+          </div>
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="bot-tip-minutes">Mẹo kỳ lý: im lặng bao lâu thì đọc (phút)</label>
+            <input
+              id="bot-tip-minutes"
+              type="number"
+              min={1}
+              max={30}
+              className={styles.input}
+              value={status?.settings.tipMinutes ?? 4}
+              onChange={(e) => e.target.value && saveSettings({ tipMinutes: Number(e.target.value) })}
+            />
+          </div>
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="bot-remind-minutes">Nhắc anh chủ kênh: cách nhau (phút)</label>
+            <input
+              id="bot-remind-minutes"
+              type="number"
+              min={1}
+              max={30}
+              className={styles.input}
+              value={status?.settings.remindMinutes ?? 3}
+              onChange={(e) => e.target.value && saveSettings({ remindMinutes: Number(e.target.value) })}
+            />
           </div>
         </div>
       </section>
@@ -366,12 +565,15 @@ export default function BotAssistantPage() {
               className={styles.select}
               value={style}
               onChange={(e) =>
-                handleUpdateSettings(inGame, e.target.value as "coach" | "humorous" | "zhaoXinxin")
+                handleUpdateSettings(inGame, e.target.value as BotStyle)
               }
             >
               <option value="coach">Thầy giáo ân cần, dễ hiểu</option>
               <option value="humorous">Bình luận viên hóm hỉnh, vui vẻ</option>
               <option value="zhaoXinxin">Sắc bén kiểu Triệu Hâm Hâm</option>
+              <option value="playful">Tinh nghịch, lém lỉnh</option>
+              <option value="teaseHost">Hay trêu anh chủ kênh</option>
+              <option value="serious">Nghiêm túc, chuyên môn</option>
             </select>
           </div>
 
@@ -393,6 +595,28 @@ export default function BotAssistantPage() {
               onChange={(e) => setSpeakVoice(e.target.checked)}
             />
             <span>Đọc to giọng nói trực tiếp trên trình duyệt này</span>
+          </label>
+
+          <label className={styles.switchRow}>
+            <input
+              type="checkbox"
+              checked={tips}
+              onChange={(e) => handleToggleTips(e.target.checked)}
+            />
+            <span>
+              <strong>Mẹo kỳ lý</strong> (live im lặng vài phút thì AI tự đọc một nguyên tắc của Triệu Hâm Hâm)
+            </span>
+          </label>
+
+          <label className={styles.switchRow}>
+            <input
+              type="checkbox"
+              checked={remind}
+              onChange={(e) => handleToggleRemind(e.target.checked)}
+            />
+            <span>
+              <strong>Nhắc anh chủ kênh</strong> (trong ván, vài phút nhắc nhẹ một nguyên tắc theo khai/trung/tàn cuộc, chỉ khi anh vừa đi xong; không nhìn thế cờ)
+            </span>
           </label>
 
           <div className={styles.field} style={{ marginTop: 12 }}>
@@ -456,7 +680,7 @@ export default function BotAssistantPage() {
                 {logs.map((log) => (
                   <div key={log.id} className={styles.logItem}>
                     <div className={styles.logUser}>
-                      {log.origin === "game" ? "♟ Ván cờ" : `@${log.user}`}
+                      {log.origin === "game" ? "♟ Ván cờ" : log.origin === "tip" ? "💡 Mẹo kỳ lý" : log.origin === "remind" ? "🧭 Nhắc anh chủ kênh" : `@${log.user}`}
                       {log.question ? `: ${log.question}` : ""}
                     </div>
                     <div className={styles.logReply}>
@@ -465,7 +689,7 @@ export default function BotAssistantPage() {
                     <div className={styles.logMeta}>
                       <span
                         className={`${styles.tag} ${
-                          log.origin === "game"
+                          log.origin === "game" || log.origin === "tip" || log.origin === "remind"
                             ? styles.tagGame
                             : log.source === "ai"
                               ? styles.tagAi
@@ -476,11 +700,13 @@ export default function BotAssistantPage() {
                       >
                         {log.origin === "game"
                           ? "Ván cờ"
-                          : log.source === "ai"
-                            ? "AI Gemini/Claude"
-                            : log.source === "template"
-                              ? "Mẫu có sẵn"
-                              : "Bỏ qua"}
+                          : log.origin === "tip" || log.origin === "remind"
+                            ? "Mẹo có sẵn"
+                            : log.source === "ai"
+                              ? "AI Gemini/Claude"
+                              : log.source === "template"
+                                ? "Mẫu có sẵn"
+                                : "Bỏ qua"}
                       </span>
                       <span>{log.latencyMs}ms</span>
                       {log.costUsd > 0 && <span>${log.costUsd.toFixed(5)}</span>}

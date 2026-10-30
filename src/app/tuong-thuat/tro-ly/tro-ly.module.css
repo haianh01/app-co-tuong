@@ -129,6 +129,19 @@
   }
 }
 
+/* Hai cột ô nhập trong khung Nhân vật AI; màn hẹp thì một cột. */
+.characterGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0 16px;
+}
+
+/* Ô lý lịch nhân vật là văn xuôi tiếng Việt: font monospace của .textarea làm lệch dấu. */
+.personaInput {
+  font-family: inherit;
+  line-height: 1.5;
+}
+
 .card {
   background: var(--surface-primary, #ffffff);
   border: 1px solid var(--border-color, #e2e8f0);

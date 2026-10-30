@@ -3,13 +3,29 @@ import { WebSocket } from "ws";
 import {
   AI_MODEL,
   AI_PROVIDER,
+  botCharacter,
+  DEFAULT_BOT_STYLE,
   hasAiKey,
   handleEvent,
+  isBotStyle,
   lessons,
   MAX_AI_REPLIES_PER_MINUTE,
+  setCharacter,
 } from "./ai";
+import { LIMITS, loadSavedSettings, saveSettings } from "./config";
+import { analyzeGame, movesFromNotations } from "./postgame";
 import { parseStageRoom, speakNotation } from "./narration";
-import { EDGE_VOICES, prepareSpeech, setTtsVoice, synthesizeWithRetry, ttsVoiceName } from "./tts";
+import { createReminderPicker, gamePhase, type GamePhase } from "./reminders";
+import { createTipPicker } from "./tips";
+import {
+  EDGE_VOICES,
+  prepareSpeech,
+  setTtsEngine,
+  setTtsVoice,
+  synthesizeWithRetry,
+  ttsEngineName,
+  ttsVoiceName,
+} from "./tts";
 import type {
   BotBroadcastMessage,
   BotEventOrigin,
@@ -19,7 +35,7 @@ import type {
   BotReplyResult,
   BotStatusResponse,
 } from "./types";
-import type { StageState } from "@/app/tuong-thuat/stage-sync";
+import type { StageReviewState, StageState } from "@/app/tuong-thuat/stage-sync";
 
 const CHECK_GAP_MS = 15_000;
 const RECONNECT_MS = 5_000;
@@ -27,6 +43,15 @@ const RECONNECT_MS = 5_000;
 const DUPLICATE_WINDOW_MS = 30_000;
 /** Số sự kiện TikTok chờ tối đa; đông hơn thì bỏ bình luận cũ nhất (giữ quà) để AI không trả lời trễ cả phút. */
 const MAX_PENDING_TIKTOK = 4;
+/** Mặc định: live im lặng (bot không nói gì) bao lâu thì đọc một mẹo kỳ lý; đổi trên trang Trợ lý (tipMinutes). */
+export const TIP_QUIET_MS = (Number(process.env.BOT_TIP_MINUTES) || 4) * 60_000;
+const TIP_CHECK_MS = 30_000;
+/** Mặc định: khoảng cách giữa hai lần nhắc nhẹ anh chủ kênh trong ván; đổi trên trang Trợ lý (remindMinutes). */
+export const REMIND_GAP_MS = (Number(process.env.BOT_REMIND_MINUTES) || 3) * 60_000;
+/** Bot vừa nói xong (bình luận nước ăn quân, trả lời chat) thì chờ chừng này rồi mới nhắc, cho khỏi dồn tiếng. */
+const REMIND_AFTER_SPEECH_MS = 8_000;
+/** Đồng hồ anh chủ kênh dưới mức này thì im lặng hẳn, không làm phân tâm. */
+const REMIND_MIN_CLOCK_MS = 60_000;
 
 /** Ước lượng thời gian đọc xong một câu trả lời (~3 từ/giây, cộng quãng nghỉ), để đọc xong mới trả lời tiếp. */
 export function speakingMs(text: string): number {
@@ -38,10 +63,23 @@ export class LiveBotService {
   private readonly session = { aiReplies: 0, costUsd: 0 };
   private readonly liveSettings: BotLiveSettings = {
     inGame: false,
-    style: "coach",
+    style: DEFAULT_BOT_STYLE,
     voice: ttsVoiceName() === EDGE_VOICES.male ? "male" : "female",
     speak: true,
+    tips: process.env.BOT_TIPS !== "0",
+    remind: process.env.BOT_REMIND !== "0",
+    tipMinutes: TIP_QUIET_MS / 60_000,
+    remindMinutes: REMIND_GAP_MS / 60_000,
+    ...botCharacter(),
+    ttsEngine: ttsEngineName(),
   };
+  private readonly nextTip = createTipPicker();
+  private readonly nextReminder = createReminderPicker();
+  // Nhắc anh chủ kênh trong ván: lần nhắc trước, giai đoạn đã nhắc, và có vừa mất quân lớn không.
+  private lastRemindAt = 0;
+  private remindPhase: GamePhase = "opening";
+  private remindSafety = false;
+  private lastSpokeAt = Date.now();
 
   private tiktokUsername: string = (process.env.TIKTOK_USERNAME ?? "")
     .replace(/^@/, "")
@@ -60,6 +98,13 @@ export class LiveBotService {
   private stageEnded = false;
   private stageRecord = { win: 0, draw: 0, loss: 0 };
   private lastStageState: StageState | null = null;
+  private stageResult: "win" | "loss" | "draw" | null = null;
+  // Bình ván sau trận: bước ngoặt app tìm được khi chiếu xem lại, và kết quả Pikafish của bot.
+  // `stageGame` tăng mỗi ván mới để bỏ kết quả phân tích về muộn của ván cũ.
+  private stageTurningPoint: StageReviewState["turningPoint"] = null;
+  private stageAnalysis: string | null = null;
+  private stageAnalyzing = false;
+  private stageGame = 0;
 
   // Hàng đợi TikTok: mỗi lần một bình luận, đọc xong mới tới bình luận sau.
   private readonly tiktokQueue: BotReplyRequest[] = [];
@@ -67,6 +112,9 @@ export class LiveBotService {
   private readonly seenChats = new Map<string, number>();
 
   constructor() {
+    // Cài đặt đã lưu từ trang Trợ lý (lần chạy trước) đè lên giá trị mặc định.
+    this.applySettings(loadSavedSettings());
+
     // Warm up TTS
     synthesizeWithRetry("Xin chào").then(
       () => console.log("[Bot] TTS giọng đọc đã sẵn sàng"),
@@ -81,12 +129,45 @@ export class LiveBotService {
     if (this.tiktokUsername) {
       this.startTikTokListener(this.tiktokUsername);
     }
+
+    setInterval(() => {
+      this.maybeSpeakTip();
+      if (this.lastStageState && !this.stageEnded) this.maybeRemindHost(this.lastStageState);
+    }, TIP_CHECK_MS).unref?.();
+  }
+
+  /**
+   * Nhắc nhẹ anh chủ kênh một nguyên tắc chung (reminders.ts) trong ván thật. Chỉ nói khi anh vừa đi xong
+   * (đang tới lượt đối thủ) để không chen vào lúc anh đang nghĩ, và im hẳn khi đồng hồ sắp hết.
+   */
+  private maybeRemindHost(s: StageState, now = Date.now()): void {
+    if (!this.liveSettings.remind || !this.overlayClients.size) return;
+    if (s.turn === s.mySide || s.ply < 6) return;
+    if (s.clocks && s.clocks.me < REMIND_MIN_CLOCK_MS) return;
+    if (now - this.lastSpokeAt < REMIND_AFTER_SPEECH_MS) return;
+    const phase = gamePhase(s.ply, [...s.captured.redLost, ...s.captured.blackLost]);
+    // Vừa mất quân lớn hoặc vừa sang giai đoạn mới thì nhắc ngay, còn lại cách nhau remindMinutes.
+    const group = this.remindSafety ? "safety" : phase;
+    if (!this.remindSafety && phase === this.remindPhase && now - this.lastRemindAt < this.liveSettings.remindMinutes * 60_000) return;
+    this.remindSafety = false;
+    this.remindPhase = phase;
+    this.lastRemindAt = now;
+    this.speakTemplate(this.nextReminder(group), "Nhắc anh chủ kênh", "remind");
+  }
+
+  /** Đọc mẹo kỳ lý khi có overlay đang mở, không còn bình luận chờ và bot đã im lặng đủ tipMinutes. */
+  private maybeSpeakTip(now = Date.now()): void {
+    if (!this.liveSettings.tips || !this.overlayClients.size) return;
+    if (this.tiktokBusy || this.tiktokQueue.length) return;
+    if (now - this.lastSpokeAt < this.liveSettings.tipMinutes * 60_000) return;
+    this.speakTemplate(this.nextTip(), "Mẹo kỳ lý", "tip");
   }
 
   public getStatus(): BotStatusResponse {
     return {
       provider: AI_PROVIDER,
       model: AI_MODEL,
+      botName: this.liveSettings.name,
       hasKey: hasAiKey,
       lessons: lessons.names,
       maxPerMinute: MAX_AI_REPLIES_PER_MINUTE,
@@ -99,15 +180,18 @@ export class LiveBotService {
     };
   }
 
+  /** Đổi cài đặt từ trang Trợ lý / Sân khấu; giá trị lạ bị bỏ qua. Lưu ra file để lần chạy sau dùng lại. */
   public updateSettings(settings: Partial<BotLiveSettings>): BotLiveSettings {
+    this.applySettings(settings);
+    saveSettings(this.liveSettings);
+    return { ...this.liveSettings };
+  }
+
+  private applySettings(settings: Partial<BotLiveSettings>): void {
     if (typeof settings.inGame === "boolean") {
       this.liveSettings.inGame = settings.inGame;
     }
-    if (
-      settings.style === "coach" ||
-      settings.style === "humorous" ||
-      settings.style === "zhaoXinxin"
-    ) {
+    if (isBotStyle(settings.style)) {
       this.liveSettings.style = settings.style;
     }
     if (settings.voice === "female" || settings.voice === "male") {
@@ -117,7 +201,36 @@ export class LiveBotService {
     if (typeof settings.speak === "boolean") {
       this.liveSettings.speak = settings.speak;
     }
-    return { ...this.liveSettings };
+    if (typeof settings.tips === "boolean") {
+      this.liveSettings.tips = settings.tips;
+    }
+    if (typeof settings.remind === "boolean") {
+      this.liveSettings.remind = settings.remind;
+    }
+    const [minMinutes, maxMinutes] = LIMITS.minutes;
+    const minutes = (v: unknown) =>
+      typeof v === "number" && Number.isFinite(v) ? Math.min(maxMinutes, Math.max(minMinutes, Math.round(v))) : null;
+    this.liveSettings.tipMinutes = minutes(settings.tipMinutes) ?? this.liveSettings.tipMinutes;
+    this.liveSettings.remindMinutes = minutes(settings.remindMinutes) ?? this.liveSettings.remindMinutes;
+    if (settings.ttsEngine === "piper" || settings.ttsEngine === "edge") {
+      this.liveSettings.ttsEngine = settings.ttsEngine;
+      setTtsEngine(settings.ttsEngine);
+    }
+    // Ô để trống thì giữ như cũ, không để nhân vật mất tên hay mất lý lịch.
+    const text = (v: unknown, max: number) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
+    const name = text(settings.name, LIMITS.name);
+    const self = text(settings.self, LIMITS.self);
+    const persona = text(settings.persona, LIMITS.persona);
+    // Phần về anh chủ kênh được xóa trắng (anh không muốn AI kể gì về mình).
+    const hostProfile = typeof settings.hostProfile === "string" ? settings.hostProfile.trim().slice(0, LIMITS.hostProfile) : null;
+    if (name || self || persona || hostProfile !== null) {
+      this.liveSettings.name = name ?? this.liveSettings.name;
+      this.liveSettings.self = self ?? this.liveSettings.self;
+      this.liveSettings.persona = persona ?? this.liveSettings.persona;
+      this.liveSettings.hostProfile = hostProfile ?? this.liveSettings.hostProfile;
+      const { name: n, self: me, persona: p, hostProfile: h } = this.liveSettings;
+      setCharacter({ name: n, self: me, persona: p, hostProfile: h });
+    }
   }
 
   public addOverlayClient(res: ServerResponse): () => void {
@@ -128,7 +241,8 @@ export class LiveBotService {
   }
 
   public broadcast(result: BotBroadcastMessage): void {
-    const msg = this.liveSettings.speak ? result : { ...result, silent: true };
+    if (result.reply) this.lastSpokeAt = Date.now();
+    const msg = { ...result, botName: this.liveSettings.name, ...(this.liveSettings.speak ? {} : { silent: true }) };
     const data = `data: ${JSON.stringify(msg)}\n\n`;
     for (const res of this.overlayClients) {
       try {
@@ -140,8 +254,14 @@ export class LiveBotService {
   }
 
   public narrateGame(text: string): void {
+    this.speakTemplate(text, "Bình luận", "game");
+    console.log(`[Bot ván] ${text}`);
+  }
+
+  /** Câu mẫu có sẵn (không gọi AI): diễn biến ván hoặc mẹo kỳ lý. */
+  private speakTemplate(text: string, user: string, origin: "game" | "tip" | "remind"): void {
     const result: BotReplyResult = {
-      user: "Bình luận",
+      user,
       question: "",
       reply: text,
       source: "template",
@@ -149,8 +269,7 @@ export class LiveBotService {
       costUsd: 0,
     };
     prepareSpeech(text);
-    this.broadcast({ ...result, origin: "game" });
-    console.log(`[Bot ván] ${text}`);
+    this.broadcast({ ...result, origin });
   }
 
   public async processEvent(
@@ -159,7 +278,7 @@ export class LiveBotService {
   ): Promise<BotReplyResult> {
     const game = this.getCurrentGameInfo();
     if (game) {
-      req = { ...req, game: game.summary, inGame: req.inGame || game.live };
+      req = { ...req, game: game.summary, postGame: game.postGame, inGame: req.inGame || game.live };
     }
     const result = await handleEvent(req);
     if (result.source === "ai") {
@@ -205,8 +324,9 @@ export class LiveBotService {
 
     ws.on("message", (data) => {
       try {
-        const msg = JSON.parse(data.toString()) as { type?: string; state?: StageState };
-        if (msg.type === "state" && msg.state) {
+        // Giao thức sân khấu dùng trường "t" (xem StageControlMessage trong stage-protocol.ts).
+        const msg = JSON.parse(data.toString()) as { t?: string; state?: StageState };
+        if (msg.t === "state" && msg.state) {
           this.onStageState(msg.state);
         }
       } catch (e) {
@@ -226,6 +346,8 @@ export class LiveBotService {
   }
 
   private onStageState(s: StageState): void {
+    // Xem lại ván đã xong: giữ bước ngoặt app tìm được; app chỉ cho xem lại khi ván xong hoặc chưa bắt đầu (canReview).
+    if (s.review?.turningPoint && (this.stageEnded || s.ply === 0)) this.stageTurningPoint = s.review.turningPoint;
     if (s.trial || s.review || s.puzzle) return;
     this.lastStageState = s;
 
@@ -240,6 +362,14 @@ export class LiveBotService {
       this.lastMomentId = "";
       this.stageEnded = false;
       this.stageRecord = { ...s.settings.today };
+      this.stageResult = null;
+      this.stageTurningPoint = null;
+      this.stageAnalysis = null;
+      this.stageAnalyzing = false;
+      this.stageGame++;
+      this.lastRemindAt = 0;
+      this.remindPhase = "opening";
+      this.remindSafety = false;
 
       const intro =
         s.ply <= 4
@@ -252,16 +382,13 @@ export class LiveBotService {
 
     const today = s.settings.today;
     if (today.win > this.stageRecord.win) {
-      this.stageEnded = true;
-      return this.narrateGame(`Ván cờ kết thúc! Anh chủ kênh giành chiến thắng.`);
+      return this.finishStage(s, "win", `Ván cờ kết thúc! Anh chủ kênh giành chiến thắng.`);
     }
     if (today.loss > this.stageRecord.loss) {
-      this.stageEnded = true;
-      return this.narrateGame(`Ván cờ kết thúc! Anh chủ kênh đã thua ván này.`);
+      return this.finishStage(s, "loss", `Ván cờ kết thúc! Anh chủ kênh đã thua ván này.`);
     }
     if (today.draw > this.stageRecord.draw) {
-      this.stageEnded = true;
-      return this.narrateGame(`Ván cờ kết thúc với tỷ số hòa.`);
+      return this.finishStage(s, "draw", `Ván cờ kết thúc với tỷ số hòa.`);
     }
 
     if (s.ply > this.stagePlies) {
@@ -272,6 +399,7 @@ export class LiveBotService {
         const mover =
           lastMove.side === s.mySide ? "Anh chủ kênh" : "Đối thủ";
         const move = speakNotation(lastMove.notation);
+        if (moment.type === "bigCapture" && lastMove.side !== s.mySide) this.remindSafety = true;
         if (moment.type === "bigCapture" && moment.subtitle) {
           this.narrateGame(
             `${mover} ${move}, ${moment.subtitle.replace(/^(Bạn|Đối thủ) /, "").toLowerCase()}!`,
@@ -285,6 +413,7 @@ export class LiveBotService {
         }
       }
       this.stagePlies = s.ply;
+      this.maybeRemindHost(s);
     }
 
     const name = s.openingName?.replace(/\s*\(.*\)\s*$/, "");
@@ -300,6 +429,69 @@ export class LiveBotService {
     }
   }
 
+  private finishStage(s: StageState, result: "win" | "loss" | "draw", text: string): void {
+    this.stageEnded = true;
+    this.stageResult = result;
+    this.narrateGame(text);
+    this.analyzeStage(s);
+  }
+
+  /** Chạy Pikafish cho cả ván vừa xong (chỉ gọi khi ván đã kết thúc), xong thì AI tự bình ván. */
+  private analyzeStage(s: StageState): void {
+    const notations = s.moves.map((m) => m.notation);
+    const moves = movesFromNotations(notations);
+    if (moves.length < 4) return;
+    if (moves.length < notations.length) {
+      console.warn(`[Bot bình ván] Chỉ dịch được ${moves.length}/${notations.length} nước, phân tích phần đó`);
+    }
+    const game = this.stageGame;
+    const started = Date.now();
+    this.stageAnalyzing = true;
+    analyzeGame({ engineUrl: this.kydaiUrl, moves, hostSide: s.mySide })
+      .then((r) => {
+        if (game !== this.stageGame) return;
+        this.stageAnalysis = r.text;
+        console.log(`[Bot bình ván] Pikafish xong ${r.plies} nửa nước trong ${((Date.now() - started) / 1000).toFixed(1)} giây`);
+        void this.recapGame();
+      })
+      .catch((err: unknown) => console.warn(`[Bot bình ván] Không chạy được engine: ${String(err)}`))
+      .finally(() => {
+        if (game === this.stageGame) this.stageAnalyzing = false;
+      });
+  }
+
+  /** AI tự bình ván cho cả phòng. inGame theo trạng thái ván thật (đã xong), không theo công tắc tay. */
+  private async recapGame(): Promise<void> {
+    const game = this.getCurrentGameInfo();
+    if (!game?.postGame || game.live) return;
+    const result = await this.processEvent(
+      { user: "Bình ván", kind: "recap", inGame: false, style: this.liveSettings.style },
+      "game",
+    );
+    console.log(`[Bot bình ván] ${result.reply ?? `(bỏ qua: ${result.reason ?? ""})`}`);
+  }
+
+  /** Bình ván: chỉ khi ván đã kết thúc. Nhận xét lấy từ Pikafish; AI không tự đánh giá thế cờ. */
+  private postGameText(s: StageState): string {
+    const who = (side: string) => (side === s.mySide ? "anh chủ kênh" : "đối thủ");
+    const lines: string[] = [];
+    if (this.stageResult) {
+      lines.push(`Kết quả: anh chủ kênh ${this.stageResult === "win" ? "thắng" : this.stageResult === "loss" ? "thua" : "hòa"}.`);
+    }
+    const pairs: string[] = [];
+    for (let i = 0; i < s.moves.length; i += 2) {
+      const black = s.moves[i + 1];
+      pairs.push(`${i / 2 + 1}. ${speakNotation(s.moves[i].notation)}${black ? `, ${speakNotation(black.notation)}` : ""}`);
+    }
+    if (pairs.length) lines.push(`Diễn biến (mỗi nước: Đỏ, Đen): ${pairs.join("; ")}.`);
+    if (this.stageAnalysis) lines.push(this.stageAnalysis);
+    else if (this.stageAnalyzing) lines.push("Pikafish đang phân tích ván, chưa có kết quả: chỉ kể diễn biến, chưa khen chê nước nào.");
+    else lines.push("Chưa có phân tích engine cho ván này: chỉ kể diễn biến, không khen chê nước nào.");
+    const tp = this.stageTurningPoint;
+    if (tp) lines.push(`Bước ngoặt app chỉ ra khi xem lại: nước ${Math.ceil(tp.ply / 2)} ${who(tp.side)} ${speakNotation(tp.notation)}. ${tp.description}`);
+    return lines.join("\n");
+  }
+
   public getCurrentGameInfo(): BotGameInfo | null {
     if (!this.lastStageState) return null;
     const s = this.lastStageState;
@@ -311,7 +503,8 @@ export class LiveBotService {
     const openingText = s.openingName ? `, khai cuộc ${s.openingName}` : "";
     return {
       live: !this.stageEnded,
-      summary: `Ván ${s.settings.round}: ${me} gặp ${opp}${openingText}, đã đi ${Math.ceil(s.ply / 2)} nước${moveText}`,
+      summary: `Ván ${s.settings.round}: ${me} gặp ${opp}, anh chủ kênh cầm ${s.mySide === "r" ? "Đỏ" : "Đen"}${openingText}, đã đi ${Math.ceil(s.ply / 2)} nước${moveText}`,
+      postGame: this.stageEnded ? this.postGameText(s) : undefined,
     };
   }
 

@@ -5,7 +5,7 @@ import { PUZZLES, findPuzzle, type Puzzle } from "@/lib/xiangqi/puzzles";
 import { buildPuzzleStage, type StagePuzzleLive, type StagePuzzleState } from "../stage-puzzle";
 import { moveNotation } from "@/lib/xiangqi/notation";
 import { DEFAULT_STAGE_SETTINGS, buildStageState } from "../stage-sync";
-import { StageClient, aiAvatarSrc } from "./StageClient";
+import { StageClient, aiAvatarSrc, aiPerchSrc } from "./StageClient";
 
 vi.mock("@/components/session/SessionProvider", () => ({
   useSession: () => ({ user: null }),
@@ -605,7 +605,9 @@ describe("sân khấu Thử thách cờ thế", () => {
 describe("nhân vật AI trong khung camera", () => {
   const src = (q: string) => aiAvatarSrc(new URLSearchParams(q), "https://kydai.vn");
 
-  it("ai=1 trỏ về trang avatar cùng máy chủ, tự bật giọng và chế độ ô nhỏ", () => {
+  it("mặc định (không ghi ai) và ai=1 trỏ về trang avatar cùng máy chủ, tự bật giọng và chế độ ô nhỏ", () => {
+    expect(src("")).toBe("https://kydai.vn/live-bot/avatar.html?voice=1&compact=1");
+    expect(src("room=abc")).toBe("https://kydai.vn/live-bot/avatar.html?voice=1&compact=1");
     expect(src("ai=1")).toBe("https://kydai.vn/live-bot/avatar.html?voice=1&compact=1");
   });
 
@@ -617,10 +619,42 @@ describe("nhân vật AI trong khung camera", () => {
     expect(url.searchParams.get("compact")).toBe("1");
   });
 
-  it("không có, tắt, hoặc địa chỉ lạ thì không nhúng", () => {
-    expect(src("")).toBeNull();
+  it("bật cam thì nhân vật ngồi trên vai phải, giữ vai trái nếu địa chỉ tự nhập đã chọn", () => {
+    expect(aiPerchSrc(src("")!)).toBe("https://kydai.vn/live-bot/avatar.html?voice=1&compact=1&perch=right");
+    const left = src(`ai=${encodeURIComponent("https://kydai.vn/live-bot/avatar.html?perch=left")}`)!;
+    expect(new URL(aiPerchSrc(left)).searchParams.get("perch")).toBe("left");
+  });
+
+  it("tắt bằng ai=0, hoặc địa chỉ lạ thì không nhúng", () => {
     expect(src("ai=0")).toBeNull();
     expect(src("ai=javascript:alert(1)")).toBeNull();
     expect(src("ai=khong-phai-url")).toBeNull();
+  });
+});
+
+describe("mở sân khấu là có AI", () => {
+  const botCalls = (fetchMock: ReturnType<typeof vi.fn>) => fetchMock.mock.calls.filter(([u]) => u === "/api/bot/stage");
+
+  it("nối được phòng thì tự báo bot trợ lý vào đúng phòng, và nhúng nhân vật", () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { container } = render(<StageClient />);
+    expect(botCalls(fetchMock)).toHaveLength(0); // chưa nối phòng
+    FakeSocket.all[0].receive({ t: "state", state: stateAfterCentralCannon() });
+    expect(botCalls(fetchMock)).toEqual([["/api/bot/stage", { method: "POST", body: ROOM }]]);
+    expect(container.querySelector('iframe[title="Nhân vật AI"]')).not.toBeNull();
+    expect(screen.getByText("📋 Tóm tắt")).toBeDefined();
+    vi.unstubAllGlobals();
+  });
+
+  it("ai=0 thì không nhúng nhân vật, không gọi bot", () => {
+    window.history.replaceState(null, "", `/tuong-thuat/san-khau?room=${ROOM}&ai=0`);
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({}) }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { container } = render(<StageClient />);
+    FakeSocket.all[0].receive({ t: "state", state: stateAfterCentralCannon() });
+    expect(botCalls(fetchMock)).toHaveLength(0);
+    expect(container.querySelector('iframe[title="Nhân vật AI"]')).toBeNull();
+    vi.unstubAllGlobals();
   });
 });

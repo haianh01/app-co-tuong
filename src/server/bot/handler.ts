@@ -24,13 +24,27 @@ function sendJson(res: ServerResponse, status: number, data: unknown): void {
 }
 
 /**
+ * Gọi thẳng trên máy chạy app (localhost), không qua proxy. Có x-forwarded-for nghĩa là đi qua reverse proxy:
+ * khi đó địa chỉ nguồn là của proxy (cũng là 127.0.0.1) nên không tin được.
+ */
+export function isLocalRequest(req: IncomingMessage): boolean {
+  if (req.headers["x-forwarded-for"] || req.headers["x-real-ip"] || req.headers.forwarded) return false;
+  const ip = req.socket.remoteAddress ?? "";
+  return ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1";
+}
+
+/**
  * Xử lý các request liên quan tới Live Bot.
  * Trả về true nếu request đã được xử lý (không cần chuyển tiếp cho Next.js).
+ *
+ * Gửi bình luận (gọi AI, tốn quota/tiền) và đổi cài đặt chỉ cho máy chạy app hoặc admin đã đăng nhập (`isAdmin`).
+ * Vào phòng sân khấu để mở: sân khấu trong OBS tự gọi khi mở, mà OBS không có phiên đăng nhập.
  */
 export async function handleBotRequest(
   req: IncomingMessage,
   res: ServerResponse,
   bot: LiveBotService,
+  isAdmin: (req: IncomingMessage) => Promise<boolean> = async () => false,
 ): Promise<boolean> {
   if (!req.url) return false;
   const url = new URL(req.url, "http://localhost");
@@ -74,6 +88,13 @@ export async function handleBotRequest(
   // Lấy trạng thái bot
   if (req.method === "GET" && url.pathname === "/api/bot/status") {
     sendJson(res, 200, bot.getStatus());
+    return true;
+  }
+
+  const controlRoute =
+    req.method === "POST" && (url.pathname === "/api/bot/settings" || url.pathname === "/api/bot/event");
+  if (controlRoute && !isLocalRequest(req) && !(await isAdmin(req))) {
+    sendJson(res, 403, { error: "Chỉ admin hoặc máy chạy app mới điều khiển được bot" });
     return true;
   }
 

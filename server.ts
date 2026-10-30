@@ -19,7 +19,7 @@ async function main() {
   const { default: next } = await import("next");
   const { getDbHandle } = await import("./src/server/db");
   const { GameServer } = await import("./src/server/game/server");
-  const { purgeExpiredSessions } = await import("./src/server/auth");
+  const { SESSION_COOKIE, getUserBySession, parseCookies, purgeExpiredSessions } = await import("./src/server/auth");
   const { promoteAdmins } = await import("./src/server/admin");
   const { awardPreviousSeasonIfDue } = await import("./src/server/economy");
   const { StageRelay } = await import("./src/server/stage-relay");
@@ -32,11 +32,16 @@ async function main() {
   const [dbHandle] = await Promise.all([getDbHandle(), app.prepare()]);
 
   const bot = new LiveBotService();
+  // Admin đã đăng nhập được điều khiển bot từ xa (bản đưa lên mạng); máy chạy app thì luôn được.
+  const isAdminRequest = async (req: import("node:http").IncomingMessage) => {
+    const user = await getUserBySession(dbHandle.db, parseCookies(req.headers.cookie)[SESSION_COOKIE]).catch(() => null);
+    return user?.role === "admin";
+  };
 
   const handle = app.getRequestHandler();
   server.on("request", (req, res) => {
     void (async () => {
-      const handled = await handleBotRequest(req, res, bot);
+      const handled = await handleBotRequest(req, res, bot, isAdminRequest);
       if (!handled) {
         handle(req, res);
       }

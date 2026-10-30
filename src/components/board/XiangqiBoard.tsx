@@ -110,6 +110,8 @@ export interface XiangqiBoardProps {
   highlights?: (number | BoardHighlight)[];
   /** Màu nét vẽ phác thảo khi rê chuột (mặc định #3b82f6). */
   sketchColor?: string;
+  /** Màu nét phác thảo mũi tên theo ô bắt đầu; bỏ trống thì quân đỏ xanh lá, quân đen đỏ, ô trống theo `sketchColor`. */
+  sketchColorAt?: (from: number) => string;
   /** Tùy chọn độ phóng to bề dày mũi tên và đầu mũi tên (cho màn hình điện thoại / livestream sân khấu). */
   arrowWidthScale?: number;
   /** Bật hiệu ứng vẽ từ từ của mũi tên (stroke-dashoffset animation). */
@@ -145,6 +147,7 @@ export function XiangqiBoard({
   arrows = [],
   highlights = [],
   sketchColor = "#3b82f6",
+  sketchColorAt,
   arrowWidthScale = 1,
   animateArrows = false,
   className,
@@ -527,7 +530,9 @@ export function XiangqiBoard({
               const dx = p2.x - p1.x;
               const dy = p2.y - p1.y;
               const pieceAtStart = board[sketch.from];
-              const activeColor = pieceAtStart
+              const activeColor = sketchColorAt
+                ? sketchColorAt(sketch.from)
+                : pieceAtStart
                 ? sideOf(pieceAtStart) === "r"
                   ? "#22c55e"
                   : "#ef4444"

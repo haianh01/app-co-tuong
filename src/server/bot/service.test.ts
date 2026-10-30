@@ -1,19 +1,29 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BotReplyRequest } from "./types";
 
+// Không đọc/ghi file cài đặt thật của máy chạy test.
+process.env.BOT_SETTINGS_FILE = "";
+
 const setTtsVoice = vi.fn();
+const setTtsEngine = vi.fn();
 vi.mock("./tts", () => ({
   prepareSpeech: vi.fn(),
   synthesizeWithRetry: vi.fn(() => Promise.resolve()),
   EDGE_VOICES: { female: "vi-VN-HoaiMyNeural", male: "vi-VN-NamMinhNeural" },
   setTtsVoice: (v: string) => setTtsVoice(v),
   ttsVoiceName: () => "vi-VN-HoaiMyNeural",
+  setTtsEngine: (e: string) => setTtsEngine(e),
+  ttsEngineName: () => "piper",
 }));
 
 const answered: string[] = [];
 vi.mock("./ai", () => ({
   AI_MODEL: "test",
   AI_PROVIDER: "gemini",
+  botCharacter: () => ({ name: "AI trợ lý", self: "mình", persona: "Trợ lý cờ tướng.", hostProfile: "" }),
+  setCharacter: vi.fn(),
+  DEFAULT_BOT_STYLE: "coach",
+  isBotStyle: (v: unknown) => ["coach", "humorous", "zhaoXinxin", "playful", "teaseHost", "serious"].includes(v as string),
   hasAiKey: true,
   lessons: { names: [], text: "" },
   MAX_AI_REPLIES_PER_MINUTE: 6,
@@ -30,7 +40,7 @@ vi.mock("./ai", () => ({
   }),
 }));
 
-const { LiveBotService, speakingMs } = await import("./service");
+const { LiveBotService, speakingMs, TIP_QUIET_MS } = await import("./service");
 
 const comment = (user: string, text: string): BotReplyRequest => ({
   user,
@@ -128,5 +138,147 @@ describe("tắt giọng AI lúc đang live", () => {
       ["Còn Mã?", true, true],
       ["Pháo thì sao?", false, true],
     ]);
+  });
+});
+
+describe("mẹo kỳ lý khi live im lặng", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const listen = (bot: InstanceType<typeof LiveBotService>) => {
+    const sent: Record<string, unknown>[] = [];
+    bot.addOverlayClient({
+      write: (chunk: string) => sent.push(JSON.parse(chunk.replace(/^data: /, ""))),
+    } as never);
+    return sent;
+  };
+
+  it("im lặng đủ lâu thì đọc một mẹo (câu mẫu, không gọi AI); bot vừa nói thì đếm lại từ đầu", async () => {
+    const bot = new LiveBotService();
+    const sent = listen(bot);
+
+    await vi.advanceTimersByTimeAsync(TIP_QUIET_MS - 60_000);
+    bot.narrateGame("Ván 1 bắt đầu!");
+    await vi.advanceTimersByTimeAsync(TIP_QUIET_MS - 30_000);
+    expect(sent.filter((m) => m.origin === "tip")).toHaveLength(0);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    const tips = sent.filter((m) => m.origin === "tip");
+    expect(tips).toHaveLength(1);
+    expect(tips[0]).toMatchObject({ source: "template", costUsd: 0, user: "Mẹo kỳ lý" });
+    expect(tips[0].reply).toEqual(expect.any(String));
+
+    // mẹo vừa đọc cũng tính là bot đã nói: mẹo sau phải chờ thêm đủ TIP_QUIET_MS
+    await vi.advanceTimersByTimeAsync(TIP_QUIET_MS - 60_000);
+    expect(sent.filter((m) => m.origin === "tip")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(sent.filter((m) => m.origin === "tip")).toHaveLength(2);
+  });
+
+  it("không có overlay nào mở hoặc đã tắt mẹo thì không đọc; bật lại thì đọc ở lần kiểm kế tiếp", async () => {
+    const quiet = new LiveBotService();
+    await vi.advanceTimersByTimeAsync(TIP_QUIET_MS * 2);
+    const late = listen(quiet);
+    quiet.updateSettings({ tips: false });
+    await vi.advanceTimersByTimeAsync(TIP_QUIET_MS * 2);
+    expect(late).toHaveLength(0);
+    quiet.updateSettings({ tips: true });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(late.map((m) => m.origin)).toEqual(["tip"]);
+  });
+});
+
+describe("nhắc nhẹ anh chủ kênh trong ván thật", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const state = (ply: number, over: Record<string, unknown> = {}) =>
+    ({
+      ply,
+      // anh chủ kênh cầm Đỏ: ply chẵn là tới lượt Đỏ (anh đang nghĩ), ply lẻ là anh vừa đi xong
+      turn: ply % 2 === 0 ? "r" : "b",
+      mySide: "r",
+      settings: { round: 1, me: { name: "Anh" }, opponent: { name: "Khách" }, today: { win: 0, draw: 0, loss: 0 } },
+      captured: { redLost: [], blackLost: [] },
+      moves: Array.from({ length: ply }, (_, i) => ({ notation: "B3.1", side: i % 2 === 0 ? "r" : "b" })),
+      bigMoment: null,
+      clocks: null,
+      ...over,
+    }) as never;
+
+  const setup = () => {
+    const bot = new LiveBotService();
+    const sent: { origin: string; reply: string }[] = [];
+    bot.addOverlayClient({ write: (chunk: string) => sent.push(JSON.parse(chunk.replace(/^data: /, ""))) } as never);
+    const feed = (s: unknown) => (bot as unknown as { onStageState: (s: unknown) => void }).onStageState(s);
+    const reminders = () => sent.filter((m) => m.origin === "remind");
+    return { bot, feed, reminders };
+  };
+
+  it("chỉ nhắc khi anh vừa đi xong, cách nhau vài phút, và tắt được", async () => {
+    const { bot, feed, reminders } = setup();
+    feed(state(0));
+    await vi.advanceTimersByTimeAsync(10_000);
+    feed(state(6)); // tới lượt anh đang nghĩ: im
+    expect(reminders()).toHaveLength(0);
+    feed(state(7)); // anh vừa đi xong
+    expect(reminders()).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    feed(state(9));
+    expect(reminders()).toHaveLength(1); // chưa đủ khoảng cách
+
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+    feed(state(11));
+    expect(reminders()).toHaveLength(2);
+
+    bot.updateSettings({ remind: false });
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    feed(state(13));
+    expect(reminders()).toHaveLength(2);
+  });
+
+  it("vừa mất quân lớn thì nhắc giữ bình tĩnh ngay nước sau; đồng hồ dưới 1 phút thì im", async () => {
+    const { feed, reminders } = setup();
+    feed(state(0));
+    await vi.advanceTimersByTimeAsync(10_000);
+    feed(state(7));
+    expect(reminders()).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    // đối phương ăn Xe của anh
+    feed(state(8, { bigMoment: { id: "m1", type: "bigCapture", title: "", subtitle: "Đối thủ ăn Xe", badge: "" }, captured: { redLost: ["r"], blackLost: [] } }));
+    await vi.advanceTimersByTimeAsync(10_000);
+    feed(state(9, { captured: { redLost: ["r"], blackLost: [] }, clocks: { me: 30_000, opponent: 300_000 } }));
+    expect(reminders()).toHaveLength(1); // sắp hết giờ: không làm phân tâm
+
+    feed(state(11, { captured: { redLost: ["r"], blackLost: [] } }));
+    expect(reminders()).toHaveLength(2);
+    expect(reminders()[1].reply).toMatch(/Bình tĩnh|chắc|Hít một hơi/);
+  });
+});
+
+describe("cài đặt trên trang Trợ lý thay cho .env", () => {
+  it("đổi nhân vật, bộ đọc và số phút; ô trống hay giá trị lạ thì giữ như cũ", () => {
+    const bot = new LiveBotService();
+    bot.updateSettings({ name: "  Mèo Pháo ", persona: "Mèo mê cờ.", ttsEngine: "edge", tipMinutes: 6, remindMinutes: 2 });
+    expect(bot.getStatus().botName).toBe("Mèo Pháo");
+    expect(bot.getStatus().settings).toMatchObject({ self: "mình", persona: "Mèo mê cờ.", ttsEngine: "edge", tipMinutes: 6, remindMinutes: 2 });
+    expect(setTtsEngine).toHaveBeenLastCalledWith("edge");
+
+    bot.updateSettings({ name: "   ", ttsEngine: "google" as never, tipMinutes: 999, remindMinutes: "5" as never });
+    expect(bot.getStatus().settings).toMatchObject({ name: "Mèo Pháo", ttsEngine: "edge", tipMinutes: 30, remindMinutes: 2 });
+  });
+});
+
+describe("anh chủ kênh tự giới thiệu cho AI", () => {
+  it("lưu được, sửa được, và xóa trắng được", () => {
+    const bot = new LiveBotService();
+    bot.updateSettings({ hostProfile: "  Lập trình viên, live tối thứ 7.  " });
+    expect(bot.getStatus().settings.hostProfile).toBe("Lập trình viên, live tối thứ 7.");
+    bot.updateSettings({ name: "Tiểu Tốt" });
+    expect(bot.getStatus().settings.hostProfile).toBe("Lập trình viên, live tối thứ 7.");
+    bot.updateSettings({ hostProfile: "" });
+    expect(bot.getStatus().settings.hostProfile).toBe("");
   });
 });

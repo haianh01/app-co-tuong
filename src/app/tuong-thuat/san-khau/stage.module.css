@@ -457,6 +457,40 @@
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65);
 }
 
+/* Nút Tóm tắt / Thử tiếng trên khung nhân vật: góc trên phải, mờ cho đỡ che, rê chuột vào thì rõ. */
+.aiCardTools {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  display: flex;
+  gap: 6px;
+  z-index: 2;
+  opacity: 0.45;
+  transition: opacity 0.2s;
+}
+
+.aiCardTools:hover {
+  opacity: 1;
+}
+
+/* Bật cam thì phụ đề nhân vật nằm mép trên, nên dời nút xuống góc dưới trái. */
+.aiCardTools[data-cam] {
+  top: auto;
+  right: auto;
+  bottom: 8px;
+  left: 10px;
+}
+
+/* Webcam của streamer phủ cả ô, nằm dưới nhân vật AI. */
+.aiCamVideo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+
 /* Nhân vật AI nền trong suốt, chiếm cả ô. */
 .aiAvatarFrame {
   position: absolute;

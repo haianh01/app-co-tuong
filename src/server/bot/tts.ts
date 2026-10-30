@@ -3,8 +3,15 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-const TTS_ENGINE: "piper" | "edge" =
-  process.env.TTS_ENGINE === "edge" ? "edge" : "piper";
+import type { TtsEngine } from "./types";
+
+/** Bộ đọc đang dùng; đổi trên trang Trợ lý (setTtsEngine). TTS_ENGINE trong .env chỉ là giá trị ban đầu. */
+let ttsEngine: TtsEngine = process.env.TTS_ENGINE === "edge" ? "edge" : "piper";
+export const ttsEngineName = (): TtsEngine => ttsEngine;
+export function setTtsEngine(engine: TtsEngine): void {
+  ttsEngine = engine;
+  edgeDownUntil = 0;
+}
 /** Giọng Edge TTS đang dùng; đổi được lúc đang live (setTtsVoice), mặc định theo TTS_VOICE. */
 let ttsVoice = process.env.TTS_VOICE ?? "vi-VN-HoaiMyNeural";
 export const EDGE_VOICES = { female: "vi-VN-HoaiMyNeural", male: "vi-VN-NamMinhNeural" } as const;
@@ -30,8 +37,33 @@ export const cleanForSpeech = (t: string): string =>
     .replace(/\s+/g, " ")
     .trim();
 
+// Edge TTS (dịch vụ miễn phí không chính thức) hay bị Microsoft cắt giữa chừng (WebSocket 1006, "no turn.end"):
+// hỏng một lần thì đọc bằng Piper trong 5 phút tới thay vì thử lại Edge mất vài giây mỗi câu.
+const EDGE_COOLDOWN_MS = 5 * 60_000;
+let edgeDownUntil = 0;
+const piperActive = () => ttsEngine === "piper" || Date.now() < edgeDownUntil;
+
+/** Đã có Piper nghe sẵn ở cổng (ví dụ của live-bot-demo đang chạy) thì dùng chung, khỏi bật thêm rồi đụng cổng. */
+async function piperAlreadyRunning(): Promise<boolean> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${PIPER_PORT}/`, {
+      method: "POST",
+      body: "a",
+      signal: AbortSignal.timeout(3_000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 let piperReady: Promise<void> | null = null;
-function startPiper(): Promise<void> {
+async function startPiper(): Promise<void> {
+  if (await piperAlreadyRunning()) return;
+  return spawnPiper();
+}
+
+function spawnPiper(): Promise<void> {
   const python = path.join(PIPER_DIR, ".piper/bin/python");
   const piperServerPy = path.join(PIPER_DIR, "piper_server.py");
   if (!existsSync(python) || !existsSync(PIPER_VOICE) || !existsSync(piperServerPy)) {
@@ -77,11 +109,18 @@ function startPiper(): Promise<void> {
 async function synthesizePiper(text: string): Promise<Buffer> {
   piperReady ??= startPiper();
   await piperReady;
-  const res = await fetch(`http://127.0.0.1:${PIPER_PORT}/`, {
-    method: "POST",
-    body: text,
-    signal: AbortSignal.timeout(10_000),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`http://127.0.0.1:${PIPER_PORT}/`, {
+      method: "POST",
+      body: text,
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (err) {
+    // Piper dùng chung (của demo) đã tắt: lần sau tự bật lại.
+    piperReady = null;
+    throw err;
+  }
   if (!res.ok) throw new Error(`Piper lỗi ${res.status}`);
   return Buffer.from(await res.arrayBuffer());
 }
@@ -125,8 +164,8 @@ function synthesizeEdge(text: string, voice = ttsVoice): Promise<Buffer> {
   });
 }
 
-const synthesize = (text: string) => {
-  if (TTS_ENGINE === "piper") {
+const synthesize = (text: string, piper: boolean) => {
+  if (piper) {
     return synthesizePiper(text).catch((err) => {
       console.warn("[TTS] Piper không khả dụng, dùng Edge TTS thay thế:", err);
       return synthesizeEdge(text);
@@ -135,11 +174,13 @@ const synthesize = (text: string) => {
   return synthesizeEdge(text);
 };
 
-export async function synthesizeWithRetry(text: string): Promise<Buffer> {
+export async function synthesizeWithRetry(text: string, piper = piperActive()): Promise<Buffer> {
   let lastErr: unknown;
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  // Edge chỉ thử một lần: hỏng thì generateSpeechAudio chuyển sang Piper ngay, đỡ để người xem chờ.
+  const attempts = piper ? 3 : 1;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
     try {
-      return await synthesize(text);
+      return await synthesize(text, piper);
     } catch (err) {
       lastErr = err;
       console.error(
@@ -168,12 +209,12 @@ export function splitSentences(text: string): string[] {
 
 const speechCache = new Map<string, Promise<Buffer>>();
 
-export function getSpeech(clean: string): Promise<Buffer> {
-  // Khóa theo cả giọng: đổi giọng giữa chừng thì câu mới không lấy nhầm audio giọng cũ.
-  const key = `${ttsVoice}|${clean}`;
+export function getSpeech(clean: string, piper = piperActive()): Promise<Buffer> {
+  // Khóa theo cả bộ đọc và giọng: đổi giọng giữa chừng thì câu mới không lấy nhầm audio giọng cũ.
+  const key = `${piper ? "piper" : ttsVoice}|${clean}`;
   let p = speechCache.get(key);
   if (!p) {
-    p = synthesizeWithRetry(clean);
+    p = synthesizeWithRetry(clean, piper);
     speechCache.set(key, p);
     p.catch(() => speechCache.delete(key));
     setTimeout(() => speechCache.delete(key), 120_000);
@@ -181,37 +222,35 @@ export function getSpeech(clean: string): Promise<Buffer> {
   return p;
 }
 
+/** Piper đọc cả đoạn một lần (file wav không nối được như mp3); Edge đọc từng câu cho nhanh. */
+const speechPieces = (sentences: string[], piper: boolean) =>
+  piper && sentences.length > 1 ? [sentences.join(" ")] : sentences;
+
 export function prepareSpeech(text: string): void {
-  for (const piece of splitSentences(text)) {
-    const clean = cleanForSpeech(piece);
-    if (clean) getSpeech(clean).catch(() => {});
-  }
+  const piper = piperActive();
+  const sentences = splitSentences(text).map(cleanForSpeech).filter(Boolean);
+  for (const piece of speechPieces(sentences, piper)) getSpeech(piece, piper).catch(() => {});
 }
 
 export async function generateSpeechAudio(
   text: string,
 ): Promise<{ audio: Buffer; contentType: string }> {
   const sentences = splitSentences(text).map(cleanForSpeech).filter(Boolean);
-  const pieces =
-    TTS_ENGINE === "piper" && sentences.length > 1
-      ? [sentences.join(" ")]
-      : sentences;
-  if (!pieces.length) {
+  if (!sentences.length) {
     throw new Error("Không có văn bản để đọc");
   }
 
-  const results = await Promise.allSettled(pieces.map(getSpeech));
-  const parts = results.flatMap((r) =>
-    r.status === "fulfilled" ? [r.value] : [],
-  );
-  if (!parts.length) {
-    const rejected = results.find((r) => r.status === "rejected") as
-      | PromiseRejectedResult
-      | undefined;
-    throw rejected?.reason ?? new Error("Không tạo được giọng đọc");
+  if (!piperActive()) {
+    const results = await Promise.allSettled(sentences.map((s) => getSpeech(s, false)));
+    const parts = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+    if (parts.length === results.length) {
+      return { audio: Buffer.concat(parts), contentType: "audio/mpeg" };
+    }
+    // Thiếu câu nào là mất ý: đọc lại cả đoạn bằng Piper.
+    edgeDownUntil = Date.now() + EDGE_COOLDOWN_MS;
+    console.warn("[TTS] Edge TTS lỗi, chuyển sang Piper trong 5 phút tới");
   }
 
-  const audio = Buffer.concat(parts);
-  const contentType = TTS_ENGINE === "piper" ? "audio/wav" : "audio/mpeg";
-  return { audio, contentType };
+  const [piece] = speechPieces(sentences, true);
+  return { audio: await getSpeech(piece, true), contentType: "audio/wav" };
 }

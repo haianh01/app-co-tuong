@@ -18,7 +18,7 @@
 </style>
 </head>
 <body>
-<div id="box"><div class="who">🤖 AI trợ lý</div><div class="q" id="q"></div><div class="a" id="a"></div></div>
+<div id="box"><div class="who" id="who">🤖 AI trợ lý</div><div class="q" id="q"></div><div class="a" id="a"></div></div>
 <script src="/live-bot/speech.js"></script>
 <script>
 // Thêm ?voice=1 vào địa chỉ trong OBS để overlay tự đọc to (bật "Control audio via OBS" để chỉnh âm lượng).
@@ -27,7 +27,7 @@ const box = document.getElementById("box");
 let hideTimer;
 function show(r) {
   clearTimeout(hideTimer);
-  document.getElementById("q").textContent = r.origin === "game" ? "♟ Diễn biến ván" : "@" + r.user + ": " + r.question;
+  document.getElementById("q").textContent = r.origin === "game" ? "♟ Diễn biến ván" : r.origin === "tip" ? "💡 Mẹo kỳ lý" : r.origin === "remind" ? "🧭 Nhắc anh chủ kênh" : "@" + r.user + ": " + r.question;
   document.getElementById("a").textContent = r.reply;
   box.classList.add("show");
 }
@@ -42,12 +42,14 @@ const speaker = window.createSpeaker({
 });
 new EventSource("/api/bot/events").onmessage = (e) => {
   const r = JSON.parse(e.data);
+  if (r.botName) document.getElementById("who").textContent = "🤖 " + r.botName;
   if (!r.reply) return;
   if (withVoice && !r.silent) return speaker.say(r.reply, r);
   show(r);
   // Hiện lâu hơn với câu dài: khoảng 1 giây cho mỗi 3 từ, tối thiểu 6 giây.
   hideAfter(Math.max(6000, r.reply.split(/\s+/).length * 330));
 };
+fetch("/api/bot/status").then((r) => r.json()).then((s) => (document.getElementById("who").textContent = "🤖 " + s.botName)).catch(() => {});
 </script>
 </body>
 </html>

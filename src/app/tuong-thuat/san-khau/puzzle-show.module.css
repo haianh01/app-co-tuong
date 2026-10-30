@@ -597,6 +597,7 @@
   font-weight: 700;
   color: #fff7ea;
   animation: marquee 42s linear infinite;
+  will-change: transform;
 }
 
 .tickerTrack span {

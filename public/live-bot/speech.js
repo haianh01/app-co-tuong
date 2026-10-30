@@ -69,7 +69,9 @@ window.createSpeaker = function (hooks = {}) {
         };
         tick();
       }
-      audioCtx.createMediaElementSource(audio).connect(analyser);
+      const source = audioCtx.createMediaElementSource(audio);
+      source.connect(analyser);
+      return source;
     } catch {
       // Không đo được âm lượng thì vẫn phát tiếng bình thường.
     }
@@ -78,9 +80,14 @@ window.createSpeaker = function (hooks = {}) {
   function playUrl(url) {
     return new Promise((done) => {
       const audio = new Audio(url);
-      connectAnalyser(audio);
-      audio.onended = audio.onerror = done;
-      audio.play().catch(done);
+      const source = connectAnalyser(audio);
+      // Gỡ khỏi bộ đo sau mỗi câu, không thì buổi live dài cứ giữ lại audio của mọi câu đã đọc.
+      const finish = () => {
+        source?.disconnect();
+        done();
+      };
+      audio.onended = audio.onerror = finish;
+      audio.play().catch(finish);
     });
   }
 

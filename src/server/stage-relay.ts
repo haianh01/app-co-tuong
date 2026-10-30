@@ -126,7 +126,7 @@ export class StageRelay {
       } catch {
         return;
       }
-      if (t !== "state" && t !== "recap") return;
+      if (t !== "state" && t !== "recap" && t !== "voice") return;
       if (t === "state") room.last = text;
       room.touchedAt = Date.now();
       for (const v of room.views) if (v.readyState === WebSocket.OPEN) v.send(text);

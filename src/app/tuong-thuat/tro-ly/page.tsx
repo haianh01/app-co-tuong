@@ -30,6 +30,8 @@ interface BotStatus {
     voice: "female" | "male";
   };
   tiktok: string | null;
+  tiktokState: "off" | "waiting" | "connected";
+  tiktokError: string | null;
   kydai: string | null;
   stage: string | null;
   game: {
@@ -91,6 +93,8 @@ export default function BotAssistantPage() {
   // Nhân vật: sửa trong ô rồi bấm Lưu (không gửi theo từng phím gõ).
   const [character, setCharacter] = useState({ name: "", self: "", persona: "", hostProfile: "" });
   const [characterSaved, setCharacterSaved] = useState(false);
+  // null: chưa nạp từ server; sau đó giữ nguyên chữ đang gõ.
+  const [tiktokInput, setTiktokInput] = useState<string | null>(null);
   const [stageInput, setStageInput] = useState("");
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [latestPreview, setLatestPreview] = useState<{
@@ -129,12 +133,19 @@ export default function BotAssistantPage() {
         setRemind(data.settings.remind);
         // Chỉ nạp nhân vật lần đầu, để lần làm mới trạng thái sau không xóa chữ đang gõ dở.
         setCharacter((c) => (c.name ? c : { name: data.settings.name, self: data.settings.self, persona: data.settings.persona, hostProfile: data.settings.hostProfile }));
+        setTiktokInput((v) => v ?? data.tiktok ?? "");
         if (data.stage) setStageInput(data.stage);
       }
     } catch (e) {
       console.warn("Không tải được trạng thái bot:", e);
     }
   };
+
+  // Trạng thái TikTok đổi ngầm phía server (lúc Go LIVE, lúc rớt mạng) nên làm mới định kỳ.
+  useEffect(() => {
+    const t = setInterval(() => void fetchStatus(), 5_000);
+    return () => clearInterval(t);
+  }, []);
 
   useEffect(() => {
     void fetchStatus();
@@ -212,6 +223,15 @@ export default function BotAssistantPage() {
     await saveSettings(character);
     setCharacterSaved(true);
     setTimeout(() => setCharacterSaved(false), 2500);
+  };
+
+  const handleSaveTikTok = async () => {
+    await fetch("/api/bot/settings", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ tiktokUsername: tiktokInput ?? "" }),
+    }).catch(() => {});
+    void fetchStatus();
   };
 
   const handleToggleRemind = async (next: boolean) => {
@@ -391,6 +411,32 @@ export default function BotAssistantPage() {
             </a>
           </div>
         </div>
+      </section>
+
+      <section className={styles.card} style={{ marginBottom: 20 }}>
+        <h2 className={styles.cardTitle}>📡 Kênh TikTok Live</h2>
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor="bot-tiktok">
+            Kênh để AI đọc bình luận (@tenkenh hoặc link kênh). Lưu trước khi Go LIVE cũng được: app tự thử vào phòng mỗi 30 giây.
+          </label>
+          <input
+            id="bot-tiktok"
+            className={styles.input}
+            placeholder="@tenkenh"
+            value={tiktokInput ?? ""}
+            onChange={(e) => setTiktokInput(e.target.value)}
+          />
+        </div>
+        <button type="button" className={styles.btnPrimary} onClick={handleSaveTikTok}>
+          💾 Lưu kênh
+        </button>
+        <p className={styles.obsDesc} role="status" style={{ marginTop: 10 }}>
+          {status?.tiktokState === "connected"
+            ? `✅ Đang nhận bình luận từ phòng live của @${status.tiktok}`
+            : status?.tiktokState === "waiting"
+              ? `⏳ Đang chờ @${status.tiktok} lên live${status.tiktokError ? ` (lần thử gần nhất: ${status.tiktokError})` : ""}`
+              : "⚠️ Chưa đặt kênh: AI sẽ không thấy bình luận TikTok."}
+        </p>
       </section>
 
       <section className={styles.card} style={{ marginBottom: 20 }}>

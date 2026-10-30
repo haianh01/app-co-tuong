@@ -120,6 +120,7 @@ export function ZigaBroadcastClient() {
   const [showScript, setShowScript] = useState(false);
   const [stageSettings, setStageSettings] = useStageSettings();
   const stageLink = useStageLink();
+  const sendStage = stageLink.send;
   const [roundResult, setRoundResult] = useState<StageResult | null>(null);
   const roundResultRef = useRef(roundResult);
   useLayoutEffect(() => {
@@ -435,6 +436,8 @@ export function ZigaBroadcastClient() {
           if (!replaying) setStageSettings((st) => ({ ...st, today: changeResult(st.today, previous, result) }));
           roundResultRef.current = result;
           setRoundResult(result);
+          // Xin thua, hết giờ: bàn cờ không phân thắng thua nên sân khấu không tự đọc câu kết (chiếu bí thì sân khấu tự bỏ trùng).
+          if (!replaying && result !== "draw") sendStage({ t: "voice", event: result });
           // Lưu ngay lúc hết ván (đầu hàng, hết giờ… bàn cờ không tự thấy), không đợi sang ván sau mới lưu.
           // Chờ một nhịp cho nước cuối vào biên bản; lúc phát lại sau reload thì thôi, sang ván sau sẽ lưu.
           if (!replaying) setTimeout(() => void archiveRef.current?.saveNow(result, "board"), 0);
@@ -493,7 +496,7 @@ export function ZigaBroadcastClient() {
         }
       }
     },
-    [applyGameAction, autoApply, clearDrawings, clearOnMove, mySide, oppSide, setStageSettings, tickClock, timeControl],
+    [applyGameAction, autoApply, clearDrawings, clearOnMove, mySide, oppSide, sendStage, setStageSettings, tickClock, timeControl],
   );
 
   // Luôn trỏ tới handler mới nhất để EventSource không phải đóng/mở lại mỗi khi state đổi
@@ -624,7 +627,6 @@ export function ZigaBroadcastClient() {
     [onCommand, saveNow],
   );
 
-  const sendStage = stageLink.send;
   const lastCapturedPiece =
     lastMove && ply > 0 ? (game.history[ply - 1].board[lastMove.to] ?? null) : null;
 

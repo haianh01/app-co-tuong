@@ -39,6 +39,8 @@ const RECAP_SHOW_MS = 10_000;
 const MOMENT_SHOW_MS = 3_500;
 /** Mở màn ván: màn VS của hai kỳ thủ, bàn cờ bung ra, quân rơi vào chỗ rồi chữ "BẮT ĐẦU!". */
 const INTRO_SHOW_MS = 3_600;
+/** Chiếu bí tự đọc câu thắng/thua rồi Ziga hay người dẫn lại báo đúng kết quả đó: trong khoảng này chỉ đọc một lần. */
+const RESULT_VOICE_GAP_MS = 15_000;
 
 /** Nhận trạng thái từ trang điều khiển qua /ws/stage; tự kết nối lại khi rớt mạng hoặc server khởi động lại. */
 function useStageFeed(
@@ -418,8 +420,8 @@ function PlayerCard({
   const defaultAvatar = rankInfo.avatarUrl;
   const avatarSrc = player.avatarUrl || defaultAvatar;
 
-  // Tỉ lệ thời gian còn lại (0..1) của lượt đi. Nếu là bên đang đi mà chưa có perMove thì mô phỏng 0.65 như ảnh mẫu Ziga
-  const progressLeft = perMove ? perMove.left : toMove ? 0.65 : 0;
+  // Tỉ lệ thời gian còn lại (0..1) của lượt đi. Đồng hồ dừng (chưa vào ván, hết ván) thì không vẽ vòng đếm.
+  const progressLeft = perMove ? perMove.left : 0;
   const isCounting = toMove && progressLeft > 0.01;
 
   // Tính toán góc quét đếm lùi và điểm sáng (flare/spark)
@@ -594,9 +596,7 @@ function PlayerCard({
               ? clock.total.length === 4
                 ? `0${clock.total}`
                 : clock.total
-              : isMe
-                ? "09:10"
-                : "10:04"}
+              : "--:--"}
           </span>
           {isMe && <span className={styles.hourglassIcon} aria-hidden="true">⌛</span>}
           <span className={styles.clockTurnMini}>{turnLabel}</span>
@@ -612,6 +612,16 @@ function PlayerCard({
   );
 }
 
+/** Thẻ kỳ thủ kèm đồng hồ tự đếm: để riêng để mỗi nhịp đếm chỉ vẽ lại thẻ này, không vẽ lại cả sân khấu và bàn cờ. */
+function ClockedPlayerCard({
+  clocks,
+  who,
+  ...card
+}: Omit<React.ComponentProps<typeof PlayerCard>, "clock"> & { clocks: StageClocks | null; who: "me" | "opponent" }) {
+  const now = useNow(250, !!clocks);
+  return <PlayerCard {...card} clock={clockView(clocks, who, now)} />;
+}
+
 /** Nhân vật AI (trang avatar của trợ lý live) nhúng vào khung camera. Mặc định BẬT (mở sân khấu là có AI):
  *  không ghi hoặc ?ai=1 → avatar cùng máy chủ với trang này; ?ai=0 → tắt; ?ai=<địa chỉ http(s)> → avatar ở chỗ khác. */
 export function aiAvatarSrc(sp: URLSearchParams, origin?: string): string | null {
@@ -619,7 +629,8 @@ export function aiAvatarSrc(sp: URLSearchParams, origin?: string): string | null
   if (raw === "0") return null;
   let url: URL;
   try {
-    url = raw === "1" || raw === "" ? new URL("/live-bot/avatar.html", origin ?? window.location.origin) : new URL(raw);
+    const defaultOrigin = origin ?? (typeof window !== "undefined" ? window.location.origin : "http://localhost:3000");
+    url = raw === "1" || raw === "" ? new URL("/live-bot/avatar.html", defaultOrigin) : new URL(raw);
   } catch {
     return null;
   }
@@ -709,7 +720,7 @@ function ZigaLiveCard({
           src={webcamActive ? aiPerchSrc(aiSrc) : aiSrc}
           title="Nhân vật AI"
           className={styles.aiAvatarFrame}
-          allow="autoplay"
+          allow="autoplay; microphone"
         />
         {/* AI bật mặc định nên vẫn giữ nút Tóm tắt / Thử tiếng của khung camera, thu nhỏ ở góc cho khỏi che nhân vật. */}
         <div className={styles.aiCardTools} data-cam={webcamActive || undefined}>
@@ -741,19 +752,6 @@ function ZigaLiveCard({
         <div className={styles.liveBadgeGroup}>
           <span className={styles.livePulseDot} />
           <span className={styles.liveText}>LIVE</span>
-          <span className={styles.liveTimer}>01:18:29</span>
-        </div>
-        <div className={styles.liveStatsGroup}>
-          <div className={styles.viewerAvatars} aria-hidden="true">
-            <span className={styles.miniAvatar} style={{ background: "#d97706" }}>👤</span>
-            <span className={styles.miniAvatar} style={{ background: "#2563eb" }}>👤</span>
-          </div>
-          <span className={styles.statItem} title="Số người đang xem">
-            <span className={styles.statIcon}>👤</span> 276
-          </span>
-          <span className={styles.statItem} title="Số lượt thả tim">
-            <span className={styles.statIcon}>❤️</span> 885
-          </span>
         </div>
       </div>
 
@@ -903,19 +901,18 @@ function trialText(notations: string[], best: { notation: string; purposeLabel: 
 
 function ZigaBottomBar({ state, controls }: { state: StageState; controls: React.ReactNode }) {
   const { settings, mySide, turn } = state;
-  const now = useNow(250, !!state.clocks);
-  const meClock = clockView(state.clocks, "me", now);
 
   return (
     <section className={styles.zigaBottomBar}>
       {controls}
 
-      <PlayerCard
+      <ClockedPlayerCard
+        clocks={state.clocks}
+        who="me"
         player={settings.me}
         side={mySide}
         isMe
         toMove={turn === mySide}
-        clock={meClock}
         ready={state.ready?.me ?? null}
       />
     </section>
@@ -1138,7 +1135,6 @@ export function StageClient() {
   const aiBotHere = !!aiSrc && new URL(aiSrc).origin === (typeof window === "undefined" ? "" : window.location.origin);
   const aiTicker = aiSrc ? sp.get("aitext")?.trim() || DEFAULT_AI_TICKER : null;
 
-  const [ply, setPly] = useState(0);
   const recap = useRecap();
   const [speechBubble, setSpeechBubble] = useState<{ text: string; type: StageVoiceEvent } | null>(null);
   const bubbleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -1151,14 +1147,24 @@ export function StageClient() {
 
   // Tin voice đến qua socket bất kỳ lúc nào, nên đọc câu thoại/cờ bật tắt từ trạng thái mới nhất qua ref.
   const stateRef = useRef<StageState | null>(null);
+  const lastResultVoice = useRef<{ event: StageVoiceEvent; at: number } | null>(null);
+  const resultVoiceRepeated = useCallback((event: StageVoiceEvent) => {
+    if (event === "check") return false;
+    const now = Date.now();
+    const last = lastResultVoice.current;
+    if (last?.event === event && now - last.at < RESULT_VOICE_GAP_MS) return true;
+    lastResultVoice.current = { event, at: now };
+    return false;
+  }, []);
   const onVoice = useCallback(
     (event: StageVoiceEvent, text?: string) => {
+      if (resultVoiceRepeated(event)) return;
       const lines = stateRef.current?.settings?.voiceLines ?? DEFAULT_STAGE_VOICE_LINES;
       // Câu trang điều khiển gửi kèm thay cho câu đã lưu, nhưng vẫn phát tiếng và vẫn theo nút tắt giọng.
       const spoken = playStageVoiceEvent(event, text ? { ...lines, [event]: text } : lines);
       if (spoken) showBubble(spoken, event);
     },
-    [showBubble],
+    [resultVoiceRepeated, showBubble],
   );
 
   const { state: socketState, connected: socketConnected, sendCommand } = useStageFeed(room, recap.show, onVoice);
@@ -1181,7 +1187,6 @@ export function StageClient() {
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
-  if (state && state.ply !== ply) setPly(state.ply);
   const scale = useFitScale();
   // Sân khấu không hiện thẻ "ĂN XE!/ĂN PHÁO!…" — chỉ giữ chiếu tướng và kết thúc ván. Đang chiếu cờ thế thì chỉ ghi nhận.
   const moment = useMoment(state?.bigMoment?.type === "bigCapture" ? null : state?.bigMoment, !!state?.puzzle);
@@ -1208,11 +1213,12 @@ export function StageClient() {
     if (over.over && over.winner) {
       const isWin = over.winner === state.mySide;
       const event: StageVoiceEvent = isWin ? "win" : "loss";
+      if (resultVoiceRepeated(event)) return;
       const lines = state.settings.voiceLines ?? DEFAULT_STAGE_VOICE_LINES;
       const spoken = playStageVoiceEvent(event, lines);
       if (spoken) queueMicrotask(() => showBubble(spoken, event));
     }
-  }, [state, showBubble]);
+  }, [state, showBubble, resultVoiceRepeated]);
 
   useEffect(() => () => clearTimeout(bubbleTimer.current), []);
 
@@ -1282,7 +1288,6 @@ function Stage({
   const oppSide: Side = mySide === "r" ? "b" : "r";
   const shaking = moment?.type === "check";
   const introId = useGameIntro(state.ply, !state.trial && !state.review);
-  const now = useNow(250, !!state.clocks);
   const trial = state.trial ?? null;
 
   // Phân tích / xem lại ván đã lưu ngay trên sân khấu (bấm nút Phân tích hoặc chọn từ Lịch sử).
@@ -1320,19 +1325,6 @@ function Stage({
     const next = tps.find((tp) => tp.ply > reviewPly) ?? tps[0];
     if (next) setReviewPly(next.ply);
   }, [gameReview.turningPoints, reviewPly]);
-
-  const [reviewTrialing, setReviewTrialing] = useState(false);
-  useEffect(() => {
-    if (!reviewing || reviewTrialing) return;
-    const onKey = (e: KeyboardEvent) => {
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      if (e.key === "ArrowLeft") setReviewPly((p) => Math.max(0, p - 1));
-      else if (e.key === "ArrowRight") setReviewPly((p) => Math.min(reviewTotal, p + 1));
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [reviewing, reviewTrialing, reviewTotal]);
 
   const reviewStatus = !reviewing
     ? null
@@ -1383,6 +1375,8 @@ function Stage({
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedPly, setSelectedPly] = useState<number | null>(null);
+  // Sang ván mới lúc đang xem lại nước của ván trước: về trực tiếp, không kẹt ở bàn cờ cũ.
+  if (selectedPly !== null && selectedPly > (state.moves?.length ?? 0)) setSelectedPly(null);
 
   // Tính toán bàn cờ khi xem lại nước cũ
   const displayBoard = useMemo(() => {
@@ -1421,6 +1415,18 @@ function Stage({
   const trialControls = useTrialMoves(liveNotations);
   const isTrialActive = Boolean(trialControls.trial);
   const isTrialMode = Boolean(trial || isTrialActive);
+  const isReviewTrialing = reviewing && isTrialActive;
+  useEffect(() => {
+    if (!reviewing || isReviewTrialing) return;
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (e.key === "ArrowLeft") setReviewPly((p) => Math.max(0, p - 1));
+      else if (e.key === "ArrowRight") setReviewPly((p) => Math.min(reviewTotal, p + 1));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [reviewing, isReviewTrialing, reviewTotal]);
   const annotateBoard = isTrialActive && trialControls.stage ? trialControls.stage.board : displayBoard;
   const arrowColorAt = (from: number) => {
     const piece = annotateBoard[from];
@@ -1439,7 +1445,6 @@ function Stage({
     trialControls.start({ board: displayBoard, turn: (selectedPly === null ? review?.turn : undefined) ?? state.turn });
     setDrawing(false);
   }, [trialControls, displayBoard, selectedPly, review?.turn, state.turn, drawing]);
-  if (reviewTrialing !== (reviewing && isTrialActive)) setReviewTrialing(reviewing && isTrialActive);
 
   /** Rời biến thử (khi chuyển nước hay thoát phân tích): bàn cờ phải về đúng nước đang xem. */
   const leaveTrial = () => {
@@ -1544,8 +1549,6 @@ function Stage({
   const mateOutcome = moment?.type === "mate" ? outcome({ board: state.board, turn: state.turn }) : null;
   const mateWin = !!mateOutcome?.over && mateOutcome.winner === mySide;
 
-  const meClock = clockView(state.clocks, "me", now);
-  const oppClock = clockView(state.clocks, "opponent", now);
   return (
     <>
       {!connected && <div className={styles.offline}>Mất kết nối, đang nối lại…</div>}
@@ -1559,12 +1562,13 @@ function Stage({
 
       {/* Phần trên chuẩn Ziga: Đối thủ bên trái, Khung Live Streamer / OBS bên phải */}
       <section className={styles.topSection}>
-        <PlayerCard
+        <ClockedPlayerCard
+          clocks={state.clocks}
+          who="opponent"
           player={settings.opponent}
           side={oppSide}
           isMe={false}
           toMove={turn === oppSide}
-          clock={oppClock}
           ready={state.ready?.opponent ?? null}
         />
         <ZigaLiveCard

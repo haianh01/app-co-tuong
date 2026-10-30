@@ -226,10 +226,10 @@ export function getSpeech(clean: string, piper = piperActive()): Promise<Buffer>
 const speechPieces = (sentences: string[], piper: boolean) =>
   piper && sentences.length > 1 ? [sentences.join(" ")] : sentences;
 
+/** speech.js xin audio từng câu (tách như splitSentences), nên chuẩn bị đúng từng câu đó để lúc xin là có ngay. */
 export function prepareSpeech(text: string): void {
   const piper = piperActive();
-  const sentences = splitSentences(text).map(cleanForSpeech).filter(Boolean);
-  for (const piece of speechPieces(sentences, piper)) getSpeech(piece, piper).catch(() => {});
+  for (const sentence of splitSentences(text).map(cleanForSpeech).filter(Boolean)) getSpeech(sentence, piper).catch(() => {});
 }
 
 export async function generateSpeechAudio(

@@ -98,6 +98,45 @@ describe("StageClient", () => {
     expect(container.textContent).not.toMatch(/[+-]\d\.\d/);
   });
 
+  it("đồng hồ dừng (chưa theo dõi, đang xem lại nước cũ): không hiện giờ giả, không vẽ vòng đếm", () => {
+    const { container } = render(<StageClient />);
+    FakeSocket.all[0].receive({ t: "state", state: stateAfterCentralCannon() });
+    expect(screen.getAllByText("--:--")).toHaveLength(2);
+    expect(container.textContent).not.toMatch(/09:10|10:04/);
+    expect(container.querySelector('[class*="ringFill"]')).toBeNull();
+  });
+
+  it("đồng hồ thật: bên đang đi vẫn tự đếm lùi giữa hai lần trang điều khiển gửi", () => {
+    vi.useFakeTimers();
+    render(<StageClient />);
+    const state = stateAfterCentralCannon();
+    state.clocks = { me: 600_000, opponent: 300_000, running: "opponent", perMove: 60_000, perMoveTotal: 60_000, sentAt: Date.now() };
+    FakeSocket.all[0].receive({ t: "state", state });
+    expect(screen.getByText("05:00")).toBeDefined();
+    act(() => void vi.advanceTimersByTime(10_000));
+    expect(screen.getByText("04:50")).toBeDefined();
+    expect(screen.getByText("10:00")).toBeDefined();
+    vi.useRealTimers();
+  });
+
+  it("chiếu bí tự đọc câu thắng; Ziga hay người dẫn báo thắng ngay sau đó thì không đọc lại, báo kết quả khác vẫn đọc", async () => {
+    render(<StageClient />);
+    const ws = FakeSocket.all[0];
+    const pos = applyMove(parseFen("4k4/R8/9/9/9/R8/9/9/9/3K5 r - - 0 1"), { from: 45, to: 0 });
+    ws.receive({
+      t: "state",
+      state: { ...stateAfterCentralCannon(), board: pos.board, turn: pos.turn, ply: 21, bigMoment: { id: "mate-21", type: "mate", title: "BẠN THẮNG!", badge: "KẾT THÚC" } },
+    });
+    await act(async () => {});
+    expect(screen.getByText("KHÍ THẾ BỪNG BỪNG:")).toBeDefined();
+
+    ws.receive({ t: "voice", event: "win", text: "Câu này không được đọc" });
+    expect(screen.queryByText(/Câu này không được đọc/)).toBeNull();
+
+    ws.receive({ t: "voice", event: "loss", text: "Bấm nhầm rồi sửa thành thua" });
+    expect(screen.getByText(/Bấm nhầm rồi sửa thành thua/)).toBeDefined();
+  });
+
   it("chưa đặt tên kênh: tiêu đề dùng tên kì thủ của người dẫn, không hiện chữ BLV", () => {
     render(<StageClient />);
     const state = stateAfterCentralCannon();

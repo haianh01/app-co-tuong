@@ -31,8 +31,11 @@
   flex-direction: column;
   align-items: center;
   overflow: hidden;
-  /* Nền thủy mặc Ziga gốc: tranh lụa sọc gân xám sepia ấm áp, núi mây mờ */
-  background: url("/stage/ziga_bg.jpg") center center / cover no-repeat, #534e45;
+  /* Nền thủy mặc Ziga gốc (tranh lụa, núi mây mờ) phủ thêm lớp kem cho sáng, để bàn cờ không bị chìm trên stream. */
+  background:
+    linear-gradient(rgba(255, 246, 226, 0.22), rgba(255, 246, 226, 0.22)),
+    url("/stage/ziga_bg.jpg") center center / cover no-repeat,
+    #cfc6b4;
   color: var(--ink);
   font-family: var(--font-body, system-ui, sans-serif);
   transform-origin: center center;
@@ -656,6 +659,7 @@
   flex: none;
   white-space: nowrap;
   animation: tickerRun 48s linear infinite;
+  will-change: transform;
 }
 
 .tickerGroup {
@@ -699,7 +703,8 @@
 .tickerOpening,
 .tickerScore,
 .tickerCta,
-.tickerGoal {
+.tickerGoal,
+.tickerAi {
   font-size: 38px;
   font-weight: 800;
   color: #f6ebd0;
@@ -712,6 +717,7 @@
 
 .tickerAi {
   color: #7dd3fc;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.85), 0 0 12px rgba(125, 211, 252, 0.35);
 }
 
 .tickerGoal {
@@ -1175,7 +1181,7 @@
   flex: none;
 }
 
-/* Nền tối mờ dần sau bàn cờ: bàn sáng trên tranh xám bị chìm, có mảng tối phía sau thì nổi lên như trên nền đen. */
+/* Quầng ấm nhẹ sau bàn cờ: vùng quanh bàn phải tối hơn mặt bàn, sáng quá thì chói mắt người xem. */
 .boardWrap {
   position: relative;
   /* Giữ lớp ::before z-index:-1 nằm trên nền tranh của .canvas thay vì chui xuống dưới. */
@@ -1188,7 +1194,7 @@
   inset: -40px -50px;
   z-index: -1;
   border-radius: 60px;
-  background: rgba(0, 0, 0, 0.85);
+  background: rgba(255, 248, 228, 0.12);
   filter: blur(40px);
   pointer-events: none;
 }
@@ -1211,8 +1217,8 @@
   max-width: 940px !important;
   padding: 22px !important;
   border-radius: 24px !important;
-  /* Viền đen mỏng tách mép bàn khỏi lớp nền tối phía sau (xem .boardWrap::before). */
-  box-shadow: 0 0 0 6px rgba(8, 14, 12, 0.92), 0 24px 60px rgba(0, 0, 0, 0.6) !important;
+  /* Viền đậm mỏng giữ mép bàn rõ trên nền sáng; bóng nhẹ để không làm tối vùng quanh bàn. */
+  box-shadow: 0 0 0 6px rgba(8, 14, 12, 0.92), 0 14px 34px rgba(60, 40, 15, 0.3) !important;
   /* Nét viền quân phóng theo cỡ bàn (572px → 940px). */
   --piece-border: 3.2px;
   --piece-ring: 1.6px;

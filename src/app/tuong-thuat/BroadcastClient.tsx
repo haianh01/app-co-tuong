@@ -360,6 +360,9 @@ export function BroadcastClient() {
   const recordResult = (r: StageResult | null) => {
     setStageSettings((s) => ({ ...s, today: changeResult(s.today, roundResult, r) }));
     setRoundResult(r);
+    // Xin thua, hết giờ: bàn cờ không tự biết nên đồng hồ vẫn chạy tới khi người dẫn bấm kết quả.
+    const now = Date.now();
+    setClock((prev) => (prev ? stopClock(prev, now) : prev));
     if (r) {
       void archive.saveNow(r, "manual");
     }

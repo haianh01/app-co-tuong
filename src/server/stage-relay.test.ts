@@ -52,6 +52,10 @@ describe("StageRelay", () => {
     control.ws.send(JSON.stringify({ t: "state", state: { ply: 3 } }));
     await until(() => view.inbox.length === 1);
     expect(view.inbox[0]).toEqual({ t: "state", state: { ply: 3 } });
+
+    control.ws.send(JSON.stringify({ t: "voice", event: "check", text: "Người đâu Cứu trẫm" }));
+    await until(() => view.inbox.length === 2);
+    expect(view.inbox[1]).toEqual({ t: "voice", event: "check", text: "Người đâu Cứu trẫm" });
   });
 
   it("sân khấu mở sau vẫn nhận ngay trạng thái gần nhất", async () => {

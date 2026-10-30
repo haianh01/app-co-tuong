@@ -67,7 +67,12 @@ export interface BotLiveSettings {
   hostProfile: string;
   /** Bộ đọc: Piper chạy trên máy (ổn định) hoặc Edge TTS của Microsoft (giọng tự nhiên hơn, hay bị cắt). */
   ttsEngine: TtsEngine;
+  /** Kênh TikTok để đọc bình luận (không có @); rỗng là chưa đặt, AI không thấy chat. */
+  tiktokUsername: string;
 }
+
+/** off: chưa đặt kênh; waiting: đang thử vào phòng (chưa lên live thì tự thử lại); connected: đang nhận chat. */
+export type BotTikTokState = "off" | "waiting" | "connected";
 
 export type TtsEngine = "piper" | "edge";
 
@@ -92,6 +97,9 @@ export interface BotStatusResponse {
   };
   settings: BotLiveSettings;
   tiktok: string | null;
+  tiktokState: BotTikTokState;
+  /** Lý do lần kết nối gần nhất không được (thường là kênh chưa lên live). */
+  tiktokError: string | null;
   kydai: string | null;
   stage: string | null;
   game: BotGameInfo | null;

@@ -89,6 +89,9 @@ const app = new PIXI.Application({
   backgroundAlpha: 0,
   antialias: true,
 });
+// Nhân vật chuyển động chậm, 30 hình/giây là đủ mượt; nhường CPU/GPU cho bàn cờ và OBS trên máy không có card rời.
+PIXI.Ticker.shared.maxFPS = 30;
+app.ticker.maxFPS = 30;
 
 // Ngồi trên vai: x, y là chỗ vai (tỉ lệ khung), size là chiều cao phần nhân vật lộ ra (tỉ lệ chiều cao khung).
 // Mặc định canh webcam 16:9 người ngồi giữa khung: vai ở khoảng 1/5 và 4/5 bề ngang, gần mép dưới.
@@ -183,9 +186,19 @@ PIXI.live2d.Live2DModel.from(MODEL_URL, { autoInteract: false })
 let inObs = !!window.obsstudio;
 try { inObs = inObs || !!window.parent.obsstudio; } catch {}
 if (withVoice && !inObs) {
+  // Hỏi thẳng trình duyệt bằng một đoạn im lặng: bấm ở Sân khấu (trang cha) hay trong khung này đều mở tiếng được,
+  // và gợi ý nằm đè lên hình nên chỉ hiện khi tiếng còn bị chặn thật.
+  const SILENT = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
   const hint = document.getElementById("hint");
-  hint.hidden = false;
-  document.addEventListener("click", () => (hint.hidden = true), { once: true });
+  const probe = () =>
+    new Audio(SILENT).play().then(
+      () => (hint.hidden = true),
+      (err) => {
+        hint.hidden = err.name !== "NotAllowedError";
+        if (!hint.hidden) setTimeout(probe, 1000);
+      },
+    );
+  probe();
 }
 
 const box = document.getElementById("box");

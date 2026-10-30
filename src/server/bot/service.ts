@@ -13,6 +13,7 @@ import {
   setCharacter,
 } from "./ai";
 import { LIMITS, loadSavedSettings, saveSettings } from "./config";
+import { outcome } from "@/lib/xiangqi/engine";
 import { analyzeGame, movesFromNotations } from "./postgame";
 import { parseStageRoom, speakNotation } from "./narration";
 import { createReminderPicker, gamePhase, type GamePhase } from "./reminders";
@@ -34,6 +35,7 @@ import type {
   BotReplyRequest,
   BotReplyResult,
   BotStatusResponse,
+  BotTikTokState,
 } from "./types";
 import type { StageReviewState, StageState } from "@/app/tuong-thuat/stage-sync";
 
@@ -52,6 +54,20 @@ export const REMIND_GAP_MS = (Number(process.env.BOT_REMIND_MINUTES) || 3) * 60_
 const REMIND_AFTER_SPEECH_MS = 8_000;
 /** Đồng hồ anh chủ kênh dưới mức này thì im lặng hẳn, không làm phân tâm. */
 const REMIND_MIN_CLOCK_MS = 60_000;
+const TIKTOK_RETRY_MS = 30_000;
+
+const FINISH_TEXT = {
+  win: "Ván cờ kết thúc! Anh chủ kênh giành chiến thắng.",
+  loss: "Ván cờ kết thúc! Anh chủ kênh đã thua ván này.",
+  draw: "Ván cờ kết thúc với tỷ số hòa.",
+} as const;
+
+/** Nhận "@ten", "ten" hoặc link kênh (tiktok.com/@ten/live); không ra tên hợp lệ thì trả chuỗi rỗng. */
+export function parseTikTokUsername(input: string): string {
+  const v = input.trim();
+  const m = /@([\w.]+)/.exec(v) ?? /^([\w.]+)$/.exec(v);
+  return m?.[1] ?? "";
+}
 
 /** Ước lượng thời gian đọc xong một câu trả lời (~3 từ/giây, cộng quãng nghỉ), để đọc xong mới trả lời tiếp. */
 export function speakingMs(text: string): number {
@@ -72,6 +88,7 @@ export class LiveBotService {
     remindMinutes: REMIND_GAP_MS / 60_000,
     ...botCharacter(),
     ttsEngine: ttsEngineName(),
+    tiktokUsername: parseTikTokUsername(process.env.TIKTOK_USERNAME ?? ""),
   };
   private readonly nextTip = createTipPicker();
   private readonly nextReminder = createReminderPicker();
@@ -81,9 +98,12 @@ export class LiveBotService {
   private remindSafety = false;
   private lastSpokeAt = Date.now();
 
-  private tiktokUsername: string = (process.env.TIKTOK_USERNAME ?? "")
-    .replace(/^@/, "")
-    .trim();
+  private tiktokConn: { disconnect: () => Promise<void> } | null = null;
+  private tiktokRetry: ReturnType<typeof setTimeout> | undefined;
+  /** Tăng mỗi lần đổi kênh, để bỏ sự kiện và lần thử lại của kết nối cũ. */
+  private tiktokRun = 0;
+  private tiktokState: BotTikTokState = "off";
+  private tiktokError: string | null = null;
   private kydaiPlayer: string = (process.env.KYDAI_PLAYER ?? "").trim();
   private kydaiUrl: string = process.env.KYDAI_URL ?? "http://localhost:3000";
 
@@ -126,9 +146,7 @@ export class LiveBotService {
       this.joinStage(process.env.KYDAI_STAGE);
     }
 
-    if (this.tiktokUsername) {
-      this.startTikTokListener(this.tiktokUsername);
-    }
+    this.startTikTokListener();
 
     setInterval(() => {
       this.maybeSpeakTip();
@@ -173,7 +191,9 @@ export class LiveBotService {
       maxPerMinute: MAX_AI_REPLIES_PER_MINUTE,
       session: { ...this.session },
       settings: { ...this.liveSettings },
-      tiktok: this.tiktokUsername || null,
+      tiktok: this.liveSettings.tiktokUsername || null,
+      tiktokState: this.tiktokState,
+      tiktokError: this.tiktokError,
       kydai: this.kydaiPlayer || null,
       stage: this.stageRoom,
       game: this.getCurrentGameInfo(),
@@ -182,8 +202,10 @@ export class LiveBotService {
 
   /** Đổi cài đặt từ trang Trợ lý / Sân khấu; giá trị lạ bị bỏ qua. Lưu ra file để lần chạy sau dùng lại. */
   public updateSettings(settings: Partial<BotLiveSettings>): BotLiveSettings {
+    const tiktokBefore = this.liveSettings.tiktokUsername;
     this.applySettings(settings);
     saveSettings(this.liveSettings);
+    if (this.liveSettings.tiktokUsername !== tiktokBefore) this.startTikTokListener();
     return { ...this.liveSettings };
   }
 
@@ -215,6 +237,9 @@ export class LiveBotService {
     if (settings.ttsEngine === "piper" || settings.ttsEngine === "edge") {
       this.liveSettings.ttsEngine = settings.ttsEngine;
       setTtsEngine(settings.ttsEngine);
+    }
+    if (typeof settings.tiktokUsername === "string") {
+      this.liveSettings.tiktokUsername = parseTikTokUsername(settings.tiktokUsername);
     }
     // Ô để trống thì giữ như cũ, không để nhân vật mất tên hay mất lý lịch.
     const text = (v: unknown, max: number) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
@@ -382,13 +407,13 @@ export class LiveBotService {
 
     const today = s.settings.today;
     if (today.win > this.stageRecord.win) {
-      return this.finishStage(s, "win", `Ván cờ kết thúc! Anh chủ kênh giành chiến thắng.`);
+      return this.finishStage(s, "win");
     }
     if (today.loss > this.stageRecord.loss) {
-      return this.finishStage(s, "loss", `Ván cờ kết thúc! Anh chủ kênh đã thua ván này.`);
+      return this.finishStage(s, "loss");
     }
     if (today.draw > this.stageRecord.draw) {
-      return this.finishStage(s, "draw", `Ván cờ kết thúc với tỷ số hòa.`);
+      return this.finishStage(s, "draw");
     }
 
     if (s.ply > this.stagePlies) {
@@ -396,6 +421,14 @@ export class LiveBotService {
       const moment = s.bigMoment;
       if (moment && moment.id !== this.lastMomentId && lastMove) {
         this.lastMomentId = moment.id;
+        if (moment.type === "mate") {
+          // Chiếu bí mà chưa ai bấm kết quả: trang Thị giác máy tính chỉ cộng thành tích lúc sang ván sau,
+          // cùng lúc đổi số ván, nên không đợi settings.today ở đây được.
+          const end = outcome({ board: s.board, turn: s.turn });
+          const winner = end.over ? end.winner : null;
+          this.stagePlies = s.ply;
+          return this.finishStage(s, !winner ? "draw" : winner === s.mySide ? "win" : "loss");
+        }
         const mover =
           lastMove.side === s.mySide ? "Anh chủ kênh" : "Đối thủ";
         const move = speakNotation(lastMove.notation);
@@ -429,10 +462,10 @@ export class LiveBotService {
     }
   }
 
-  private finishStage(s: StageState, result: "win" | "loss" | "draw", text: string): void {
+  private finishStage(s: StageState, result: "win" | "loss" | "draw"): void {
     this.stageEnded = true;
     this.stageResult = result;
-    this.narrateGame(text);
+    this.narrateGame(FINISH_TEXT[result]);
     this.analyzeStage(s);
   }
 
@@ -548,70 +581,93 @@ export class LiveBotService {
     }
   }
 
-  private startTikTokListener(username: string): void {
-    void (async () => {
-      try {
-        const { TikTokLiveConnection, WebcastEvent, ControlEvent } =
-          await import("tiktok-live-connector");
-        const conn = new TikTokLiveConnection(username, {
-          signApiKey: process.env.EULER_API_KEY || undefined,
+  /** Bắt đầu lại theo kênh đang đặt. Có thể bật server trước rồi mới Go LIVE: chưa vào được thì cứ tự thử lại. */
+  private startTikTokListener(): void {
+    const run = ++this.tiktokRun;
+    clearTimeout(this.tiktokRetry);
+    const old = this.tiktokConn;
+    this.tiktokConn = null;
+    void old?.disconnect().catch(() => {});
+    this.tiktokError = null;
+    const username = this.liveSettings.tiktokUsername;
+    this.tiktokState = username ? "waiting" : "off";
+    if (username) void this.connectTikTok(username, run);
+  }
+
+  /** Một lần thử vào phòng. Mỗi lần một kết nối mới: lên live lại là phòng mới, không dùng lại mã phòng cũ. */
+  private async connectTikTok(username: string, run: number): Promise<void> {
+    let conn: InstanceType<typeof import("tiktok-live-connector").TikTokLiveConnection> | null = null;
+    const retry = (reason: string) => {
+      if (run !== this.tiktokRun || this.tiktokConn !== conn) return;
+      this.tiktokConn = null;
+      this.tiktokState = "waiting";
+      // Chưa lên live thì lỗi lặp lại mỗi lần thử: chỉ ghi log khi lý do đổi.
+      if (reason !== this.tiktokError) console.warn(`[TikTok] Chưa vào được @${username}: ${reason}. Tự thử lại mỗi ${TIKTOK_RETRY_MS / 1000} giây.`);
+      this.tiktokError = reason;
+      clearTimeout(this.tiktokRetry);
+      this.tiktokRetry = setTimeout(() => void this.connectTikTok(username, run), TIKTOK_RETRY_MS);
+      this.tiktokRetry.unref?.();
+    };
+    try {
+      const { TikTokLiveConnection, WebcastEvent, ControlEvent } =
+        await import("tiktok-live-connector");
+      if (run !== this.tiktokRun) return;
+      conn = new TikTokLiveConnection(username, {
+        signApiKey: process.env.EULER_API_KEY || undefined,
+      });
+      this.tiktokConn = conn;
+      const name = (u?: { nickname?: string; displayId?: string }) =>
+        u?.nickname || u?.displayId || "bạn";
+
+      conn.on(WebcastEvent.CHAT, (msg) => {
+        if (!msg.content) return;
+        const user = name(msg.user);
+        if (this.isDuplicateChat(msg.common?.msgId, user, msg.content)) return;
+        this.enqueueTikTok({
+          user,
+          kind: "comment",
+          text: msg.content,
+          ...this.liveSettings,
         });
-        const name = (u?: { nickname?: string; displayId?: string }) =>
-          u?.nickname || u?.displayId || "bạn";
+      });
 
-        conn.on(WebcastEvent.CHAT, (msg) => {
-          if (!msg.content) return;
-          const user = name(msg.user);
-          if (this.isDuplicateChat(msg.common?.msgId, user, msg.content)) return;
-          this.enqueueTikTok({
-            user,
-            kind: "comment",
-            text: msg.content,
-            ...this.liveSettings,
-          });
+      conn.on(WebcastEvent.GIFT, (msg) => {
+        if (msg.gift?.combo && !msg.repeatEnd) return;
+        const count =
+          msg.repeatCount && msg.repeatCount > 1
+            ? `${msg.repeatCount} `
+            : "";
+        this.enqueueTikTok({
+          user: name(msg.user),
+          kind: "gift",
+          gift: `${count}${msg.gift?.name || "quà"}`,
+          ...this.liveSettings,
         });
+      });
 
-        conn.on(WebcastEvent.GIFT, (msg) => {
-          if (msg.gift?.combo && !msg.repeatEnd) return;
-          const count =
-            msg.repeatCount && msg.repeatCount > 1
-              ? `${msg.repeatCount} `
-              : "";
-          this.enqueueTikTok({
-            user: name(msg.user),
-            kind: "gift",
-            gift: `${count}${msg.gift?.name || "quà"}`,
-            ...this.liveSettings,
-          });
+      let lastGreeting = 0;
+      conn.on(WebcastEvent.MEMBER, (msg) => {
+        const now = Date.now();
+        if (now - lastGreeting < 20_000) return;
+        lastGreeting = now;
+        this.enqueueTikTok({
+          user: name(msg.user),
+          kind: "join",
+          ...this.liveSettings,
         });
+      });
 
-        let lastGreeting = 0;
-        conn.on(WebcastEvent.MEMBER, (msg) => {
-          const now = Date.now();
-          if (now - lastGreeting < 20_000) return;
-          lastGreeting = now;
-          this.enqueueTikTok({
-            user: name(msg.user),
-            kind: "join",
-            ...this.liveSettings,
-          });
-        });
+      conn.on(ControlEvent.CONNECTED, (state) => {
+        if (run !== this.tiktokRun) return;
+        this.tiktokState = "connected";
+        this.tiktokError = null;
+        console.log(`[TikTok] Đã vào phòng live của @${username} (room ${state.roomId})`);
+      });
+      conn.on(ControlEvent.DISCONNECTED, () => retry("mất kết nối tới phòng live"));
 
-        conn.on(ControlEvent.CONNECTED, (state) =>
-          console.log(
-            `[TikTok] Đã vào phòng live của @${username} (room ${state.roomId})`,
-          ),
-        );
-        conn.on(ControlEvent.DISCONNECTED, () =>
-          console.log(`[TikTok] Mất kết nối tới @${username}, sẽ thử lại sau 30s`),
-        );
-
-        await conn.connect();
-      } catch (err: unknown) {
-        console.warn(
-          `[TikTok] Chưa kết nối được @${username}: ${String(err).slice(0, 100)}`,
-        );
-      }
-    })();
+      await conn.connect();
+    } catch (err: unknown) {
+      retry(String(err).slice(0, 160));
+    }
   }
 }

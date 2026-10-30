@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { applyMove, parseFen } from "@/lib/xiangqi/engine";
 import type { BotReplyRequest } from "./types";
 
 // Không đọc/ghi file cài đặt thật của máy chạy test.
@@ -40,7 +41,36 @@ vi.mock("./ai", () => ({
   }),
 }));
 
-const { LiveBotService, speakingMs, TIP_QUIET_MS } = await import("./service");
+/** Kết nối TikTok giả: `offline` là chưa lên live. */
+const tiktok = vi.hoisted(() => {
+  class FakeConn {
+    static all: FakeConn[] = [];
+    static offline = false;
+    handlers: Record<string, (arg?: unknown) => void> = {};
+    constructor(public username: string) {
+      FakeConn.all.push(this);
+    }
+    on(event: string, fn: (arg?: unknown) => void) {
+      this.handlers[event] = fn;
+      return this;
+    }
+    async connect() {
+      if (FakeConn.offline) throw new Error("The requested user isn't online");
+      this.handlers.connected?.({ roomId: "1" });
+    }
+    async disconnect() {
+      this.handlers.disconnected?.();
+    }
+  }
+  return { FakeConn };
+});
+vi.mock("tiktok-live-connector", () => ({
+  TikTokLiveConnection: tiktok.FakeConn,
+  WebcastEvent: { CHAT: "chat", GIFT: "gift", MEMBER: "member" },
+  ControlEvent: { CONNECTED: "connected", DISCONNECTED: "disconnected" },
+}));
+
+const { LiveBotService, parseTikTokUsername, speakingMs, TIP_QUIET_MS } = await import("./service");
 
 const comment = (user: string, text: string): BotReplyRequest => ({
   user,
@@ -96,6 +126,73 @@ describe("bình luận TikTok trên live", () => {
     await vi.advanceTimersByTimeAsync(120_000);
     // câu 1 đang được trả lời ngay; còn chờ tối đa 4 câu mới nhất
     expect(answered).toEqual(["câu 1", "câu 4", "câu 5", "câu 6", "câu 7"]);
+  });
+});
+
+describe("kết nối kênh TikTok", () => {
+  const { FakeConn } = tiktok;
+  beforeEach(() => {
+    vi.useFakeTimers();
+    answered.length = 0;
+    FakeConn.all = [];
+    FakeConn.offline = false;
+    delete process.env.TIKTOK_USERNAME;
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("nhận @ten, ten và link kênh; chuỗi lạ thì coi như chưa đặt", () => {
+    expect(parseTikTokUsername(" @anh.it_dz ")).toBe("anh.it_dz");
+    expect(parseTikTokUsername("anh.it_dz")).toBe("anh.it_dz");
+    expect(parseTikTokUsername("https://www.tiktok.com/@anh.it_dz/live?x=1")).toBe("anh.it_dz");
+    expect(parseTikTokUsername("không phải tên")).toBe("");
+  });
+
+  it("chưa đặt kênh thì không kết nối và báo off", () => {
+    const bot = new LiveBotService();
+    expect(FakeConn.all).toHaveLength(0);
+    expect(bot.getStatus()).toMatchObject({ tiktok: null, tiktokState: "off" });
+  });
+
+  it("đặt kênh khi chưa lên live: tự thử lại tới khi vào được, rồi nhận bình luận", async () => {
+    FakeConn.offline = true;
+    const bot = new LiveBotService();
+    bot.updateSettings({ tiktokUsername: "@kenh" });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(FakeConn.all.map((c) => c.username)).toEqual(["kenh"]);
+    expect(bot.getStatus()).toMatchObject({ tiktok: "kenh", tiktokState: "waiting" });
+    expect(bot.getStatus().tiktokError).toMatch(/online/);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(FakeConn.all).toHaveLength(2);
+
+    FakeConn.offline = false;
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(bot.getStatus()).toMatchObject({ tiktokState: "connected", tiktokError: null });
+
+    FakeConn.all.at(-1)!.handlers.chat({ content: "Pháo đầu là gì?", user: { nickname: "Minh" } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(answered).toEqual(["Pháo đầu là gì?"]);
+  });
+
+  it("rớt kết nối giữa live thì tự vào lại bằng kết nối mới", async () => {
+    const bot = new LiveBotService();
+    bot.updateSettings({ tiktokUsername: "kenh" });
+    await vi.advanceTimersByTimeAsync(0);
+    FakeConn.all[0].handlers.disconnected();
+    expect(bot.getStatus().tiktokState).toBe("waiting");
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(FakeConn.all).toHaveLength(2);
+    expect(bot.getStatus().tiktokState).toBe("connected");
+  });
+
+  it("xóa kênh thì ngắt hẳn, không còn thử lại ngầm", async () => {
+    const bot = new LiveBotService();
+    bot.updateSettings({ tiktokUsername: "kenh" });
+    await vi.advanceTimersByTimeAsync(0);
+    bot.updateSettings({ tiktokUsername: "" });
+    expect(bot.getStatus()).toMatchObject({ tiktok: null, tiktokState: "off" });
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(FakeConn.all).toHaveLength(1);
   });
 });
 
@@ -185,6 +282,34 @@ describe("mẹo kỳ lý khi live im lặng", () => {
     quiet.updateSettings({ tips: true });
     await vi.advanceTimersByTimeAsync(30_000);
     expect(late.map((m) => m.origin)).toEqual(["tip"]);
+  });
+});
+
+describe("kết thúc ván trên sân khấu", () => {
+  const mated = () => {
+    const pos = parseFen("4k4/R8/9/9/9/R8/9/9/9/3K5 r - - 0 1");
+    const before = { ...pos, ply: 20, mySide: "r", settings: { round: 1, me: { name: "Anh" }, opponent: { name: "Khách" }, today: { win: 0, draw: 0, loss: 0 } }, captured: { redLost: [], blackLost: [] }, moves: [], bigMoment: null, clocks: null };
+    const after = applyMove(pos, { from: 45, to: 0 });
+    return {
+      before,
+      after: { ...before, ...after, ply: 21, moves: [{ notation: "Xe 1 tiến 5", side: "r" }], bigMoment: { id: "mate-21", type: "mate", title: "BẠN THẮNG!", badge: "KẾT THÚC" } },
+    };
+  };
+
+  it("chiếu bí mà chưa bấm kết quả: bot vẫn chốt ván (trang Thị giác máy tính chỉ cộng thành tích lúc sang ván sau)", () => {
+    const bot = new LiveBotService();
+    const sent: { reply: string }[] = [];
+    bot.addOverlayClient({ write: (chunk: string) => sent.push(JSON.parse(chunk.replace(/^data: /, ""))) } as never);
+    const feed = (s: unknown) => (bot as unknown as { onStageState: (s: unknown) => void }).onStageState(s);
+    const { before, after } = mated();
+    feed(before);
+    feed(after);
+    expect(sent.at(-1)?.reply).toBe("Ván cờ kết thúc! Anh chủ kênh giành chiến thắng.");
+    expect(bot.getCurrentGameInfo()?.live).toBe(false);
+    // Bấm "Thắng" ngay sau đó (hoặc Ziga báo hết ván) không đọc lại lần nữa.
+    const n = sent.length;
+    feed({ ...after, settings: { ...after.settings, today: { win: 1, draw: 0, loss: 0 } } });
+    expect(sent).toHaveLength(n);
   });
 });
 

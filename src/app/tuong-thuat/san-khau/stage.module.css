@@ -445,7 +445,19 @@
   background: #000;
 }
 
-/* Nhân vật AI nền trong suốt, chồng trên nền khung; khi bật webcam thì đứng nửa phải, đè lên video. */
+/* Chế độ ?ai=: bỏ khung camera, chỉ còn nhân vật AI trên nền đặc, đứng đúng chỗ khung cũ. */
+.aiOnlyCard {
+  width: 590px;
+  height: 340px;
+  position: relative;
+  overflow: hidden;
+  /* Nền đặc để nhân vật nổi lên trên bàn cờ; quầng vàng sau lưng nhân vật, cùng tông viền vàng của sân khấu. */
+  border-radius: 0 0 0 20px;
+  background: radial-gradient(ellipse 55% 70% at 50% 55%, #4a3517 0%, #22262e 60%, #161a20 100%);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.65);
+}
+
+/* Nhân vật AI nền trong suốt, chiếm cả ô. */
 .aiAvatarFrame {
   position: absolute;
   inset: 0;
@@ -455,29 +467,6 @@
   background: transparent;
   color-scheme: normal;
   z-index: 1;
-}
-
-.aiAvatarFrame[data-beside-cam] {
-  left: auto;
-  width: 48%;
-  z-index: 2;
-}
-
-/* Ô chờ camera OBS ở nửa trái khi chia đôi với nhân vật AI; nguồn camera trong OBS sẽ phủ lên ô này. */
-.obsCamSlot {
-  position: absolute;
-  top: 8px;
-  bottom: 8px;
-  left: 10px;
-  width: calc(52% - 16px);
-  border: 1.5px dashed rgba(227, 168, 58, 0.45);
-  border-radius: 10px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  text-align: center;
 }
 
 .camPlaceholder {
@@ -685,6 +674,10 @@
 
 .tickerCta {
   color: #ffe39a;
+}
+
+.tickerAi {
+  color: #7dd3fc;
 }
 
 .tickerGoal {
@@ -2844,6 +2837,45 @@
   color: #f1ece2;
 }
 
+.historyDelete,
+.historyDeleteConfirm {
+  height: 68px;
+  border-radius: 16px;
+  font-size: 25px;
+  font-weight: 900;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.historyDelete {
+  width: 68px;
+  flex: none;
+  border: 2px solid #b91c1c;
+  background: transparent;
+  color: #f87171;
+}
+
+.historyDeleteConfirm {
+  flex: 1;
+  border: none;
+  background: linear-gradient(180deg, #ef4444 0%, #b91c1c 100%);
+  color: #fff;
+}
+
+.historyDeleteConfirm:disabled,
+.historySecondary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.historyConfirmText {
+  flex: 2;
+  align-self: center;
+  font-size: 22px;
+  font-weight: 700;
+  color: #fca5a5;
+}
+
 /* Thông báo ngắn trên đáy bàn cờ. */
 .stageToast {
   position: absolute;
@@ -3185,4 +3217,91 @@
   .checkVignette {
     animation: none;
   }
+}
+
+/* Nút 🎙 chọn phong cách & giọng AI: bảng mở lên phía trên hàng nút đồng. */
+.aiVoiceWrap {
+  position: relative;
+}
+
+/* Đang tắt tiếng AI: micro gạch chéo, tô đỏ để người live thấy ngay. */
+.aiVoiceWrap .bronzeBtn[data-muted] {
+  color: #f87171;
+}
+
+.aiVoicePanel {
+  position: absolute;
+  bottom: calc(100% + 14px);
+  left: 0;
+  z-index: 30;
+  width: 340px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(18, 22, 28, 0.96);
+  border: 1.5px solid rgba(227, 168, 58, 0.55);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.7);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.aiVoiceTitle {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #e3a83a;
+  margin-top: 4px;
+}
+
+.aiVoiceRow {
+  display: flex;
+  gap: 8px;
+}
+
+.aiVoiceRow .aiVoiceOption {
+  flex: 1;
+}
+
+.aiVoiceOption {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1.5px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #f6ebd0;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.aiVoiceOption small {
+  font-size: 13px;
+  font-weight: 500;
+  color: #b9b2a3;
+}
+
+.aiVoiceOption:hover:not(:disabled) {
+  border-color: rgba(227, 168, 58, 0.6);
+}
+
+.aiVoiceOption[aria-pressed="true"] {
+  border-color: #e3a83a;
+  background: rgba(227, 168, 58, 0.18);
+  color: #ffe6ba;
+}
+
+.aiVoiceOption:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.aiVoiceError {
+  font-size: 14px;
+  color: #fca5a5;
 }

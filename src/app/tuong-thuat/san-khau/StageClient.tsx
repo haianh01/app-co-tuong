@@ -7,7 +7,7 @@ import { useLocationSearch } from "@/hooks/useLocationSearch";
 import { STAGE_ROOM_RE, stageSocketUrl, type StageCommand, type StageRelayMessage, type StageViewMessage, type StageVoiceEvent } from "@/lib/stage-protocol";
 import { formatClock } from "@/lib/vision/zigavn-panels";
 import { PIECE_CHAR } from "@/lib/xiangqi/notation";
-import { applyMove, attackersOf, findKing, inCheck, initialPosition, outcome, parseFen, toFen, type Board, type PieceType, type Side } from "@/lib/xiangqi/engine";
+import { applyMove, initialPosition, outcome, parseFen, toFen, type Board, type PieceType, type Side } from "@/lib/xiangqi/engine";
 import { usePositionAnalysis } from "@/hooks/usePositionAnalysis";
 import type { PositionAnalysisResult } from "@/lib/xiangqi/position-analysis";
 import { MatchCommentaryDrawer } from "./MatchCommentaryDrawer";
@@ -609,14 +609,14 @@ function PlayerCard({
   );
 }
 
-/** Nhân vật AI (trang /avatar của live-bot-demo) nhúng vào khung camera.
- *  ?ai=1 → máy này cổng 4000; ?ai=<địa chỉ http(s)> → trang avatar ở chỗ khác. */
-export function aiAvatarSrc(sp: URLSearchParams): string | null {
+/** Nhân vật AI (trang avatar của trợ lý live) nhúng vào khung camera.
+ *  ?ai=1 → cùng máy chủ với trang này; ?ai=<địa chỉ http(s)> → trang avatar ở chỗ khác. */
+export function aiAvatarSrc(sp: URLSearchParams, origin?: string): string | null {
   const raw = sp.get("ai");
   if (!raw || raw === "0") return null;
   let url: URL;
   try {
-    url = raw === "1" ? new URL("http://localhost:4000/avatar") : new URL(raw);
+    url = raw === "1" ? new URL("/live-bot/avatar.html", origin ?? window.location.origin) : new URL(raw);
   } catch {
     return null;
   }
@@ -636,16 +636,12 @@ function ZigaLiveCard({
   state: StageState;
   recap: { shown: boolean; toggle: () => void };
   onTestVoice?: () => void;
-  /** Có thì nhân vật AI đứng trong khung: thay chỗ ngắm camera, hoặc đứng nửa phải khi đang bật webcam. */
+  /** Có thì tạm bỏ cả khung camera: chỉ còn nhân vật AI nền trong suốt ở góc trên phải. */
   aiSrc?: string | null;
 }) {
   const [webcamActive, setWebcamActive] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-
-  // ?cam=obs: camera OBS đặt đè lên nửa trái khung, nên nhân vật nhường chỗ sang nửa phải như khi bật webcam.
-  const obsCam = new URLSearchParams(useLocationSearch()).get("cam") === "obs";
-  const splitCam = webcamActive || obsCam;
 
   const toggleWebcam = useCallback(async () => {
     if (webcamActive) {
@@ -687,6 +683,14 @@ function ZigaLiveCard({
     };
   }, []);
 
+  if (aiSrc) {
+    return (
+      <div className={styles.aiOnlyCard}>
+        <iframe src={aiSrc} title="Nhân vật AI" className={styles.aiAvatarFrame} allow="autoplay" />
+      </div>
+    );
+  }
+
   return (
     <div className={styles.zigaLiveCard}>
       {/* Thanh trạng thái Live phía trên */}
@@ -712,15 +716,6 @@ function ZigaLiveCard({
 
       {/* Vùng Camera chính: hiển thị video webcam hoặc khung ngắm OBS */}
       <div className={styles.liveCamArea}>
-        {aiSrc && (
-          <iframe
-            src={aiSrc}
-            title="Nhân vật AI"
-            className={styles.aiAvatarFrame}
-            data-beside-cam={splitCam || undefined}
-            allow="autoplay"
-          />
-        )}
         {webcamActive ? (
           <video
             ref={videoRef}
@@ -729,12 +724,7 @@ function ZigaLiveCard({
             muted
             className={styles.cameraVideo}
           />
-        ) : aiSrc && obsCam ? (
-          <div className={styles.obsCamSlot}>
-            <span className={styles.camTitle}>CAMERA OBS</span>
-            <span className={styles.camSubtitle}>Đặt nguồn camera vào nửa này</span>
-          </div>
-        ) : aiSrc ? null : (
+        ) : (
           <div className={styles.camPlaceholder}>
             {/* 4 góc ngắm camera chuẩn chuyên nghiệp */}
             <div className={styles.camCornerTL} aria-hidden="true" />
@@ -893,7 +883,10 @@ function ZigaBottomBar({ state, controls }: { state: StageState; controls: React
 const channelName = (s: StageState["settings"]) => s.host.trim() || s.me.name;
 
 /** Dải chữ chạy lớn trên cùng: hiển thị ván đấu, tên kênh, khai cuộc, thành tích, lời kêu gọi. */
-function Ticker({ state }: { state: StageState }) {
+/** Dòng giới thiệu AI trên dải chữ chạy khi bật nhân vật AI (?ai=); đổi bằng ?aitext=... */
+export const DEFAULT_AI_TICKER = "🤖 Hôm nay thử nghiệm AI trợ lý: comment câu hỏi về cờ tướng, AI sẽ trả lời bằng giọng nói!";
+
+function Ticker({ state, aiText }: { state: StageState; aiText?: string | null }) {
   const { settings } = state;
   const roundText = `VÁN ${settings.round}`;
   const host = channelName(settings);
@@ -916,6 +909,12 @@ function Ticker({ state }: { state: StageState }) {
         </>
       )}
       <span className={styles.tickerDot}>✦</span>
+      {aiText && (
+        <>
+          <span className={styles.tickerAi}>{aiText}</span>
+          <span className={styles.tickerDot}>✦</span>
+        </>
+      )}
       <span className={styles.tickerScore}>
         Thành tích: {settings.today.win} thắng · {settings.today.draw} hòa · {settings.today.loss} thua
       </span>
@@ -1092,6 +1091,7 @@ export function StageClient() {
   const isPreview = sp.get("preview") === "1" || sp.get("demo") === "1" || param === "preview" || param === "demo";
   const isPuzzlePreview = sp.get("preview") === "puzzle" || sp.get("puzzle") === "1";
   const aiSrc = useMemo(() => aiAvatarSrc(sp), [sp]);
+  const aiTicker = aiSrc ? sp.get("aitext")?.trim() || DEFAULT_AI_TICKER : null;
 
   const [ply, setPly] = useState(0);
   const recap = useRecap();
@@ -1143,24 +1143,6 @@ export function StageClient() {
     };
   }, []);
 
-  // Tự động phát âm thanh khi bạn bị chiếu tướng trên bàn cờ ("Người đâu Cứu trẫm")
-  const lastCheckPly = useRef<number | null>(null);
-  useEffect(() => {
-    // Biến thử không phải ván thật: không kêu "bị chiếu".
-    if (!state || state.ply === 0 || state.trial) return;
-    // Bị chiếu: bên mình (mySide - màu cờ phía dưới) đang bị tướng đối phương chiếu
-    const isMeInCheck =
-      inCheck(state.board, state.mySide) ||
-      (state.turn === state.mySide && (state.checkSquare !== null || Boolean(state.commentary?.isCheck)));
-
-    if (isMeInCheck && lastCheckPly.current !== state.ply) {
-      lastCheckPly.current = state.ply;
-      const lines = state.settings.voiceLines ?? DEFAULT_STAGE_VOICE_LINES;
-      const spoken = playStageVoiceEvent("check", lines);
-      if (spoken) queueMicrotask(() => showBubble(spoken, "check"));
-    }
-  }, [state, showBubble]);
-
   // Tự động phát âm thanh khi chiếu bí phân định thắng/thua trên bàn cờ
   const lastMateId = useRef<string | null>(null);
   useEffect(() => {
@@ -1203,6 +1185,7 @@ export function StageClient() {
             recap={recap}
             speechBubble={speechBubble}
             aiSrc={aiSrc}
+            aiTicker={aiTicker}
             onTestVoice={() => {
               unlockAudio();
               const lines = state.settings.voiceLines ?? DEFAULT_STAGE_VOICE_LINES;
@@ -1226,6 +1209,7 @@ function Stage({
   speechBubble,
   onTestVoice,
   aiSrc,
+  aiTicker,
 }: {
   state: StageState;
   /** Mã phòng khi đang nối trang điều khiển thật (bản xem trước: null, các nút hành động bị tắt). */
@@ -1237,6 +1221,8 @@ function Stage({
   speechBubble: { text: string; type: StageVoiceEvent } | null;
   onTestVoice?: () => void;
   aiSrc?: string | null;
+  /** Dòng giới thiệu AI trên dải chữ chạy (chỉ có khi bật nhân vật AI). */
+  aiTicker?: string | null;
 }) {
   const { settings, mySide, turn } = state;
   const oppSide: Side = mySide === "r" ? "b" : "r";
@@ -1495,15 +1481,7 @@ function Stage({
     return [...baseMarks, ...sketch.present.marks];
   }, [state.highlights, sketch.present.marks]);
 
-  // Chiếu tướng / chiếu bí trên ván thật: lằn sáng từ (các) quân đang chiếu tới Tướng bị chiếu.
   const liveFxOn = !isTrialMode && !review && selectedPly === null;
-  const checkFx = useMemo(() => {
-    if (!liveFxOn || !moment || moment.type === "bigCapture" || !inCheck(state.board, state.turn)) return null;
-    const king = findKing(state.board, state.turn);
-    if (king < 0) return null;
-    const from = attackersOf(state.board, king, state.turn === "r" ? "b" : "r");
-    return from.length ? { key: moment.id, from, king } : null;
-  }, [liveFxOn, moment, state.board, state.turn]);
   const mateOutcome = moment?.type === "mate" ? outcome({ board: state.board, turn: state.turn }) : null;
   const mateWin = !!mateOutcome?.over && mateOutcome.winner === mySide;
 
@@ -1554,7 +1532,7 @@ function Stage({
           thinking={reviewing && !reviewStatus && deepThinking}
         />
       ) : (
-        <Ticker state={state} />
+        <Ticker state={state} aiText={aiTicker} />
       )}
 
       {/* Bàn cờ Ziga chính giữa tràn viền 1080px */}
@@ -1619,7 +1597,6 @@ function Stage({
           skin={{ board: "jade", piece: "gold" }}
           riverWatermark="Cờ Ziga"
           intro={introId !== null && liveFxOn}
-          checkFx={checkFx}
           sketchColor={color}
           onSquareClick={isTrialActive && trialControls.stage ? trialControls.onSquareClick : undefined}
           onAnnotate={drawing ? (from, to) => draw({ type: "annotate", from, to, color }) : undefined}
@@ -1796,6 +1773,7 @@ function Stage({
               onAnalyze={onAnalyze}
               onSave={onSave}
               onHistory={() => setHistoryOpen((o) => !o)}
+              aiVoice={!!aiSrc}
             />
           )
         }

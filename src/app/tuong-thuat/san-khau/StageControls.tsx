@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { Side } from "@/lib/xiangqi/engine";
 import type { StageGame } from "@/server/db/schema";
 import type { StageArchiveView } from "../stage-sync";
@@ -51,6 +51,20 @@ const ICON_HISTORY = (
   </>
 );
 
+const ICON_AI_VOICE = (
+  <>
+    <rect x="9" y="3" width="6" height="11" rx="3" />
+    <path d="M5 11a7 7 0 0 0 14 0" />
+    <path d="M12 18v3" />
+  </>
+);
+const ICON_AI_MUTED = (
+  <>
+    {ICON_AI_VOICE}
+    <path d="M3 3l18 18" />
+  </>
+);
+
 export type StageSaveState = "idle" | "saving" | "saved" | "queued" | "error";
 
 /** Nút Lưu ván báo gì: chỉ tính là đã lưu khi đúng ván đang đánh (sang ván mới thì về chưa lưu). */
@@ -77,6 +91,7 @@ export function StageActionButtons({
   onAnalyze,
   onSave,
   onHistory,
+  aiVoice = false,
 }: {
   saveState: StageSaveState;
   historyOpen: boolean;
@@ -85,6 +100,8 @@ export function StageActionButtons({
   onAnalyze: () => void;
   onSave: () => void;
   onHistory: () => void;
+  /** Hiện nút 🎙 chọn phong cách/giọng AI (chỉ khi bật nhân vật AI). */
+  aiVoice?: boolean;
 }) {
   return (
     <div className={styles.bronzeButtonGroup}>
@@ -125,6 +142,133 @@ export function StageActionButtons({
       >
         <Icon>{ICON_HISTORY}</Icon>
       </button>
+      {aiVoice && <AiVoiceButton />}
+    </div>
+  );
+}
+
+type AiStyle = "coach" | "humorous" | "zhaoXinxin";
+type AiVoice = "female" | "male";
+
+export const AI_STYLES: { value: AiStyle; label: string; hint: string }[] = [
+  { value: "coach", label: "Thầy giáo", hint: "Ân cần, dễ hiểu, hay rút bài học" },
+  { value: "humorous", label: "Hóm hỉnh", hint: "Bình luận viên vui vẻ" },
+  { value: "zhaoXinxin", label: "Triệu Hâm Hâm", hint: "Sắc bén, gọn, đề cao tranh tiên" },
+];
+export const AI_VOICES: { value: AiVoice; label: string }[] = [
+  { value: "female", label: "Nữ · Hoài My" },
+  { value: "male", label: "Nam · Nam Minh" },
+];
+
+type AiSettings = { style: AiStyle; voice: AiVoice; speak: boolean };
+
+/** Nút 🎙 trên sân khấu (khi bật nhân vật AI): đổi phong cách trả lời, giọng đọc, bật/tắt đọc to ngay lúc đang live. */
+export function AiVoiceButton() {
+  const [open, setOpen] = useState(false);
+  const [settings, setSettings] = useState<AiSettings | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Lấy cả lúc mới vào (để nút hiện đúng trạng thái tắt tiếng) lẫn mỗi lần mở bảng.
+  useEffect(() => {
+    fetch("/api/bot/status")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+      .then((s: { settings: Partial<AiSettings> & { style: AiStyle; voice: AiVoice } }) => {
+        setSettings({ style: s.settings.style, voice: s.settings.voice, speak: s.settings.speak ?? true });
+        setError(null);
+      })
+      .catch(() => {
+        if (open) setError("Không lấy được cài đặt AI");
+      });
+  }, [open]);
+
+  const muted = settings?.speak === false;
+
+  const update = async (patch: Partial<AiSettings>) => {
+    const prev = settings;
+    setSettings((s) => (s ? { ...s, ...patch } : s));
+    try {
+      const res = await fetch("/api/bot/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      setError(null);
+    } catch {
+      setSettings(prev);
+      setError("Không đổi được, thử lại");
+    }
+  };
+
+  return (
+    <div className={styles.aiVoiceWrap}>
+      <button
+        type="button"
+        className={styles.bronzeBtn}
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        title={muted ? "Phong cách & giọng AI (đang tắt tiếng)" : "Phong cách & giọng AI"}
+        aria-label="Phong cách và giọng AI"
+        data-muted={muted || undefined}
+      >
+        <Icon>{muted ? ICON_AI_MUTED : ICON_AI_VOICE}</Icon>
+      </button>
+      {open && (
+        <div className={styles.aiVoicePanel} role="dialog" aria-label="Phong cách và giọng AI">
+          <div className={styles.aiVoiceTitle}>Đọc to</div>
+          <div className={styles.aiVoiceRow}>
+            <button
+              type="button"
+              className={styles.aiVoiceOption}
+              aria-pressed={settings?.speak === true}
+              disabled={!settings}
+              onClick={() => update({ speak: true })}
+            >
+              <span>🔊 Bật</span>
+            </button>
+            <button
+              type="button"
+              className={styles.aiVoiceOption}
+              aria-pressed={muted}
+              disabled={!settings}
+              onClick={() => update({ speak: false })}
+            >
+              <span>🔇 Tắt</span>
+              <small>Chỉ hiện chữ</small>
+            </button>
+          </div>
+          <div className={styles.aiVoiceTitle}>Phong cách AI</div>
+          {AI_STYLES.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              className={styles.aiVoiceOption}
+              aria-pressed={settings?.style === o.value}
+              disabled={!settings}
+              onClick={() => update({ style: o.value })}
+            >
+              <span>{o.label}</span>
+              <small>{o.hint}</small>
+            </button>
+          ))}
+          <div className={styles.aiVoiceTitle}>Giọng đọc</div>
+          <div className={styles.aiVoiceRow}>
+            {AI_VOICES.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                className={styles.aiVoiceOption}
+                aria-pressed={settings?.voice === o.value}
+                disabled={!settings}
+                onClick={() => update({ voice: o.value })}
+              >
+                <span>{o.label}</span>
+              </button>
+            ))}
+          </div>
+          {error && <div className={styles.aiVoiceError}>{error}</div>}
+        </div>
+      )}
     </div>
   );
 }
@@ -259,7 +403,7 @@ const endTime = (g: StageGame) => {
     : d.toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh" });
 };
 
-/** Bảng lịch sử phủ lên bàn cờ: lọc theo ngày, bấm một ván để mở Phân tích / Xem lại. */
+/** Bảng lịch sử phủ lên bàn cờ: lọc theo ngày, bấm một ván để mở Phân tích / Xem lại / Xoá. */
 export function HistorySheet({
   room,
   reloadKey,
@@ -272,9 +416,25 @@ export function HistorySheet({
   /** `analyze`: chạy AI nếu ván chưa có phân tích; false = chỉ xem lại nước đi. */
   onOpen: (gameId: string, analyze: boolean) => void;
 }) {
-  const { games, loading, error } = useStageGames(room, reloadKey);
+  const { games, loading, error, remove } = useStageGames(room, reloadKey);
   const [filter, setFilter] = useState<HistoryFilter>("today");
   const [openId, setOpenId] = useState<string | null>(null);
+  // Xoá phải bấm hai lần (Xoá → Xoá hẳn) để lỡ tay trên sân khấu không mất ván.
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const confirmDelete = async (id: string) => {
+    setDeleting(true);
+    const ok = await remove(id);
+    setDeleting(false);
+    if (ok) {
+      setConfirmId(null);
+      setOpenId(null);
+      setDeleteError(null);
+    } else {
+      setDeleteError("Không xoá được, thử lại");
+    }
+  };
   const [now] = useState(() => new Date());
   const shown = games.filter((g) => inFilter(g, filter, now));
   const tally = shown.reduce(
@@ -323,7 +483,16 @@ export function HistorySheet({
           const open = openId === g.id;
           return (
             <li key={g.id} className={styles.historyRow} data-open={open || undefined}>
-              <button type="button" className={styles.historyRowMain} aria-expanded={open} onClick={() => setOpenId(open ? null : g.id)}>
+              <button
+                type="button"
+                className={styles.historyRowMain}
+                aria-expanded={open}
+                onClick={() => {
+                  setOpenId(open ? null : g.id);
+                  setConfirmId(null);
+                  setDeleteError(null);
+                }}
+              >
                 <span className={styles.historyResult} data-result={g.result ?? "none"}>
                   {RESULT_TEXT[g.result ?? ""] ?? "—"}
                 </span>
@@ -337,13 +506,48 @@ export function HistorySheet({
                 </span>
                 <span className={styles.historyTime}>{endTime(g)}</span>
               </button>
-              {open && (
+              {open && confirmId !== g.id && (
                 <div className={styles.historyActions}>
                   <button type="button" className={styles.historyPrimary} onClick={() => onOpen(g.id, true)}>
                     Phân tích ván này
                   </button>
                   <button type="button" className={styles.historySecondary} onClick={() => onOpen(g.id, false)}>
                     Xem lại
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.historyDelete}
+                    onClick={() => setConfirmId(g.id)}
+                    title="Xoá ván này"
+                    aria-label="Xoá ván này"
+                  >
+                    🗑
+                  </button>
+                </div>
+              )}
+              {open && confirmId === g.id && (
+                <div className={styles.historyActions} role="alertdialog" aria-label="Xác nhận xoá ván">
+                  <span className={styles.historyConfirmText}>
+                    {deleteError ?? "Xoá hẳn ván này? Không lấy lại được."}
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.historyDeleteConfirm}
+                    disabled={deleting}
+                    onClick={() => void confirmDelete(g.id)}
+                  >
+                    {deleting ? "Đang xoá…" : "Xoá hẳn"}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.historySecondary}
+                    disabled={deleting}
+                    onClick={() => {
+                      setConfirmId(null);
+                      setDeleteError(null);
+                    }}
+                  >
+                    Thôi
                   </button>
                 </div>
               )}

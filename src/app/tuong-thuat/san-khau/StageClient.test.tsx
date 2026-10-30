@@ -603,10 +603,10 @@ describe("sân khấu Thử thách cờ thế", () => {
 
 
 describe("nhân vật AI trong khung camera", () => {
-  const src = (q: string) => aiAvatarSrc(new URLSearchParams(q));
+  const src = (q: string) => aiAvatarSrc(new URLSearchParams(q), "https://kydai.vn");
 
-  it("ai=1 trỏ về trang avatar máy này, tự bật giọng và chế độ ô nhỏ", () => {
-    expect(src("ai=1")).toBe("http://localhost:4000/avatar?voice=1&compact=1");
+  it("ai=1 trỏ về trang avatar cùng máy chủ, tự bật giọng và chế độ ô nhỏ", () => {
+    expect(src("ai=1")).toBe("https://kydai.vn/live-bot/avatar.html?voice=1&compact=1");
   });
 
   it("giữ tham số riêng của địa chỉ tự nhập", () => {

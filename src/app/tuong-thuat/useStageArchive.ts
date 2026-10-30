@@ -129,6 +129,14 @@ export interface UseStageArchiveOptions {
   fens?: string[];
 }
 
+/** Giữa ván cứ mỗi chừng này nước lại lưu ngầm một bản, lỡ đóng trình duyệt / mất điện vẫn còn ván. */
+export const AUTOSAVE_EVERY_PLIES = 10;
+
+export interface SaveOptions {
+  /** Lưu ngầm giữa ván: không đổi trạng thái nút Lưu, không báo, lỗi thì thôi (lần sau lưu tiếp). */
+  quiet?: boolean;
+}
+
 export type StageAnalysisStatus = "idle" | "running" | "done" | "error";
 
 export interface StageArchive {
@@ -141,7 +149,11 @@ export interface StageArchive {
   analyzedRound: number | null;
   analysisEvals: (PositionEval | null)[] | null;
   /** Lưu ván ngay lập tức. Có thể truyền kết quả ghi đè nếu vừa chốt ván. */
-  saveNow: (overrideResult?: StageResult | null, resultSource?: "manual" | "board" | null) => Promise<boolean>;
+  saveNow: (
+    overrideResult?: StageResult | null,
+    resultSource?: "manual" | "board" | null,
+    options?: SaveOptions,
+  ) => Promise<boolean>;
   /** Khởi tạo ID mới cho ván mới. */
   newGame: () => void;
 }
@@ -176,6 +188,9 @@ export function useStageArchive({
   const startedAtRef = useRef<Date | null>(null);
   const lastSavedSignatureRef = useRef<string>("");
   const savingRef = useRef(false);
+  // Lệnh lưu đến lúc đang gửi dở (vd. hết ván ngay sau một lần lưu ngầm): chạy lại khi gửi xong, không bỏ mất.
+  const pendingSaveRef = useRef<Parameters<StageArchive["saveNow"]> | null>(null);
+  const saveNowRef = useRef<StageArchive["saveNow"] | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   // Huỷ phân tích nếu component unmount
@@ -281,8 +296,15 @@ export function useStageArchive({
     async (
       overrideResult?: StageResult | null,
       overrideResultSource?: "manual" | "board" | null,
+      options?: SaveOptions,
     ): Promise<boolean> => {
-      if (savingRef.current) return false;
+      const quiet = options?.quiet === true;
+      if (savingRef.current) {
+        // Lưu ngầm không chen ngang; lệnh lưu thật thì để dành, gửi xong lượt này sẽ chạy.
+        if (!quiet) pendingSaveRef.current = [overrideResult, overrideResultSource, options];
+        return false;
+      }
+      if (quiet && (!room || moves.length < 6)) return false;
       if (!room) {
         setError("Chưa có mã phòng sân khấu");
         setStatus("error");
@@ -347,6 +369,20 @@ export function useStageArchive({
         endedAt: new Date().toISOString(),
       };
 
+      if (quiet) {
+        try {
+          await sendArchivePayload(payload);
+          return true;
+        } catch {
+          // Không xếp hàng offline: bản lưu ngầm cũ gửi lại muộn có thể đè lên bản đã chốt kết quả.
+          lastSavedSignatureRef.current = "";
+          return false;
+        } finally {
+          savingRef.current = false;
+          runPendingSave();
+        }
+      }
+
       setStatus("saving");
       setError(null);
 
@@ -378,10 +414,37 @@ export function useStageArchive({
         return true;
       } finally {
         savingRef.current = false;
+        runPendingSave();
       }
     },
     [room, moves, roundResult, onBoardResult, site, round, mySide, me, opponent, startFen, timeControl, fens, startBackgroundAnalysis],
   );
+
+  useEffect(() => {
+    saveNowRef.current = saveNow;
+  }, [saveNow]);
+  function runPendingSave() {
+    const pending = pendingSaveRef.current;
+    if (!pending) return;
+    pendingSaveRef.current = null;
+    // Chờ một nhịp để saveNowRef trỏ tới bản mới nhất (đủ nước đi, đúng kết quả).
+    setTimeout(() => void saveNowRef.current?.(...pending), 0);
+  }
+
+  // Lưu ngầm giữa ván: mỗi AUTOSAVE_EVERY_PLIES nước một lần, chỉ khi ván chưa có kết quả (có kết quả thì đã lưu thật).
+  const hasResult = Boolean(roundResult ?? onBoardResult);
+  useEffect(() => {
+    if (hasResult || moves.length < AUTOSAVE_EVERY_PLIES || moves.length % AUTOSAVE_EVERY_PLIES !== 0) return;
+    let active = true;
+    queueMicrotask(() => {
+      if (active) void saveNow(undefined, undefined, { quiet: true });
+    });
+    return () => {
+      active = false;
+    };
+    // saveNow đổi theo mỗi nước; chỉ muốn chạy khi số nước chạm mốc.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moves.length, hasResult]);
 
   // Tự động lưu khi bàn cờ phát hiện hết ván (resultOnBoard)
   useEffect(() => {

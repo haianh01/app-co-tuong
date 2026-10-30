@@ -3,6 +3,7 @@ import { insertUser, resetDb } from "@/test/db";
 import type { Database } from "@/server/db";
 import { stageGames } from "@/server/db/schema";
 import {
+  deleteStageGame,
   getStageAnalysis,
   getStageGame,
   hashRoomKey,
@@ -238,6 +239,24 @@ describe("stage-games db storage and retrieval", () => {
 
       await db.delete(stageGames);
       expect(await getStageAnalysis(db, "g_cascade")).toBeNull();
+    });
+  });
+
+  describe("deleteStageGame", () => {
+    it("chủ phòng xoá được ván (kèm phân tích); phòng khác không xoá được ván của mình", async () => {
+      await saveStageGame(db, makeSampleGame("g_del_mine"));
+      await saveStageGame(db, makeSampleGame("g_del_keep"));
+      await saveStageAnalysis(db, "g_del_mine", [{ score: 30, best: null }]);
+
+      expect(await deleteStageGame(db, "g_del_mine", ownerB)).toBe(false);
+      expect(await getStageGame(db, "g_del_mine")).not.toBeNull();
+
+      expect(await deleteStageGame(db, "g_del_mine", ownerA)).toBe(true);
+      expect(await getStageGame(db, "g_del_mine")).toBeNull();
+      expect(await getStageAnalysis(db, "g_del_mine")).toBeNull();
+      expect(await getStageGame(db, "g_del_keep")).not.toBeNull();
+
+      expect(await deleteStageGame(db, "g_del_mine", ownerA)).toBe(false);
     });
   });
 });

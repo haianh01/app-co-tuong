@@ -1,4 +1,6 @@
 export type BotStyle = "coach" | "humorous" | "zhaoXinxin";
+/** Giọng đọc Edge TTS: nữ (Hoài My) hoặc nam (Nam Minh). */
+export type BotVoice = "female" | "male";
 export type BotEventKind = "comment" | "gift" | "join";
 export type BotEventOrigin = "panel" | "tiktok" | "game";
 
@@ -33,11 +35,16 @@ export interface BotReplyResult {
 
 export interface BotBroadcastMessage extends BotReplyResult {
   origin: BotEventOrigin;
+  /** Người live đang tắt giọng: overlay/avatar chỉ hiện chữ, không đọc to. */
+  silent?: boolean;
 }
 
 export interface BotLiveSettings {
   inGame: boolean;
   style: BotStyle;
+  voice: BotVoice;
+  /** Có đọc to câu trả lời không (tắt thì vẫn hiện chữ). */
+  speak: boolean;
 }
 
 export interface BotGameInfo {

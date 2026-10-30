@@ -271,4 +271,57 @@ describe("useStageArchive hook", () => {
     );
   });
 
+
+  it("lưu ngầm giữa ván mỗi 10 nước (không đổi nút Lưu); hết ván ngay lúc đang lưu ngầm thì vẫn lưu kết quả sau đó", async () => {
+    let release: () => void = () => {};
+    const bodies: { plies: number; result: string | null }[] = [];
+    global.fetch = vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      bodies.push({ plies: body.plies, result: body.result });
+      // Lần lưu ngầm đầu tiên treo lại cho tới khi gọi release(), giả lập mạng chậm.
+      if (bodies.length === 1) await new Promise<void>((r) => (release = r));
+      return { ok: true, status: 200 } as Response;
+    }) as never;
+
+    const movesOf = (n: number) => Array.from({ length: n }, (_, i) => ({ move: { from: i, to: i + 1 } }));
+    const { result, rerender } = renderHook(
+      ({ n, res }: { n: number; res: "win" | null }) =>
+        useStageArchive({
+          room: "my-valid-room-1234",
+          site: "ziga",
+          round: 2,
+          mySide: "r",
+          me: { name: "Streamer" },
+          opponent: { name: "Guest" },
+          moves: movesOf(n),
+          roundResult: res,
+          onBoardResult: null,
+        }),
+      { initialProps: { n: 9, res: null as "win" | null } },
+    );
+    await act(async () => {});
+    expect(bodies).toEqual([]);
+
+    rerender({ n: 10, res: null });
+    await act(async () => {});
+    expect(bodies).toEqual([{ plies: 10, result: null }]);
+    expect(result.current.status).toBe("idle");
+
+    rerender({ n: 11, res: "win" });
+    let first = true;
+    await act(async () => {
+      first = await result.current.saveNow("win", "board");
+    });
+    expect(first).toBe(false); // đang gửi bản lưu ngầm, lệnh này để dành
+
+    await act(async () => {
+      release();
+      await new Promise((r) => setTimeout(r, 10));
+    });
+    expect(bodies).toEqual([
+      { plies: 10, result: null },
+      { plies: 11, result: "win" },
+    ]);
+    expect(result.current.status).toBe("saved");
+  });
 });

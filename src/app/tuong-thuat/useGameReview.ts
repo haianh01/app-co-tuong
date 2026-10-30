@@ -47,7 +47,26 @@ export function useStageGames(room: string | null, reloadKey?: unknown) {
     };
   }, [room, reloadKey]);
 
-  return { games, loading, error };
+  /** Xoá ván khỏi lịch sử; xoá được thì bỏ khỏi danh sách ngay, không phải tải lại. */
+  const remove = useCallback(
+    async (id: string): Promise<boolean> => {
+      if (!room) return false;
+      try {
+        const res = await fetch(`/api/tuong-thuat/games/${encodeURIComponent(id)}?room=${encodeURIComponent(room)}`, {
+          method: "DELETE",
+          headers: { "X-Stage-Room": room },
+        });
+        if (!res.ok && res.status !== 404) return false;
+        setGames((prev) => prev.filter((g) => g.id !== id));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [room],
+  );
+
+  return { games, loading, error, remove };
 }
 
 /** Tải một ván đã lưu cùng phân tích engine, tìm bước ngoặt và dựng trạng thái chiếu phân tích cho từng nước. */

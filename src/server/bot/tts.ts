@@ -5,7 +5,13 @@ import path from "node:path";
 
 const TTS_ENGINE: "piper" | "edge" =
   process.env.TTS_ENGINE === "edge" ? "edge" : "piper";
-const TTS_VOICE = process.env.TTS_VOICE ?? "vi-VN-HoaiMyNeural";
+/** Giọng Edge TTS đang dùng; đổi được lúc đang live (setTtsVoice), mặc định theo TTS_VOICE. */
+let ttsVoice = process.env.TTS_VOICE ?? "vi-VN-HoaiMyNeural";
+export const EDGE_VOICES = { female: "vi-VN-HoaiMyNeural", male: "vi-VN-NamMinhNeural" } as const;
+export function setTtsVoice(name: string): void {
+  ttsVoice = name;
+}
+export const ttsVoiceName = (): string => ttsVoice;
 
 const PIPER_DIR = path.resolve(process.cwd(), "../live-bot-demo");
 const PIPER_VOICE = path.join(
@@ -80,7 +86,7 @@ async function synthesizePiper(text: string): Promise<Buffer> {
   return Buffer.from(await res.arrayBuffer());
 }
 
-function synthesizeEdge(text: string): Promise<Buffer> {
+function synthesizeEdge(text: string, voice = ttsVoice): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const tts = new MsEdgeTTS();
     const timer = setTimeout(() => {
@@ -91,7 +97,7 @@ function synthesizeEdge(text: string): Promise<Buffer> {
     void (async () => {
       try {
         await tts.setMetadata(
-          TTS_VOICE,
+          voice,
           OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3,
         );
         const { audioStream } = tts.toStream(text);
@@ -163,12 +169,14 @@ export function splitSentences(text: string): string[] {
 const speechCache = new Map<string, Promise<Buffer>>();
 
 export function getSpeech(clean: string): Promise<Buffer> {
-  let p = speechCache.get(clean);
+  // Khóa theo cả giọng: đổi giọng giữa chừng thì câu mới không lấy nhầm audio giọng cũ.
+  const key = `${ttsVoice}|${clean}`;
+  let p = speechCache.get(key);
   if (!p) {
     p = synthesizeWithRetry(clean);
-    speechCache.set(clean, p);
-    p.catch(() => speechCache.delete(clean));
-    setTimeout(() => speechCache.delete(clean), 120_000);
+    speechCache.set(key, p);
+    p.catch(() => speechCache.delete(key));
+    setTimeout(() => speechCache.delete(key), 120_000);
   }
   return p;
 }

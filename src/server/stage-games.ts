@@ -77,6 +77,19 @@ export interface ListStageGamesOptions {
   limit?: number;
 }
 
+/** Xoá một ván của phòng (phân tích engine đi kèm xoá theo). Ván không có hoặc của phòng khác thì trả false. */
+export async function deleteStageGame(
+  db: Database,
+  id: string,
+  ownerKey: string,
+): Promise<boolean> {
+  const deleted = await db
+    .delete(stageGames)
+    .where(and(eq(stageGames.id, id), eq(stageGames.ownerKey, ownerKey)))
+    .returning({ id: stageGames.id });
+  return deleted.length > 0;
+}
+
 /** Lấy danh sách ván đấu của phòng, hỗ trợ lọc theo ngày, kết quả, tên đối thủ và phân trang cursor. */
 export async function listStageGames(
   db: Database,

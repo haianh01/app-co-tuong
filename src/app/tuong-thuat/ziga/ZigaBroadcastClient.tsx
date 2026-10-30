@@ -435,6 +435,9 @@ export function ZigaBroadcastClient() {
           if (!replaying) setStageSettings((st) => ({ ...st, today: changeResult(st.today, previous, result) }));
           roundResultRef.current = result;
           setRoundResult(result);
+          // Lưu ngay lúc hết ván (đầu hàng, hết giờ… bàn cờ không tự thấy), không đợi sang ván sau mới lưu.
+          // Chờ một nhịp cho nước cuối vào biên bản; lúc phát lại sau reload thì thôi, sang ván sau sẽ lưu.
+          if (!replaying) setTimeout(() => void archiveRef.current?.saveNow(result, "board"), 0);
           setNotice(
             `Ván kết thúc — ${winnerSide === null ? "hoà" : `${winnerSide === "r" ? "Đỏ" : "Đen"} thắng`} (đã ghi: ${
               { win: "thắng", draw: "hoà", loss: "thua" }[result]

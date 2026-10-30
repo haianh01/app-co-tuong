@@ -9,7 +9,7 @@ import {
   MAX_AI_REPLIES_PER_MINUTE,
 } from "./ai";
 import { parseStageRoom, speakNotation } from "./narration";
-import { prepareSpeech, synthesizeWithRetry } from "./tts";
+import { EDGE_VOICES, prepareSpeech, setTtsVoice, synthesizeWithRetry, ttsVoiceName } from "./tts";
 import type {
   BotBroadcastMessage,
   BotEventOrigin,
@@ -23,6 +23,15 @@ import type { StageState } from "@/app/tuong-thuat/stage-sync";
 
 const CHECK_GAP_MS = 15_000;
 const RECONNECT_MS = 5_000;
+/** Bình luận cùng người, cùng nội dung trong khoảng này coi là trùng (TikTok hay gửi lặp tin). */
+const DUPLICATE_WINDOW_MS = 30_000;
+/** Số sự kiện TikTok chờ tối đa; đông hơn thì bỏ bình luận cũ nhất (giữ quà) để AI không trả lời trễ cả phút. */
+const MAX_PENDING_TIKTOK = 4;
+
+/** Ước lượng thời gian đọc xong một câu trả lời (~3 từ/giây, cộng quãng nghỉ), để đọc xong mới trả lời tiếp. */
+export function speakingMs(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length * 330 + 1500;
+}
 
 export class LiveBotService {
   private readonly overlayClients = new Set<ServerResponse>();
@@ -30,6 +39,8 @@ export class LiveBotService {
   private readonly liveSettings: BotLiveSettings = {
     inGame: false,
     style: "coach",
+    voice: ttsVoiceName() === EDGE_VOICES.male ? "male" : "female",
+    speak: true,
   };
 
   private tiktokUsername: string = (process.env.TIKTOK_USERNAME ?? "")
@@ -49,6 +60,11 @@ export class LiveBotService {
   private stageEnded = false;
   private stageRecord = { win: 0, draw: 0, loss: 0 };
   private lastStageState: StageState | null = null;
+
+  // Hàng đợi TikTok: mỗi lần một bình luận, đọc xong mới tới bình luận sau.
+  private readonly tiktokQueue: BotReplyRequest[] = [];
+  private tiktokBusy = false;
+  private readonly seenChats = new Map<string, number>();
 
   constructor() {
     // Warm up TTS
@@ -94,6 +110,13 @@ export class LiveBotService {
     ) {
       this.liveSettings.style = settings.style;
     }
+    if (settings.voice === "female" || settings.voice === "male") {
+      this.liveSettings.voice = settings.voice;
+      setTtsVoice(EDGE_VOICES[settings.voice]);
+    }
+    if (typeof settings.speak === "boolean") {
+      this.liveSettings.speak = settings.speak;
+    }
     return { ...this.liveSettings };
   }
 
@@ -105,7 +128,8 @@ export class LiveBotService {
   }
 
   public broadcast(result: BotBroadcastMessage): void {
-    const data = `data: ${JSON.stringify(result)}\n\n`;
+    const msg = this.liveSettings.speak ? result : { ...result, silent: true };
+    const data = `data: ${JSON.stringify(msg)}\n\n`;
     for (const res of this.overlayClients) {
       try {
         res.write(data);
@@ -291,6 +315,46 @@ export class LiveBotService {
     };
   }
 
+  /** Đã gặp bình luận này chưa: cùng msgId, hoặc cùng người cùng nội dung trong DUPLICATE_WINDOW_MS. */
+  public isDuplicateChat(msgId: string | undefined, user: string, text: string, now = Date.now()): boolean {
+    for (const [key, at] of this.seenChats) {
+      if (now - at > DUPLICATE_WINDOW_MS) this.seenChats.delete(key);
+    }
+    const keys = [`${user}|${text.trim().toLowerCase()}`];
+    if (msgId) keys.push(`id:${msgId}`);
+    const seen = keys.some((k) => this.seenChats.has(k));
+    for (const k of keys) this.seenChats.set(k, now);
+    return seen;
+  }
+
+  public enqueueTikTok(req: BotReplyRequest): void {
+    this.tiktokQueue.push(req);
+    while (this.tiktokQueue.length > MAX_PENDING_TIKTOK) {
+      const i = this.tiktokQueue.findIndex((r) => r.kind !== "gift");
+      if (i < 0) break;
+      const [dropped] = this.tiktokQueue.splice(i, 1);
+      console.log(`[Bot Live] Bỏ qua @${dropped.user}: ${dropped.text ?? "(vào phòng)"} (đang trả lời không kịp)`);
+    }
+    void this.drainTikTok();
+  }
+
+  private async drainTikTok(): Promise<void> {
+    if (this.tiktokBusy) return;
+    this.tiktokBusy = true;
+    try {
+      while (this.tiktokQueue.length) {
+        const req = this.tiktokQueue.shift()!;
+        const result = await this.processEvent(req, "tiktok").catch((err: unknown) => {
+          console.warn(`[Bot Live] Lỗi xử lý @${req.user}: ${String(err)}`);
+          return null;
+        });
+        if (result?.reply) await new Promise((r) => setTimeout(r, speakingMs(result.reply!)));
+      }
+    } finally {
+      this.tiktokBusy = false;
+    }
+  }
+
   private startTikTokListener(username: string): void {
     void (async () => {
       try {
@@ -303,17 +367,15 @@ export class LiveBotService {
           u?.nickname || u?.displayId || "bạn";
 
         conn.on(WebcastEvent.CHAT, (msg) => {
-          if (msg.content) {
-            void this.processEvent(
-              {
-                user: name(msg.user),
-                kind: "comment",
-                text: msg.content,
-                ...this.liveSettings,
-              },
-              "tiktok",
-            );
-          }
+          if (!msg.content) return;
+          const user = name(msg.user);
+          if (this.isDuplicateChat(msg.common?.msgId, user, msg.content)) return;
+          this.enqueueTikTok({
+            user,
+            kind: "comment",
+            text: msg.content,
+            ...this.liveSettings,
+          });
         });
 
         conn.on(WebcastEvent.GIFT, (msg) => {
@@ -322,15 +384,12 @@ export class LiveBotService {
             msg.repeatCount && msg.repeatCount > 1
               ? `${msg.repeatCount} `
               : "";
-          void this.processEvent(
-            {
-              user: name(msg.user),
-              kind: "gift",
-              gift: `${count}${msg.gift?.name || "quà"}`,
-              ...this.liveSettings,
-            },
-            "tiktok",
-          );
+          this.enqueueTikTok({
+            user: name(msg.user),
+            kind: "gift",
+            gift: `${count}${msg.gift?.name || "quà"}`,
+            ...this.liveSettings,
+          });
         });
 
         let lastGreeting = 0;
@@ -338,14 +397,11 @@ export class LiveBotService {
           const now = Date.now();
           if (now - lastGreeting < 20_000) return;
           lastGreeting = now;
-          void this.processEvent(
-            {
-              user: name(msg.user),
-              kind: "join",
-              ...this.liveSettings,
-            },
-            "tiktok",
-          );
+          this.enqueueTikTok({
+            user: name(msg.user),
+            kind: "join",
+            ...this.liveSettings,
+          });
         });
 
         conn.on(ControlEvent.CONNECTED, (state) =>

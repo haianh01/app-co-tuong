@@ -49,7 +49,9 @@ let model = null;
 
 const speaker = window.createSpeaker({
   onLevel: (v) => (level = v),
-  onStart: () => {
+  onEnd: (_r, more) => { if (!more) hideAfter(2500); },
+  onStart: (_text, r) => {
+    show(r);
     if (!model) return;
     model.expression(); // đổi ngẫu nhiên biểu cảm mỗi lần trả lời
     if (Math.random() < 0.5) model.motion("Tap");
@@ -99,15 +101,23 @@ if (withVoice && !window.obsstudio) {
 
 const box = document.getElementById("box");
 let hideTimer;
-new EventSource("/api/bot/events").onmessage = (e) => {
-  const r = JSON.parse(e.data);
-  if (!r.reply) return;
+function show(r) {
+  clearTimeout(hideTimer);
   document.getElementById("q").textContent = r.origin === "game" ? "♟ Diễn biến ván" : "@" + r.user + ": " + r.question;
   document.getElementById("a").textContent = r.reply;
   box.classList.add("show");
-  if (withVoice) speaker.say(r.reply);
+}
+function hideAfter(ms) {
   clearTimeout(hideTimer);
-  hideTimer = setTimeout(() => box.classList.remove("show"), Math.max(6000, r.reply.split(/\s+/).length * 330));
+  hideTimer = setTimeout(() => box.classList.remove("show"), ms);
+}
+new EventSource("/api/bot/events").onmessage = (e) => {
+  const r = JSON.parse(e.data);
+  if (!r.reply) return;
+  // Có giọng: xếp hàng, đọc xong câu này mới hiện và đọc câu sau.
+  if (withVoice && !r.silent) return speaker.say(r.reply, r);
+  show(r);
+  hideAfter(Math.max(6000, r.reply.split(/\s+/).length * 330));
 };
 </script>
 </body>

@@ -87,7 +87,16 @@ const URL_LIKE = /(https?:\/\/|www\.|\.com\b|zalo|\b0\d{9}\b)/iu;
 const JOIN_TEMPLATES = [
   "Chào {u} vào phòng! Ngồi chơi xem anh chủ kênh đánh cờ nhé.",
   "{u} đến rồi! Có câu hỏi kỳ lý nào cứ gõ vào chat nha.",
-  "Chào mừng {u}! Hôm nay mình ôn bài đặt đúng quân cờ vào đúng vị trí đó.",
+  "Chào {u}! Chúc bạn một buổi tối vui vẻ, thắng cờ liên tục nhé.",
+  "Ồ, {u} đẹp trai xinh gái vừa vào phòng, cả kênh sáng hẳn lên!",
+  "{u} tới rồi! Ngồi xuống đi, pha ấm trà rồi xem cờ cho đã.",
+  "Chào {u}! Vào đúng lúc lắm, sắp có pha bỏ xe hay lắm đó.",
+  "Hello {u}! Vào xem thôi chứ đừng mách nước cho đối thủ nha.",
+  "Chào {u}! Chúc bạn tối nay ăn ngon ngủ kỹ, đánh cờ không bao giờ hớ quân.",
+  "{u} vừa vào! Anh chủ kênh đánh cờ bao nhiêu thì đẹp trai bấy nhiêu, xem là biết.",
+  "Chào {u}! Ở đây pháo đầu thì có, chứ hết giận thì không, ngồi chơi nhé.",
+  "Kính chào {u}! Bạn là cao thủ ẩn danh hay đi ngang hóng chuyện đây?",
+  "Chào {u}! Thả tim đi bạn ơi, mỗi tim là thêm một nước đi hay đó.",
 ];
 const GREETING_TEMPLATES = [
   "Chào {u} nha! 👋",

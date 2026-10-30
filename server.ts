@@ -7,6 +7,10 @@ import { createServer } from "node:http";
 const dev = process.argv.includes("--dev");
 // Phải đặt trước khi nạp Next.
 Object.assign(process.env, { NODE_ENV: dev ? "development" : "production" });
+// Sửa .env lúc đang chạy dev → Next nạp lại env bằng cách khôi phục process.env về bản chụp lúc
+// loadEnvConfig lần đầu, làm mất cờ __NEXT_DEV_SERVER mà app.prepare() đặt sau đó; trang sẽ
+// chạy như production và đòi .next/dev/required-server-files.json. Đặt sẵn để cờ nằm trong bản chụp.
+if (dev) process.env.__NEXT_DEV_SERVER = "1";
 
 async function main() {
   // Nạp .env trước mọi thứ khác (CSDL, OAuth, thanh toán đọc biến môi trường ngay khi khởi tạo).

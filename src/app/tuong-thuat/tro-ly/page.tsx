@@ -34,6 +34,8 @@ interface LogEntry {
   reply: string | null;
   source: "ai" | "template" | "skipped";
   origin: "panel" | "tiktok" | "game";
+  /** Người live đã tắt giọng trên sân khấu. */
+  silent?: boolean;
   reason?: string;
   latencyMs: number;
   costUsd: number;
@@ -48,6 +50,14 @@ const SAMPLE_COMMENTS = [
   "Chúc anh chủ kênh hôm nay bất bại!",
   "Có mẹo nào đánh trung cuộc kiểu Triệu Hâm Hâm không ạ?",
 ];
+
+/** Hàng đợi giọng đọc dùng chung với overlay/avatar (public/live-bot/speech.js). */
+type Speaker = { say: (text: string) => void };
+declare global {
+  interface Window {
+    createSpeaker?: () => Speaker;
+  }
+}
 
 export default function BotAssistantPage() {
   const [status, setStatus] = useState<BotStatus | null>(null);
@@ -66,7 +76,20 @@ export default function BotAssistantPage() {
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Đọc xong câu trả lời này mới đọc câu sau, không chồng tiếng.
+  const speakerRef = useRef<Speaker | null>(null);
+  useEffect(() => {
+    if (window.createSpeaker) {
+      speakerRef.current = window.createSpeaker();
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "/live-bot/speech.js";
+    script.onload = () => {
+      speakerRef.current = window.createSpeaker?.() ?? null;
+    };
+    document.body.appendChild(script);
+  }, []);
 
   // Lấy trạng thái hiện tại
   const fetchStatus = async () => {
@@ -106,11 +129,7 @@ export default function BotAssistantPage() {
           });
 
           // Phát âm thanh nếu bật tự đọc trên máy
-          if (speakVoice) {
-            const audioUrl = `/api/bot/tts?text=${encodeURIComponent(entry.reply)}`;
-            const audio = new Audio(audioUrl);
-            audio.play().catch(() => {});
-          }
+          if (speakVoice && !entry.silent) speakerRef.current?.say(entry.reply);
         }
 
         setLogs((prev) => [entry, ...prev.slice(0, 49)]);

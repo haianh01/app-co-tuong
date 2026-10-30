@@ -23,22 +23,30 @@
 <script>
 // Thêm ?voice=1 vào địa chỉ trong OBS để overlay tự đọc to (bật "Control audio via OBS" để chỉnh âm lượng).
 const withVoice = new URLSearchParams(location.search).get("voice") === "1";
-const speaker = window.createSpeaker();
-function speak(text) {
-  speaker.say(text);
-}
 const box = document.getElementById("box");
 let hideTimer;
-new EventSource("/api/bot/events").onmessage = (e) => {
-  const r = JSON.parse(e.data);
-  if (!r.reply) return;
+function show(r) {
+  clearTimeout(hideTimer);
   document.getElementById("q").textContent = r.origin === "game" ? "♟ Diễn biến ván" : "@" + r.user + ": " + r.question;
   document.getElementById("a").textContent = r.reply;
   box.classList.add("show");
-  if (withVoice) speak(r.reply);
+}
+function hideAfter(ms) {
   clearTimeout(hideTimer);
+  hideTimer = setTimeout(() => box.classList.remove("show"), ms);
+}
+// Có giọng: câu trả lời xếp hàng, đọc xong câu này mới hiện và đọc câu sau, chữ luôn khớp tiếng.
+const speaker = window.createSpeaker({
+  onStart: (_text, r) => show(r),
+  onEnd: (_r, more) => { if (!more) hideAfter(2500); },
+});
+new EventSource("/api/bot/events").onmessage = (e) => {
+  const r = JSON.parse(e.data);
+  if (!r.reply) return;
+  if (withVoice && !r.silent) return speaker.say(r.reply, r);
+  show(r);
   // Hiện lâu hơn với câu dài: khoảng 1 giây cho mỗi 3 từ, tối thiểu 6 giây.
-  hideTimer = setTimeout(() => box.classList.remove("show"), Math.max(6000, r.reply.split(/\s+/).length * 330));
+  hideAfter(Math.max(6000, r.reply.split(/\s+/).length * 330));
 };
 </script>
 </body>

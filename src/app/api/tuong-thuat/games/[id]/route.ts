@@ -2,7 +2,7 @@ import { connection } from "next/server";
 import { STAGE_ROOM_RE } from "@/lib/stage-protocol";
 import { getDb } from "@/server/db";
 import { RateLimiter } from "@/server/rate-limit";
-import { getStageAnalysis, getStageGame, hashRoomKey } from "@/server/stage-games";
+import { deleteStageGame, getStageAnalysis, getStageGame, hashRoomKey } from "@/server/stage-games";
 
 const limiter = new RateLimiter(60, 60_000);
 const noStore = { "Cache-Control": "no-store" };
@@ -49,4 +49,33 @@ export async function GET(
   const analysis = await getStageAnalysis(db, id);
 
   return Response.json({ game, analysis }, { headers: noStore });
+}
+
+/** Xoá ván khỏi lịch sử: chỉ chủ phòng (đúng khóa phòng) mới xoá được. */
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  await connection();
+  const ip = (request.headers.get("x-forwarded-for") ?? "").split(",")[0].trim() || "127.0.0.1";
+  if (!limiter.hit(ip)) {
+    return Response.json({ error: "Quá nhiều yêu cầu" }, { status: 429, headers: noStore });
+  }
+
+  const { id } = await params;
+  if (!/^stg_[a-z0-9]{8}$/i.test(id)) {
+    return Response.json({ error: "Mã ván không hợp lệ" }, { status: 400, headers: noStore });
+  }
+
+  const room = getRoom(request);
+  if (!room) {
+    return Response.json({ error: "Khóa phòng (room) không hợp lệ hoặc thiếu" }, { status: 400, headers: noStore });
+  }
+
+  const db = await getDb();
+  const deleted = await deleteStageGame(db, id, hashRoomKey(room));
+  if (!deleted) {
+    return Response.json({ error: "Không tìm thấy ván cờ hoặc không có quyền xoá" }, { status: 404, headers: noStore });
+  }
+  return Response.json({ deleted: true }, { headers: noStore });
 }

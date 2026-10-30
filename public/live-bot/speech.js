@@ -4,12 +4,33 @@
 //
 // createSpeaker({ onLevel, onStart, onEnd }):
 //   onLevel(0..1) gọi mỗi khung hình khi đang nói (âm lượng, để nhân vật nhép miệng), về 0 khi im lặng;
-//   onStart(text) / onEnd() khi bắt đầu / đọc xong một câu trả lời.
+//   onStart(text, meta) / onEnd(meta, còn câu chờ?) khi bắt đầu / đọc xong một câu trả lời
+//   (meta là đối số thứ hai của say(), để trang hiện chữ đúng câu đang đọc).
+//
+// Nhiều trang cùng mở trên một trình duyệt (trang trợ lý, sân khấu có nhân vật AI, overlay...) thì chỉ
+// MỘT trang được đọc to, tránh nghe một câu hai ba lần. Trang có nhân vật (onLevel, cần nhép miệng) giành
+// quyền đọc; đóng trang đang đọc thì trang còn lại tự nhận. OBS chạy trình duyệt riêng nên không ảnh hưởng.
 window.createSpeaker = function (hooks = {}) {
-  const queue = []; // mỗi phần tử: { text, parts: Promise<string | null>[] } (object URL của audio từng câu)
+  const queue = []; // mỗi phần tử: { text, meta, parts: Promise<string | null>[] } (object URL của audio từng câu)
   let playing = false;
   let audioCtx = null;
   let analyser = null;
+  let isVoice = !navigator.locks; // trình duyệt không có Web Locks thì trang nào cũng đọc như cũ
+
+  function claimVoice(steal) {
+    navigator.locks
+      .request("live-bot-voice", { steal }, () => {
+        isVoice = true;
+        return new Promise(() => {}); // giữ quyền đọc tới khi đóng trang
+      })
+      .catch(() => {
+        // Bị trang có nhân vật giành mất: thôi đọc, xếp hàng chờ nhận lại.
+        isVoice = false;
+        queue.length = 0;
+        claimVoice(false);
+      });
+  }
+  if (navigator.locks) claimVoice(Boolean(hooks.onLevel));
 
   function split(text) {
     const parts = (text.match(/[^.!?;]+[.!?;]*/g) || [text]).map((x) => x.trim()).filter((x) => /[\p{L}\p{N}]/u.test(x));
@@ -67,22 +88,29 @@ window.createSpeaker = function (hooks = {}) {
     if (playing) return;
     playing = true;
     while (queue.length) {
-      const { text, parts } = queue.shift();
-      hooks.onStart?.(text);
+      const { text, meta, parts } = queue.shift();
+      hooks.onStart?.(text, meta);
       for (const part of parts) {
         const url = await part;
         if (!url) continue; // câu này tạo giọng thất bại, bỏ qua đọc câu sau
         await playUrl(url);
         URL.revokeObjectURL(url);
       }
-      hooks.onEnd?.();
+      hooks.onEnd?.(meta, queue.length > 0);
     }
     playing = false;
   }
 
   return {
-    say(text) {
-      queue.push({ text, parts: split(text).map(fetchAudio) });
+    say(text, meta) {
+      if (!isVoice) {
+        // Trang khác đang đọc: vẫn báo để hiện chữ, nhưng không phát tiếng.
+        hooks.onStart?.(text, meta);
+        const words = text.split(/\s+/).filter(Boolean).length;
+        setTimeout(() => hooks.onEnd?.(meta, false), words * 330 + 1500);
+        return;
+      }
+      queue.push({ text, meta, parts: split(text).map(fetchAudio) });
       pump();
     },
   };
